@@ -13,22 +13,26 @@ hypothesis (milestone 4) before self-hosting, so the idea is tested as early as 
 
 **Done when:** `tools/run-qemu` prints over the serial console.
 
-## 2. Bootstrap compiler
+## 2. Fledgling, the bootstrap compiler
 
-- Python compiler in `bootstrap/` for a minimal subset: functions, integers,
+- Python compiler in `bootstrap/` for a minimal subset of Rook: functions, integers,
   structs, pointers, `unsafe`.
 - Own AArch64 code generation, linked with the milestone 1 boot code.
-- Rewrite the UART output in the language.
+- Rewrite the UART output in Rook.
 
-**Done when:** the UART hello is written in the language and boots in QEMU.
+**Done when:** the UART hello is written in Rook and boots in QEMU.
 
 ## 3. Actors and messages
 
 - `actor`, `spawn`, `send`, behaviours, mailboxes.
-- Single-core cooperative scheduler in `runtime/`.
+- Single-core cooperative scheduler in Raven (there is no separate runtime).
+- Every send goes through Raven; mailboxes are lock-free queues laid out so a
+  same-domain fast path can be added later.
 - Ownership and moves in the compiler; freezing plus refcounted frozen data.
+- Measure the cost of a kernel-mediated send.
 
-**Done when:** two actors echo UART input to each other by message passing.
+**Done when:** two actors echo UART input to each other by message passing, and
+the cost per send is measured.
 
 ## 4. Capability demo (first hypothesis test)
 
@@ -42,15 +46,16 @@ cannot reach the UART.
 
 ## 5. Self-hosting
 
-- Write the real compiler in the language, in `compiler/`.
-- It compiles itself; retire the Python bootstrap (kept for history).
+- Write the real compiler in Rook, in `compiler/`.
+- It compiles itself; retire Fledgling (kept for history).
 
 **Done when:** the compiler rebuilds itself and the result is identical.
 
 ## 6. Protection domains and multicore
 
 - MMU set up per domain; cross-domain messages are copied.
-- Scheduler runs on all four cores.
+- Raven's scheduler runs on all four cores.
+- Decide on the same-domain fast path using the milestone 3 measurements.
 
 **Done when:** actors in two domains talk across the boundary on multiple cores,
 and a domain cannot read another's memory.

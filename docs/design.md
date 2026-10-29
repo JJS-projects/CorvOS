@@ -1,20 +1,23 @@
-# AktorOS design
+# CorvOS design
 
 Status: agreed starting point, October 2026. Expect this to change; record changes in
 [decisions.md](decisions.md).
 
-The language currently has no name of its own. "Aktor" is used here as a working name.
+- **Rook**: the language
+- **CorvOS**: the operating system
+- **Raven**: the kernel
+- **Fledgling**: the bootstrap compiler
 
 ## 1. Goal
 
 Personal research. The hypothesis is that an OS built from actors, where actor
 references are capabilities, is better on four fronts:
 
-| Claim              | What it means here                                                     |
-|--------------------|------------------------------------------------------------------------|
-| Security           | No ambient authority. You can only use what you were handed.           |
-| Fault tolerance    | Failed components are restarted by supervisors; the system stays up.   |
-| Simplicity         | Messages replace syscalls, threads, locks and ad hoc IPC.              |
+| Claim              | What it means here                                                      |
+|--------------------|-------------------------------------------------------------------------|
+| Security           | No ambient authority. You can only use what you were handed.            |
+| Fault tolerance    | Failed components are restarted by supervisors; the system stays up.    |
+| Simplicity         | Messages replace syscalls, threads, locks and ad hoc IPC.               |
 | Concurrency safety | No shared mutable state, so no data races and no locks, by construction.|
 
 **Security is the headline.** The first demo has to show that a buggy or malicious
@@ -28,10 +31,10 @@ actor cannot reach anything it was not given. The other three claims are tested 
   stage, even if early milestones run on one core.
 - The ARMv8 MMU is used for protection domains (section 5).
 - The board has **no IOMMU**, so devices doing DMA can write anywhere in physical
-  memory. See the open question in section 9.
+  memory. See the open questions in section 9.
 - Development happens in QEMU (`raspi3b` machine, same SoC family) before real hardware.
 
-## 3. The language
+## 3. Rook, the language
 
 ### 3.1 Actors
 
@@ -88,11 +91,15 @@ purposes of section 5.
 | Decision          | Choice                                                             |
 |-------------------|--------------------------------------------------------------------|
 | Backend           | Own AArch64 code generator. No LLVM, no C.                         |
-| Bootstrap         | A throwaway compiler in **Python**, supporting just enough of the language to write the real compiler. |
-| Real compiler     | Written in the language itself (**self-hosted early**).            |
+| Bootstrap         | **Fledgling**, a throwaway compiler in **Python**, supporting just enough of Rook to write the real compiler. |
+| Real compiler     | Written in Rook itself (**self-hosted early**).                    |
 
 Owning the codegen keeps the whole toolchain small and auditable, which matters
 because the compiler is part of the trusted base (section 5).
+
+The small amount of support code compiled programs need (refcount increments and
+decrements, freezing, copying message data) is emitted by the compiler, like Rust's
+`core`. It is not a separate runtime layer (see section 6).
 
 ## 5. Isolation: hybrid, by trust level
 
@@ -114,16 +121,42 @@ Isolation is enforced in two layers:
 supervisor restarts the whole domain. This keeps failure and protection boundaries
 aligned.
 
-The trusted computing base is therefore: the compiler, the kernel, and the
-`unsafe` code inside the kernel.
+The trusted computing base is therefore: the compiler, Raven, and the `unsafe`
+code inside Raven.
 
-## 6. The kernel
+## 6. Raven, the kernel
 
-- A microkernel, **written in the language itself**, using `unsafe` where it must.
+- A microkernel, **written in Rook**, using `unsafe` where it must.
 - Responsibilities: boot, exception vectors, MMU and domain setup, scheduling actors
   across four cores, delivering messages (including cross-domain copies), and turning
   interrupts into messages.
 - Everything else (drivers, services) runs as actors in domains above it.
+
+### 6.1 No separate runtime
+
+Most actor languages (Erlang, Pony, Akka) need a runtime because they sit on an OS
+that knows nothing about actors. CorvOS's kernel already understands actors, so
+**Raven is the runtime**. Scheduling lives only in Raven; there is no per-domain
+scheduler.
+
+### 6.2 Message delivery: kernel first, then measure
+
+- **To start with, every send goes through Raven**, including sends between actors
+  in the same domain. This is the simplest design, easy to debug, and gives the
+  kernel a trace of every message.
+- Mailboxes are **lock-free multi-producer queues** from the start (needed for four
+  cores in any case), laid out so that a fast path can be added later without
+  changing the language.
+- **Possible fast path, added only if measurements justify it:** same-domain sends
+  write directly into the receiver's mailbox, and call Raven only when the receiver
+  is asleep and must be woken (the same trick as Linux futexes). A busy actor drains
+  its whole mailbox before yielding, so the kernel is involved once per wake-up, not
+  once per message. Scheduling still lives only in Raven, but the kernel no longer
+  sees every message.
+- This costs nothing in security: within a domain, the compiler already guarantees
+  references can't be forged, so the kernel checking each send adds no protection.
+- Measuring kernel-mediated sends against the fast path is a research result in its
+  own right (milestone 3).
 
 ## 7. Supervision
 
@@ -146,4 +179,4 @@ fault-tolerance claim will be tested.
   to the requesting domain.
 - **Mailbox bounds and backpressure**: bounded or unbounded, and what happens when full.
 - **Scheduling policy** across cores: work stealing, per-core run queues, affinity.
-- **Language name.**
+- **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
