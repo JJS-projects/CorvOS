@@ -28,6 +28,7 @@ Nutcracker.
 
 ## Documents
 
+- [Principles](docs/principles.md): the ordered principles that decide new questions
 - [Design](docs/design.md): the concept and the key design decisions
 - [Rook](docs/rook.md): the language, with a sample program
 - [Roadmap](docs/roadmap.md): milestones, in order

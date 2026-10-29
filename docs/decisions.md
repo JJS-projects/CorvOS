@@ -1,5 +1,8 @@
 # Decision log
 
+New decisions are checked against the ordered [design principles](principles.md),
+and say which principle settled them.
+
 Newest at the bottom. To change a decision, add a new entry that supersedes the old
 one rather than editing it.
 
@@ -60,3 +63,4 @@ one rather than editing it.
 | 53 | Loop names          | Every loop is named, written like a declaration: `rows: loop ...` | Optional labels; keyword closers (`} loop`) for unnamed loops | "The nearest loop" is an implicit rule; a name makes the context explicit wherever it's referred to. |
 | 54 | `break` and `continue` | Always name their loop (`break rows`), which may be an outer one | Bare `break` for the innermost loop | Same reason as 53; also gives multi-level exits for free. |
 | 55 | Closer names        | `} name` accepts only names written in the code (functions, handlers, actors, loop labels); keyword closers `} loop` / `} if` are removed. Refines 51 | Keyword shorthand for the nearest block | A closer can never be ambiguous. |
+| 56 | Design principles   | An ordered set (premise of no ambient authority, then seven principles) in `principles.md`; new decisions name the principle that settled them | Unordered list; principles that restate decisions | Ordered so conflicts resolve; each names its cost so it actually decides things. |

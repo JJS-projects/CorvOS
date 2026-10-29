@@ -61,6 +61,20 @@ of test:
   when the behaviour is broken, not just to pass when it works. The PR description
   says how.
 
+## Practices
+
+These are how the work is done, as opposed to the design
+[principles](principles.md) that decide what is built.
+
+- **Tests must prove they can fail.** Every behaviour has a test, and a change's
+  tests are checked against a deliberately broken implementation. The PR records
+  which bug each test catches.
+- **Everything is reviewable.** PRs are small enough for one sitting, decisions are
+  logged with their alternatives and reasons, and generated output (such as the
+  compiler's assembly) is kept so it can be read.
+- **Decisions name their principle.** A new entry in `decisions.md` says which
+  principle settled it, or why none did.
+
 ## Merging
 
 - Use **Squash and merge**, so `main` has one commit per PR.
