@@ -1,0 +1,6 @@
+// Using an undeclared variable.
+// error: 5:12: unknown name `y`
+
+fn f(): U64 {
+    return y
+}

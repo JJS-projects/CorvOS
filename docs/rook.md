@@ -197,9 +197,42 @@ later if this becomes painful.
 ## 9. Fledgling's subset
 
 Fledgling (milestone 2) compiles only what is needed to write the real compiler and
-the first kernel code: functions, primitive integers, `Bool`, structs, enums,
-`match`, and Raven's `unsafe`. No generics, interfaces or actors at first; those
-arrive with milestone 3.
+the first kernel code. No generics, interfaces or actors at first; those arrive
+with milestone 3. It is being built in three steps:
+
+| Step | Adds | Status |
+|---|---|---|
+| Core | functions, `extern fn`, `const`, `let`/`var`, integers, `Bool`, `if`/`else`, `while`, `break`/`continue`, `return`, casts | done |
+| Data | structs, enums, `match` | next |
+| Hardware | Raven's `unsafe`, raw pointers, volatile register access, byte strings | after that |
+
+### 9.1 Rules settled while building the core
+
+- **No semicolons.** A newline ends a statement, except inside `( )` or `[ ]`, or
+  after a token that can't end an expression (a binary operator, `=`, `,`, `as`).
+  So a long expression is split by ending the line with an operator.
+- **Variables must be initialised**: `let x: U8 = 0`, never `let x: U8`.
+- **Integer literals take their type from context**: the declared type, the other
+  operand, or the parameter they are passed to. With no context they are `U64`.
+  Character literals (`'A'`, `'\n'`, `'\x41'`) are `U8` by default.
+- **`as` converts between integer types (and from `Bool`)** by truncating or
+  extending, like Rust's `as`. It never panics.
+- **Integer overflow, division by zero and oversized shifts panic.** This applies at
+  every width, and to `MIN / -1`. Constant expressions are checked at compile time.
+  Explicit wrapping operators can be added later if code needs them.
+- **`!` is logical not on `Bool` and bitwise not on integers.** There is no `~`.
+- **Operators follow Rust's precedence**, so `x & MASK != 0` means `(x & MASK) != 0`.
+  Comparisons can't be chained (`a < b < c` is an error).
+- **A statement can't throw a value away**: `x == 2` on its own line is an error.
+  Only calls may stand alone.
+- **`const NAME: Type = expr`** declares a typed compile-time constant, computed from
+  literals and earlier constants.
+- **`extern fn name(...)`** declares a function written in assembly. All functions
+  use the AAPCS64 calling convention, so Rook and assembly call each other directly.
+  At most 8 parameters for now.
+- **A panic** calls the kernel's `rook_panic`, which prints
+  `Raven: panic: <what> at <file>:<line>` and halts. Once actors exist, it will crash
+  only the actor's domain instead.
 
 ## 10. Open questions
 
@@ -209,5 +242,6 @@ arrive with milestone 3.
   Pony) is the likely answer.
 - **Strings and characters**: representation and literal types (`'\n'` above is a `U8`
   for now).
-- **Integer overflow**: crash by default (as above), with explicit wrapping operators?
+- **Wrapping arithmetic**: overflow panics (section 9.1); do we need explicit
+  wrapping operators, and what do they look like?
 - **Constructors**: field-initialiser `spawn` as above, or Pony-style `new` methods?

@@ -1,3 +1,7 @@
 # tests
 
-`run_tests.py` boots kernel images in QEMU and checks their UART output. Run all tests with `make test`, or some with `python3 tests/run_tests.py boot-hello`. Output of each run is saved in `build/test-logs/`.
+`make test` builds everything and runs `run_tests.py`. See [docs/workflow.md](../docs/workflow.md#tests) for the three kinds of test and how to add one.
+
+- `run_tests.py`: the harness, and the kernel boot tests
+- `rook/*.rook`: Rook programs run in QEMU, with expected output in their header comments
+- `rook/errors/*.rook`: programs the compiler must reject, with the expected error

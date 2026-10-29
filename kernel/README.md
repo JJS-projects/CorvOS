@@ -6,4 +6,6 @@ Raven, the CorvOS microkernel. It also schedules actors and delivers messages; t
 - `arch/aarch64/start.s`: boot entry, core parking, drop to EL1, BSS, stack
 - `arch/aarch64/vectors.s`: exception vectors (currently: report and halt)
 - `arch/aarch64/uart.s`: early PL011 console
-- `main.s`: `kernel_main`, rewritten in Rook from milestone 2
+- `main.s`: `kernel_main`, rewritten in Rook later in milestone 2
+- `panic.s`: `rook_panic`, called by compiled Rook code on overflow and similar bugs
+- `test/print.s`: output functions for Rook test programs (test images only)

@@ -1,0 +1,13 @@
+// 64-bit signed multiplication overflow panics.
+// expect: 9223372030926249001
+// expect-panic: integer overflow at panic_mul_i64.rook:12
+
+extern fn print_u64(x: U64)
+extern fn print_i64(x: I64)
+
+fn test_main() {
+    let a: I64 = 3037000499
+    print_i64(a * a)
+    let b: I64 = 3037000500
+    print_i64(b * b)
+}

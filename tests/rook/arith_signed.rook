@@ -1,0 +1,39 @@
+// Signed arithmetic: negatives, rounding toward zero, and range edges.
+// expect: -3
+// expect: -1
+// expect: 3
+// expect: 1
+// expect: -3
+// expect: 1
+// expect: -128
+// expect: 127
+// expect: -9223372036854775808
+// expect: 9223372036854775807
+// expect: 32767
+// expect: -2147483648
+// expect: 36
+
+extern fn print_i64(x: I64)
+
+fn test_main() {
+    let a: I64 = -7
+    print_i64(a / 2)
+    print_i64(a % 2)
+    print_i64(-a / 2)
+    print_i64(-a % 2)
+    print_i64(7 / -2)
+    print_i64(7 % -2)
+    let b: I8 = -127
+    print_i64((b - 1) as I64)
+    let c: I8 = 126
+    print_i64((c + 1) as I64)
+    let d: I64 = -9223372036854775807
+    print_i64(d - 1)
+    print_i64(-(d))
+    let e: I16 = 16384
+    print_i64((e + 16383) as I64)
+    let f: I32 = -1073741824
+    print_i64((f * 2) as I64)
+    let g: I32 = -6
+    print_i64((g * g) as I64)
+}

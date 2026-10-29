@@ -1,0 +1,6 @@
+// `break` only makes sense inside a loop.
+// error: 5:5: `break` outside a loop
+
+fn f() {
+    break
+}

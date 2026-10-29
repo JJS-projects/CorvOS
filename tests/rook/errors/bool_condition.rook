@@ -1,0 +1,8 @@
+// Conditions must be Bool; integers are not truthy.
+// error: 6:8: expected Bool, found U64
+
+fn f() {
+    let x: U64 = 1
+    if x {
+    }
+}

@@ -1,0 +1,6 @@
+// Literals must fit their type.
+// error: 5:17: literal 256 is out of range for U8
+
+fn f() {
+    let x: U8 = 256
+}

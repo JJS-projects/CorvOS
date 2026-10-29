@@ -1,0 +1,34 @@
+// Unsigned arithmetic at every width, including the edges of each range.
+// expect: 7
+// expect: 255
+// expect: 0
+// expect: 65535
+// expect: 4294967295
+// expect: 18446744073709551615
+// expect: 42
+// expect: 3
+// expect: 1
+// expect: 6
+// expect: 4000000000
+
+extern fn print_u64(x: U64)
+
+fn test_main() {
+    print_u64(3 + 4)
+    let a: U8 = 200
+    print_u64((a + 55) as U64)
+    print_u64((a - 200) as U64)
+    let b: U16 = 65534
+    print_u64((b + 1) as U64)
+    let c: U32 = 4294967294
+    print_u64((c + 1) as U64)
+    let d: U64 = 18446744073709551614
+    print_u64(d + 1)
+    print_u64(6 * 7)
+    print_u64(10 / 3)
+    print_u64(10 % 3)
+    let e: U8 = 2
+    print_u64((e * 3) as U64)
+    let f: U32 = 2000000000
+    print_u64((f * 2) as U64)
+}

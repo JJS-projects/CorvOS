@@ -1,0 +1,76 @@
+// if/else chains, while loops with break and continue, early return.
+// expect: 25
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 6
+// expect: 10
+// expect: 7
+
+extern fn print_u64(x: U64)
+
+fn classify(n: U64): U64 {
+    if n < 10 {
+        return 1
+    } else if n < 100 {
+        return 2
+    }
+    else {
+        return 3
+    }
+}
+
+fn first_multiple_of_7(from: U64): U64 {
+    var n = from
+    while true {
+        if n % 7 == 0 {
+            return n
+        }
+        n += 1
+    }
+}
+
+fn test_main() {
+    var i: U64 = 0
+    var odd_sum: U64 = 0
+    while i < 10 {
+        i += 1
+        if i % 2 == 0 {
+            continue
+        }
+        odd_sum += i
+    }
+    print_u64(odd_sum)
+    print_u64(classify(5))
+    print_u64(classify(50))
+    print_u64(classify(500))
+
+    var pairs: U64 = 0
+    var x: U64 = 0
+    while x < 4 {
+        var y: U64 = 0
+        while y < 4 {
+            if y > x {
+                break
+            }
+            if y < x {
+                pairs += 1
+            }
+            y += 1
+        }
+        x += 1
+    }
+    print_u64(pairs)
+
+    var total: U64 = 0
+    var k: U64 = 0
+    while k < 100 {
+        if k == 5 {
+            break
+        }
+        total += k
+        k += 1
+    }
+    print_u64(total)
+    print_u64(first_multiple_of_7(1))
+}

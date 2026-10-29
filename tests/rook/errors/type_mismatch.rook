@@ -1,0 +1,8 @@
+// Mixing integer types needs an explicit cast.
+// error: 6:15: same type, found U8 and U16
+
+fn f(a: U8, b: U16): U64 {
+    let c = a
+    let d = c + b
+    return d as U64
+}

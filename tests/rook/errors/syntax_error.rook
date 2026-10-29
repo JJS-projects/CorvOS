@@ -1,0 +1,7 @@
+// Missing closing parenthesis: newlines inside ( ) don't end the line, so the
+// error is found at the `}`.
+// error: 7:1: expected `)`, found `}`
+
+fn f(): U64 {
+    return (1 + 2
+}
