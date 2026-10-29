@@ -199,6 +199,6 @@ fault-tolerance claim will be tested.
 - **Mailbox bounds and backpressure**: bounded or unbounded, and what happens when full.
 - **Scheduling policy** across cores: work stealing, per-core run queues, affinity.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
-- **Visible cost of cross-domain sends** (principle 6): a send to an actor in
+- **Visible cost of cross-domain sends** (principle 8): a send to an actor in
   another domain copies the message, while an identical-looking send within a
   domain doesn't. Should the difference show in the code? Decide by milestone 6.

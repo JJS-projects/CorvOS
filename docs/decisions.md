@@ -3,6 +3,10 @@
 New decisions are checked against the ordered [design principles](principles.md),
 and say which principle settled them.
 
+Entries 56–63 cite the principles' first numbering (1 safe by default, 2 reader,
+3 ambiguity, 4 uniformity, 5 trust, 6 visible costs, 7 familiarity). Decision 64
+renumbered them; later entries use the current numbering.
+
 Newest at the bottom. To change a decision, add a new entry that supersedes the old
 one rather than editing it.
 
@@ -71,3 +75,6 @@ one rather than editing it.
 | 61 | Integer conversions | `as` only where no value can be lost; `wrap` for narrowing and sign changes (keeps the low bits); `wrap` is an error where nothing could be lost | Rust's all-purpose `as`; `as` that panics when a value doesn't fit | Principle 1: the risky conversion costs a visible word. Principle 4: each word has one meaning. |
 | 62 | `shl` and lost bits | `shl` panics if shifting back wouldn't give the original value; mask first to drop bits | Bits drop silently, as in Rust and C | Principle 1: `x shl 1` is as safe as `x * 2`; dropping bits is written visibly. |
 | 63 | Unused results      | A call's unused result is an error; `discard f()` ignores it on purpose | Assign to `_`; only `Result` must be used | Principles 1 and 3: an error can never be ignored without a trace. `discard` follows Nim, like the operator words. |
+| 64 | Principles extended | Premise adds least authority; new principles 2 (failure never leaves state in doubt), 5 (enforced, not advised) and 9 (predictable before fast); a Raven section (minimal kernel, after Liedtke); compatibility recorded as a non-goal. The list is renumbered | Leave the list as it was | A survey of Pony, Austral, Midori, Zig, Go, Ada, E, L4 and Hare found ideas our list lacked; principle 2 also records the owner's reason for preferring errors as values: exceptions leave state and cleanup in doubt. |
+| 65 | No warnings         | Every compiler diagnostic is an error; there is no warning category | Warnings for style or likely mistakes | Principle 5. |
+| 66 | Panics can't be caught | No exceptions, `try`/`catch`, `finally` or unwinding; a panic ends the domain | Recoverable panics, exceptions | Principle 2. |

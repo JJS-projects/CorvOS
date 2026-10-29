@@ -118,7 +118,7 @@ class Checker:
         decl.nslots = self.nslots
 
     def new_local(self, name, ty, mutable, pos=None):
-        # No shadowing (principle 3): a name means one thing wherever it's visible.
+        # No shadowing (principle 4): a name means one thing wherever it's visible.
         if pos is not None:
             if self.lookup(name) is not None:
                 raise CompileError(

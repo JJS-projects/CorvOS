@@ -14,7 +14,7 @@ Because `and` is looser than comparisons, `x and MASK != 0` means
 `x and (MASK != 0)`, which the checker rejects; write `(x and MASK) != 0`.
 
 Where readers from other languages would disagree about the meaning, brackets
-are required instead of a precedence rule (principle 3):
+are required instead of a precedence rule (principle 4):
   - `or` and `xor` can't be mixed, and `and` can't appear directly inside them
   - `not` can't be applied directly to a comparison
   - shifts can't be mixed with arithmetic
