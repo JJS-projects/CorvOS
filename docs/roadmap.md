@@ -11,7 +11,8 @@ hypothesis (milestone 4) before self-hosting, so the idea is tested as early as 
 - Write "hello" over the UART.
 - Run in QEMU `raspi3b`; scripts in `tools/`.
 
-**Done when:** `tools/run-qemu` prints over the serial console.
+**Done when:** `make test` boots the kernel in QEMU, sees the UART output, and
+checks that a deliberate fault is reported by the exception vectors.
 
 ## 2. Fledgling, the bootstrap compiler
 
