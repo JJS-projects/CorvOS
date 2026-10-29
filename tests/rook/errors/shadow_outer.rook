@@ -1,0 +1,11 @@
+// An inner block can't hide a name from an outer one.
+// error: 8:13: `total` is already declared here
+
+fn f() {
+    total: u64 = 0
+    rows: loop i: u64 in 0..3 {
+        if i > 1 {
+            total: u64 = i
+        }
+    }
+}

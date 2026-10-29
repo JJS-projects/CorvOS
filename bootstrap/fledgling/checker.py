@@ -110,14 +110,21 @@ class Checker:
             if param.name in self.scopes[0]:
                 raise CompileError(f"duplicate parameter `{param.name}`", param.pos)
             param.ty = ty
-            param.slot = self.new_local(param.name, ty, mutable=False)
+            param.slot = self.new_local(param.name, ty, mutable=False, pos=param.pos)
         returns = self.block(decl.body)
         if self.fn.ret != UNIT and not returns:
             raise CompileError(
                 f"`{decl.name}` must return a {self.fn.ret} on every path", decl.pos)
         decl.nslots = self.nslots
 
-    def new_local(self, name, ty, mutable):
+    def new_local(self, name, ty, mutable, pos=None):
+        # No shadowing (principle 3): a name means one thing wherever it's visible.
+        if pos is not None:
+            if self.lookup(name) is not None:
+                raise CompileError(
+                    f"`{name}` is already declared here; choose a different name", pos)
+            if name in self.fns:
+                raise CompileError(f"`{name}` is already the name of a function", pos)
         slot = self.nslots
         self.nslots += 1
         self.scopes[-1][name] = Local(ty, mutable, slot)
@@ -146,7 +153,7 @@ class Checker:
             require_snake(s.name, "variable", s.pos)
             ty = self.resolve_type(s.type)
             self.expr(s.init, ty)
-            s.slot = self.new_local(s.name, ty, s.mutable)
+            s.slot = self.new_local(s.name, ty, s.mutable, pos=s.pos)
             return False
 
         if isinstance(s, S.Assign):
@@ -197,18 +204,15 @@ class Checker:
         if isinstance(s, S.ForRange):
             require_snake(s.label, "loop label", s.pos)
             require_snake(s.var, "loop variable", s.pos)
-            if s.type is not None:
-                ty = self.resolve_type(s.type)
-                self.expr(s.start, ty)
-                self.expr(s.end, ty)
-            else:
-                ty = self.same_type_pair(s.start, s.end, None, "a range")
+            ty = self.resolve_type(s.type)
             if not is_int(ty):
                 raise CompileError(f"a range needs integers, found {ty}", s.start.pos)
+            self.expr(s.start, ty)
+            self.expr(s.end, ty)
             s.ty = ty
             self.scopes.append({})
             s.end_slot = self.new_local(" end", ty, mutable=False)
-            s.slot = self.new_local(s.var, ty, mutable=False)
+            s.slot = self.new_local(s.var, ty, mutable=False, pos=s.pos)
             self.loops.append(s.label)
             self.block(s.body)
             self.loops.pop()

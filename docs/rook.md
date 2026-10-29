@@ -1,7 +1,8 @@
 # Rook language
 
 Status: agreed starting point, October 2026, with the style settled in detail
-(decisions 35–55 in [decisions.md](decisions.md)). Expect small tweaks as real
+(decisions 35–60 in [decisions.md](decisions.md)), and checked against the
+[design principles](principles.md). Expect small tweaks as real
 code gets written.
 
 ## 1. A first look
@@ -98,12 +99,12 @@ fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
 |---|---|---|
 | Built-in types | `u8` … `u64`, `i8` … `i64`, `bool` | User types are CamelCase, so built-ins stand out |
 | Statement endings | newline | No semicolons. A line continues after an operator, `,` or `as`, or inside `( )` / `[ ]` |
-| Declarations | `limit: u64 = 100`, `mut count: u64 = 0` | Immutable by default. The type is always written |
+| Declarations | `limit: u64 = 100`, `mut count: u64 = 0` | Immutable by default. The type is always written. No shadowing |
 | Constants | `PAGE_SIZE: u64 = 4096` at top level | Computed at compile time; top-level `mut` is an error |
 | Functions | `fn add(a: u64, b: u64) -> u64 { return a + b }` | Results are always given with `return` |
 | Choosing a value | `step: u64 = if fast { 8 } else { 1 }` | Each branch one expression; `else` required |
-| Logic and bits | `and`, `or`, `xor`, `not`, `shl`, `shr` | Logical on `bool`, bitwise on integers |
-| Loops | `rows: loop i in 0..n { }`, `waiting: loop cond { }`, `retry: loop { }` | One keyword; every loop is named; ranges exclude the end |
+| Logic and bits | `and`, `or`, `xor`, `not`, `shl`, `shr` | Logical on `bool`, bitwise on integers. Brackets required where languages disagree |
+| Loops | `rows: loop i: u64 in 0..n { }`, `waiting: loop cond { }`, `retry: loop { }` | One keyword; every loop is named; ranges exclude the end |
 | Leaving loops | `break rows`, `continue rows` | Always name the loop, which can be an outer one |
 | Blocks | `{ … }`, with an optional named closer `} name` | `} name` closes everything back to the function or loop with that name |
 | Capabilities | `iso Buffer`, `val Block`, `mut Buffer`, `read Buffer` | Written before the type; omitted on actor references |
@@ -128,7 +129,12 @@ count += 1                    // assignment: no type
 A declaration always names its type, so a declaration (`x: u64 = 1`) can never be
 confused with an assignment (`x = 1`), and a typo can't silently create a new
 variable. Variables must be initialised. The same `name: type` form is used for
-parameters, actor fields and top-level constants.
+parameters, actor fields, top-level constants and loop variables.
+
+There is **no shadowing**: a name means one thing wherever it is visible. A
+variable can't be declared twice, can't reuse a parameter's or a function's name,
+and an inner block can't hide an outer variable. Sibling blocks may reuse a name,
+because the first is gone before the second starts.
 
 ### 3.2 Functions and values
 
@@ -160,6 +166,16 @@ Precedence, loosest first:
 Because `and` is looser than `==`, testing a bit needs brackets:
 `(status and RXFE) != 0`. Writing `status and RXFE != 0` is a type error that the
 compiler reports. Clearing a bit reads naturally: `flags and not MASK`.
+
+Where programmers from other languages would read an expression differently, Rook
+requires brackets instead of relying on the table above:
+
+| Not allowed | Write instead | Why |
+|---|---|---|
+| `a or b and c` | `a or (b and c)` | Many readers don't know `and` binds tighter |
+| `a or b xor c` | `(a or b) xor c` | No widely known order |
+| `not a == b` | `not (a == b)` or `(not a) == b` | Python and C disagree |
+| `a shl 2 + 1` | `(a shl 2) + 1` | In C and Rust this would shift by 3 |
 Compound assignment exists for arithmetic only (`+=`, `-=`, `*=`, `/=`, `%=`).
 
 ### 3.4 Loops
@@ -167,8 +183,8 @@ Compound assignment exists for arithmetic only (`+=`, `-=`, `*=`, `/=`, `%=`).
 Every loop has a name, written like a declaration in front of `loop`:
 
 ```rook
-bytes: loop i in 0..len { }       // i = 0, 1, ..., len - 1; len is evaluated once
-steps: loop j: i32 in -2..3 { }   // the variable's type can be given
+bytes: loop i: u64 in 0..len { }  // i = 0, 1, ..., len - 1; len is evaluated once
+steps: loop j: i32 in -2..3 { }   // the variable's type is always written
 polling: loop not done { }        // while a condition holds
 idle: loop { }                    // until `break idle` (or forever)
 ```
@@ -177,8 +193,8 @@ idle: loop { }                    // until `break idle` (or forever)
 outer loop directly:
 
 ```rook
-rows: loop y in 0..height {
-    cols: loop x in 0..width {
+rows: loop y: u64 in 0..height {
+    cols: loop x: u64 in 0..width {
         if grid.at(x, y) == target {
             break rows                // leaves both loops
         }
@@ -365,7 +381,9 @@ with milestone 3. It is being built in three steps:
   Only calls may stand alone.
 - **`extern fn name(...)`** declares a function written in assembly. All functions
   use the AAPCS64 calling convention, so Rook and assembly call each other directly.
-  At most 8 parameters for now.
+  At most 8 parameters for now. **Known gap:** any file can declare any symbol and
+  call it, which is ambient authority. Before actors exist, `extern fn` must become
+  available to Raven only (decision 60).
 - **Indentation is spaces only**: a tab is an error.
 - **Helpful errors for other languages' habits**: `let`, `var`, `const`, `while`,
   `for`, `&&`, `||`, `!` and C bit operators are rejected with the Rook spelling.
@@ -382,5 +400,11 @@ with milestone 3. It is being built in three steps:
 - **Strings**: representation and literal types.
 - **Wrapping arithmetic**: overflow panics (section 11.1); do we need explicit
   wrapping operators, and what do they look like?
+- **Lossy casts** (principle 1): `as` truncates and reinterprets signs silently.
+  Should risky conversions need their own word?
+- **`shl` dropping bits** (principle 1): `x * 2` panics on overflow but `x shl 1`
+  silently loses the top bit.
+- **Discarded results** (principles 1 and 3): a call's result can be ignored
+  silently, which will matter once functions return `Result`.
 - **Formatter**: a mandatory formatter (`rook fmt`) is assumed by several decisions
   (layout of braces, indentation); it arrives with the self-hosted tools.

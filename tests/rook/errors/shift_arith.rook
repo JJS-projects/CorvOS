@@ -1,0 +1,6 @@
+// In C and Rust, `a << 2 + 1` shifts by 3; brackets make the order explicit.
+// error: 5:20: mixing `shl` with `+` needs brackets
+
+fn f(a: u64) -> u64 {
+    return a shl 2 + 1
+}

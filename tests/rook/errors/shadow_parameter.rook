@@ -1,0 +1,6 @@
+// A local can't hide a parameter.
+// error: 5:5: `count` is already declared here
+
+fn f(count: u64) {
+    count: u8 = 2
+}

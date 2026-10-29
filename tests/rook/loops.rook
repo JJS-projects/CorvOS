@@ -19,31 +19,31 @@ extern fn print_u64(x: u64)
 extern fn print_i64(x: i64)
 
 fn test_main() {
-    count: loop i in 0..3 {
+    count: loop i: u64 in 0..3 {
         print_u64(i)
     }
     // An empty range runs zero times.
-    empty: loop i in 5..5 {
+    empty: loop i: u64 in 5..5 {
         print_u64(999)
     }
-    backwards: loop i in 7..2 {
+    backwards: loop i: u64 in 7..2 {
         print_u64(998)
     }
     // The end is evaluated once, before the first pass.
     mut limit: u64 = 3
     mut sum: u64 = 0
-    once: loop i in 0..limit {
+    once: loop i: u64 in 0..limit {
         limit += 10
         sum += 1
     }
     print_u64(sum + 7)
-    // Signed ranges, with the type written out.
+    // Signed ranges.
     signed: loop j: i32 in -2..1 {
         print_i64(j as i64)
     }
     // `continue` in a range still moves on to the next value.
     mut odd: u64 = 0
-    odds: loop k in 0..6 {
+    odds: loop k: u64 in 0..6 {
         if k % 2 == 0 {
             continue odds
         }
@@ -76,8 +76,8 @@ fn test_main() {
     // or left from inside.
     mut found: u64 = 0
     mut visits: u64 = 0
-    rows: loop y in 0..5 {
-        cols: loop x in 0..5 {
+    rows: loop y: u64 in 0..5 {
+        cols: loop x: u64 in 0..5 {
             visits += 1
             if x > y {
                 continue rows

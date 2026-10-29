@@ -23,6 +23,7 @@ class Expr:
 
     def __post_init__(self):
         self.ty = None          # set by checker
+        self.parens = False     # set by parser: written inside ( )
 
 
 @dataclass
@@ -136,7 +137,7 @@ class ForRange(Stmt):
     """`label: loop i in start..end { }`: i goes from start up to, not including, end."""
     label: str
     var: str
-    type: Optional[TypeRef]
+    type: TypeRef
     start: Expr
     end: Expr
     body: Block

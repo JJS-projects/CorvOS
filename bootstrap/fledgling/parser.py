@@ -13,6 +13,12 @@ Operator precedence, loosest first:
 Because `and` is looser than comparisons, `x and MASK != 0` means
 `x and (MASK != 0)`, which the checker rejects; write `(x and MASK) != 0`.
 
+Where readers from other languages would disagree about the meaning, brackets
+are required instead of a precedence rule (principle 3):
+  - `or` and `xor` can't be mixed, and `and` can't appear directly inside them
+  - `not` can't be applied directly to a comparison
+  - shifts can't be mixed with arithmetic
+
 Blocks are closed by `}`. A named closer, `} name`, closes every open block
 back to and including the one called `name`. Only names written in the code can
 be used: a function's name, or a loop's label. Every loop is labelled
@@ -32,6 +38,8 @@ BINARY_LEVELS = [
 ]
 COMPARISONS = {"==", "!=", "<", "<=", ">", ">="}
 ASSIGN_OPS = {"=", "+=", "-=", "*=", "/=", "%="}
+ARITH_OPS = {"+", "-", "*", "/", "%"}
+SHIFT_OPS = {"shl", "shr"}
 CLOSER_NAMES = {"ident"}
 
 
@@ -265,10 +273,12 @@ class Parser:
             return S.Loop(pos, label, None, self.block({label}))
         if self.at("ident") and self.peek(1).kind in ("in", ":"):
             var = self.advance().text
-            ty = None
-            if self.at(":"):
-                self.advance()
-                ty = self.type_ref()
+            if not self.at(":"):
+                raise CompileError(
+                    f"write the loop variable's type, as in `{label}: loop {var}: u64 in ...`",
+                    self.peek().pos)
+            self.advance()
+            ty = self.type_ref()
             self.expect("in")
             first = self.expr()
             self.expect("..", "`..` (a range is written `start..end`)")
@@ -295,12 +305,19 @@ class Parser:
             if op.kind in COMPARISONS and self.peek().kind in COMPARISONS:
                 raise CompileError("comparisons can't be chained; use `and`", self.peek().pos)
             left = S.Binary(op.pos, op.kind, left, right)
+            require_brackets(left)
         return left
 
     def not_expr(self, level):
         if self.at("not"):
             tok = self.advance()
-            return S.Unary(tok.pos, "not", self.not_expr(level))
+            operand = self.not_expr(level)
+            if (isinstance(operand, S.Binary) and operand.op in COMPARISONS
+                    and not operand.parens):
+                raise CompileError(
+                    "`not` before a comparison is ambiguous: write `not (a == b)` or `(not a) == b`",
+                    tok.pos)
+            return S.Unary(tok.pos, "not", operand)
         return self.binary(level + 1)
 
     def unary(self):
@@ -350,6 +367,7 @@ class Parser:
             self.advance()
             inner = self.expr()
             self.expect(")")
+            inner.parens = True
             return inner
         raise CompileError(f"expected an expression, found {describe_tok(tok)}", tok.pos)
 
@@ -377,6 +395,28 @@ class Parser:
                                self.peek().pos)
         self.advance()
         return value
+
+
+def require_brackets(e):
+    """Reject operator mixes whose meaning readers would disagree about."""
+    def unbracketed(child, ops):
+        return isinstance(child, S.Binary) and child.op in ops and not child.parens
+
+    for child in (e.left, e.right):
+        if e.op in ("or", "xor"):
+            other = {"or", "xor"} - {e.op}
+            if unbracketed(child, other):
+                raise CompileError("mixing `or` and `xor` needs brackets to show the order", e.pos)
+            if unbracketed(child, {"and"}):
+                raise CompileError(
+                    f"`and` inside `{e.op}` needs brackets to show the order, "
+                    f"as in `a {e.op} (b and c)`", e.pos)
+        if e.op in ARITH_OPS and unbracketed(child, SHIFT_OPS):
+            raise CompileError(
+                f"mixing `{child.op}` with `{e.op}` needs brackets to show the order", e.pos)
+        if e.op in SHIFT_OPS and unbracketed(child, ARITH_OPS):
+            raise CompileError(
+                f"mixing `{e.op}` with `{child.op}` needs brackets to show the order", e.pos)
 
 
 def describe(kind):

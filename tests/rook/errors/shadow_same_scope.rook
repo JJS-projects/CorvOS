@@ -1,0 +1,7 @@
+// A name means one thing wherever it is visible: no redeclaring.
+// error: 6:5: `x` is already declared here
+
+fn f() {
+    x: u64 = 1
+    x: u64 = 2
+}

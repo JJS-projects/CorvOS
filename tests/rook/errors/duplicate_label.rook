@@ -2,8 +2,8 @@
 // error: 6:9: `rows` already names an enclosing block
 
 fn f() {
-    rows: loop i in 0..3 {
-        rows: loop j in 0..3 {
+    rows: loop i: u64 in 0..3 {
+        rows: loop j: u64 in 0..3 {
         }
     }
 }

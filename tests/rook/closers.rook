@@ -9,8 +9,8 @@ extern fn print_u64(x: u64)
 
 fn count_pairs(n: u64) -> u64 {
     mut pairs: u64 = 0
-    rows: loop i in 0..n {
-        cols: loop j in 0..n {
+    rows: loop i: u64 in 0..n {
+        cols: loop j: u64 in 0..n {
             if i < j {
                 pairs += 1
         } cols
@@ -19,7 +19,7 @@ fn count_pairs(n: u64) -> u64 {
 }
 
 fn first_even_over(limit: u64) -> u64 {
-    search: loop i in limit..100 {
+    search: loop i: u64 in limit..100 {
         if i % 2 == 0 {
             if i > limit {
                 return i

@@ -2,7 +2,7 @@
 // error: 6:11: can't assign to `i`
 
 fn f() {
-    count: loop i in 0..10 {
+    count: loop i: u64 in 0..10 {
         i += 1
     }
 }
