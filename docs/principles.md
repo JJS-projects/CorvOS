@@ -10,6 +10,18 @@ actor languages (see [Sources](#sources)). When a new decision is made, the opti
 are checked against these first, and the decision log says which principle settled
 it.
 
+## Scope: Rook is the language for all of CorvOS
+
+Rook is used at every level of the system: Raven, drivers, services and
+applications. A feature is judged by whether *any* level of CorvOS needs it, not
+just the kernel, so Rook will need things kernel code doesn't (text, collections,
+richer data types, and probably floating point).
+
+What stays confined is what's dangerous: `unsafe` and `extern fn` exist for Raven
+only, so application code gets the same guarantees as everything else. As the
+language grows, principle 7 still applies: a need is met by a library before a
+language feature, so the compiler, part of the trusted base, stays small.
+
 ## Premise: no ambient authority, and least authority
 
 Code can do only what it has been handed a reference to do. There are no global

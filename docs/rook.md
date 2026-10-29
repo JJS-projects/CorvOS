@@ -5,6 +5,11 @@ Status: agreed starting point, October 2026, with the style settled in detail
 [design principles](principles.md). Expect small tweaks as real
 code gets written.
 
+Rook is the language for **every level of CorvOS**: the Raven kernel, drivers,
+services and applications (see [principles.md](principles.md#scope-rook-is-the-language-for-all-of-corvos)).
+The features below start with what the kernel needs first, but the language is
+not limited to them.
+
 ## 1. A first look
 
 A UART line editor: bytes come in from the UART, are echoed back, and complete
