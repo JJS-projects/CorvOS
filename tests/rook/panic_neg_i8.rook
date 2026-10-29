@@ -1,0 +1,13 @@
+// Negating the most negative i8 panics.
+// expect: 127
+// expect-panic: integer overflow at panic_neg_i8.rook:12
+
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
+
+fn test_main() {
+    a: i8 = -127
+    print_i64((-a) as i64)
+    b: i8 = -128
+    print_i64((-b) as i64)
+}

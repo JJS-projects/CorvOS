@@ -43,12 +43,37 @@ to try it yourself, there are three ways, from easiest:
 
 ## Tests
 
-- `tests/run_tests.py` boots kernel images in QEMU and checks the UART output for
-  expected lines, in order, within a time limit. It also checks for lines that
-  must never appear (such as an unhandled exception).
-- Full output of each run is saved in `build/test-logs/`.
-- Every PR that changes behaviour adds or updates a test, and every test is
-  checked to fail when the behaviour is broken, not just to pass when it works.
+`make test` builds everything and runs `tests/run_tests.py`, which has three kinds
+of test:
+
+| Kind | Where | What it checks |
+|---|---|---|
+| `boot/...` | `BOOT_TESTS` in `tests/run_tests.py` | The kernel boots in QEMU; expected UART lines appear in order, forbidden ones never do. |
+| `rook/...` | `tests/rook/*.rook` | A Rook program, compiled and booted in QEMU, prints exactly the `// expect:` lines in its header (and panics with the `// expect-panic:` message, if given). |
+| `error/...` | `tests/rook/errors/*.rook` | The compiler rejects the program with the `// error: LINE:COL: message` given in its header. |
+
+- Run a subset with `python3 tests/run_tests.py rook/` (any test name or prefix),
+  after `make test` has built the images.
+- Full QEMU output of each run is saved in `build/test-logs/`.
+- The assembly Fledgling generates for each Rook test is kept in
+  `build/rook-tests/*.s`, for reading or debugging.
+- Every PR that changes behaviour adds or updates a test. Tests are checked to fail
+  when the behaviour is broken, not just to pass when it works. The PR description
+  says how.
+
+## Practices
+
+These are how the work is done, as opposed to the design
+[principles](principles.md) that decide what is built.
+
+- **Tests must prove they can fail.** Every behaviour has a test, and a change's
+  tests are checked against a deliberately broken implementation. The PR records
+  which bug each test catches.
+- **Everything is reviewable.** PRs are small enough for one sitting, decisions are
+  logged with their alternatives and reasons, and generated output (such as the
+  compiler's assembly) is kept so it can be read.
+- **Decisions name their principle.** A new entry in `decisions.md` says which
+  principle settled it, or why none did.
 
 ## Merging
 

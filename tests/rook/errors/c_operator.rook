@@ -1,0 +1,6 @@
+// C-style logical operators are spelled as words in Rook.
+// error: 5:14: Rook writes `&&` as `and`
+
+fn f(a: bool, b: bool) -> bool {
+    return a && b
+}

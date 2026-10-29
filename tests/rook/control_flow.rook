@@ -1,0 +1,76 @@
+// if/else chains, loops with labelled break and continue, early return.
+// expect: 25
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 6
+// expect: 10
+// expect: 7
+
+extern fn print_u64(x: u64)
+
+fn classify(n: u64) -> u64 {
+    if n < 10 {
+        return 1
+    } else if n < 100 {
+        return 2
+    }
+    else {
+        return 3
+    }
+}
+
+fn first_multiple_of_7(from: u64) -> u64 {
+    mut n: u64 = from
+    search: loop {
+        if n % 7 == 0 {
+            return n
+        }
+        n += 1
+    }
+}
+
+fn test_main() {
+    mut i: u64 = 0
+    mut odd_sum: u64 = 0
+    odds: loop i < 10 {
+        i += 1
+        if i % 2 == 0 {
+            continue odds
+        }
+        odd_sum += i
+    }
+    print_u64(odd_sum)
+    print_u64(classify(5))
+    print_u64(classify(50))
+    print_u64(classify(500))
+
+    mut pairs: u64 = 0
+    mut x: u64 = 0
+    rows: loop x < 4 {
+        mut y: u64 = 0
+        cols: loop y < 4 {
+            if y > x {
+                break cols
+            }
+            if y < x {
+                pairs += 1
+            }
+            y += 1
+        }
+        x += 1
+    }
+    print_u64(pairs)
+
+    mut total: u64 = 0
+    mut k: u64 = 0
+    summing: loop k < 100 {
+        if k == 5 {
+            break summing
+        }
+        total += k
+        k += 1
+    }
+    print_u64(total)
+    print_u64(first_multiple_of_7(1))
+}

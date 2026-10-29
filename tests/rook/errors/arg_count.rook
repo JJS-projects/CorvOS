@@ -1,0 +1,10 @@
+// Calls must pass the right number of arguments.
+// error: 9:5: takes 2 argument(s), but 1 given
+
+fn add(a: u64, b: u64) -> u64 {
+    return a + b
+}
+
+fn f() {
+    add(1)
+}

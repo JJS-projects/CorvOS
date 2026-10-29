@@ -1,0 +1,6 @@
+// `or` and `xor` can't be mixed without brackets.
+// error: 5:19: mixing `or` and `xor` needs brackets
+
+fn f(a: bool, b: bool, c: bool) -> bool {
+    return a or b xor c
+}

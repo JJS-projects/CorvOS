@@ -1,0 +1,19 @@
+// `shl` panics if it would shift set bits out of the type, at any width,
+// and for signed types if the value would change sign.
+// expect: 80
+// expect: -2
+// expect: 64
+// expect-panic: shl lost set bits at panic_shl_lost.rook:18
+
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
+
+fn test_main() {
+    x: u8 = 0b1010_0101
+    print_u64(((x and 0x0F) shl 5 shr 1) as u64)
+    neg: i8 = -1
+    print_i64((neg shl 1) as i64)
+    half: i8 = 32
+    print_i64((half shl 1) as i64)
+    print_i64((half shl 2) as i64)
+}

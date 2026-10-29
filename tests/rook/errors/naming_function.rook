@@ -1,0 +1,5 @@
+// Function names are snake_case.
+// error: 4:1: function names are snake_case, like `check_sum`
+
+fn checkSum() {
+}

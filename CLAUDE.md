@@ -3,7 +3,8 @@
 CorvOS is a research OS (Raven kernel) and language (Rook) for the Raspberry Pi
 Zero 2 W. Claude writes the code; the project owner reviews and merges.
 
-Read first: `docs/workflow.md`, `docs/design.md`, `docs/rook.md`, `docs/roadmap.md`.
+Read first: `docs/principles.md`, `docs/workflow.md`, `docs/design.md`, `docs/rook.md`,
+`docs/roadmap.md`.
 
 ## Rules
 
@@ -14,7 +15,10 @@ Read first: `docs/workflow.md`, `docs/design.md`, `docs/rook.md`, `docs/roadmap.
 - Any behaviour change adds or updates a test in `tests/run_tests.py`. Check that
   the test fails when the behaviour is broken.
 - Decisions go in `docs/decisions.md` (append; never rewrite old entries) and the
-  relevant design doc, in the same PR as the code.
+  relevant design doc, in the same PR as the code. Check the options against
+  `docs/principles.md` first and say which principle settled it.
+- Language design questions go to the owner with code samples of each option
+  before anything is built.
 - Say plainly in the PR what is untested, especially on real hardware.
 - Don't add dependencies beyond `tools/install-deps.sh` without recording why.
 

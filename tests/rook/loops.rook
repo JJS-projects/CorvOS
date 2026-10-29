@@ -1,0 +1,94 @@
+// The three forms of `loop`: counting over a range, while a condition holds,
+// and forever (until `break`). Every loop is named, and `break` and `continue`
+// name the loop they act on, which lets them reach an outer loop directly.
+// expect: 0
+// expect: 1
+// expect: 2
+// expect: 10
+// expect: -2
+// expect: -1
+// expect: 0
+// expect: 9
+// expect: 6
+// expect: 32
+// expect: 4
+// expect: 32
+// expect: 12
+
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
+
+fn test_main() {
+    count: loop i: u64 in 0..3 {
+        print_u64(i)
+    }
+    // An empty range runs zero times.
+    empty: loop i: u64 in 5..5 {
+        print_u64(999)
+    }
+    backwards: loop i: u64 in 7..2 {
+        print_u64(998)
+    }
+    // The end is evaluated once, before the first pass.
+    mut limit: u64 = 3
+    mut sum: u64 = 0
+    once: loop i: u64 in 0..limit {
+        limit += 10
+        sum += 1
+    }
+    print_u64(sum + 7)
+    // Signed ranges.
+    signed: loop j: i32 in -2..1 {
+        print_i64(j as i64)
+    }
+    // `continue` in a range still moves on to the next value.
+    mut odd: u64 = 0
+    odds: loop k: u64 in 0..6 {
+        if k % 2 == 0 {
+            continue odds
+        }
+        odd += k
+    }
+    print_u64(odd)
+    // Up to the top of a type without overflowing.
+    mut count: u64 = 0
+    top: loop b: u8 in 250..255 {
+        count += 1
+    }
+    print_u64(count + 1)
+    // Condition loop and a bare loop with break.
+    mut n: u64 = 1
+    doubling: loop n < 20 {
+        n *= 2
+    }
+    print_u64(n)
+    mut tries: u64 = 0
+    retry: loop {
+        tries += 1
+        if tries == 4 {
+            break retry
+        }
+    }
+    print_u64(tries)
+    // `break` and `continue` can act on an outer loop from inside an inner one.
+    // `visits` counts inner passes, plus 100 whenever the inner loop runs to
+    // its end, which never happens here: the outer loop is always continued
+    // or left from inside.
+    mut found: u64 = 0
+    mut visits: u64 = 0
+    rows: loop y: u64 in 0..5 {
+        cols: loop x: u64 in 0..5 {
+            visits += 1
+            if x > y {
+                continue rows
+            }
+            if x * y == 6 {
+                found = y * 10 + x
+                break rows
+            }
+        }
+        visits += 100
+    }
+    print_u64(found)
+    print_u64(visits)
+}

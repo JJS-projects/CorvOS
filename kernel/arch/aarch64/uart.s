@@ -96,6 +96,31 @@ uart_puts:
 3:  ldp     x29, x30, [sp], #16
     ret
 
+// void uart_put_dec(u64 value)   -- prints the unsigned decimal value, no newline
+    .global uart_put_dec
+uart_put_dec:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    sub     sp, sp, #32                 // digit buffer (20 digits max), filled backwards
+    mov     x9, sp
+    add     x9, x9, #32                 // x9 = one past the end of the buffer
+    mov     x10, #10
+1:  udiv    x11, x0, x10                // x11 = value / 10
+    msub    x12, x11, x10, x0           // x12 = value % 10
+    add     x12, x12, #'0'
+    strb    w12, [x9, #-1]!
+    mov     x0, x11
+    cbnz    x0, 1b
+    mov     x13, sp
+    add     x13, x13, #32
+2:  ldrb    w0, [x9], #1                // print the digits in order
+    bl      uart_putc
+    cmp     x9, x13
+    b.lo    2b
+    mov     sp, x29
+    ldp     x29, x30, [sp], #16
+    ret
+
 // void uart_put_hex(u64 value)   -- prints "0x" + 16 hex digits + newline
     .global uart_put_hex
 uart_put_hex:

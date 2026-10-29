@@ -1,0 +1,6 @@
+// Literals must fit their type.
+// error: 5:13: literal 256 is out of range for u8
+
+fn f() {
+    x: u8 = 256
+}

@@ -1,0 +1,4 @@
+// Constant expressions are checked for overflow at compile time.
+// error: 4:15: constant overflows u8
+
+BIG: u8 = 200 + 100

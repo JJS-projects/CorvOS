@@ -1,0 +1,34 @@
+// `as` converts only when no value can be lost; `wrap` keeps the low bits,
+// reinterpreting the sign, and is only for conversions that can lose information.
+// expect: 200
+// expect: -1
+// expect: 255
+// expect: 1
+// expect: 65
+// expect: 44
+// expect: 255
+// expect: 18446744073709551615
+// expect: 4294967295
+// expect: -128
+// expect: 7
+
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
+
+fn test_main() {
+    small: u8 = 200
+    print_u64(small as u64)
+    neg: i8 = -1
+    print_i64(neg as i64)
+    print_i64(small as i16 as i64 + 55)
+    print_u64(true as u64)
+    print_u64('A' as u64)
+    count: u64 = 300
+    print_u64((count wrap u8) as u64)
+    print_u64((neg wrap u8) as u64)
+    print_u64(neg wrap u64)
+    print_u64((neg wrap u32) as u64)
+    big: u8 = 128
+    print_i64((big wrap i8) as i64)
+    print_u64(7 as u8 as u64)
+}

@@ -1,0 +1,17 @@
+// `discard` throws a call's result away on purpose; the call still runs.
+// expect: 1
+// expect: 2
+// expect: 2
+
+extern fn print_u64(x: u64)
+
+fn noisy(n: u64) -> u64 {
+    print_u64(n)
+    return n * 10
+}
+
+fn test_main() {
+    discard noisy(1)
+    discard noisy(2) + 5
+    print_u64(2)
+}

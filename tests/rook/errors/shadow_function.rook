@@ -1,0 +1,10 @@
+// A variable can't take the name of a function.
+// error: 9:5: `fact` is already the name of a function
+
+fn fact(n: u64) -> u64 {
+    return n
+}
+
+fn f() {
+    fact: u64 = 1
+}

@@ -1,0 +1,6 @@
+// Changing signedness can lose values too, so it needs `wrap`.
+// error: 5:14: `as` can't convert i8 to u64
+
+fn f(x: i8) -> u64 {
+    return x as u64
+}

@@ -41,7 +41,7 @@ and the full capability table are in [rook.md](rook.md).
 
 ### 3.1 Actors
 
-- An actor has private state, a mailbox, and behaviours (message handlers).
+- An actor has private state, a mailbox, and handlers (`on` message handlers).
 - Actors communicate only by asynchronous message send.
 - Interrupts are delivered to driver actors as ordinary messages.
 
@@ -199,3 +199,6 @@ fault-tolerance claim will be tested.
 - **Mailbox bounds and backpressure**: bounded or unbounded, and what happens when full.
 - **Scheduling policy** across cores: work stealing, per-core run queues, affinity.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
+- **Visible cost of cross-domain sends** (principle 8): a send to an actor in
+  another domain copies the message, while an identical-looking send within a
+  domain doesn't. Should the difference show in the code? Decide by milestone 6.

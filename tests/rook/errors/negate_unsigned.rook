@@ -1,0 +1,7 @@
+// Unsigned values cannot be negated.
+// error: 6:14: can't negate a value of type u32
+
+fn f() {
+    a: u32 = 5
+    b: u32 = -a
+}

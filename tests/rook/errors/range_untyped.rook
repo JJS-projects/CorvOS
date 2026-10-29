@@ -1,0 +1,7 @@
+// A range loop variable states its type, like every other declaration.
+// error: 5:18: write the loop variable's type
+
+fn f() {
+    rows: loop i in 0..3 {
+    }
+}

@@ -1,0 +1,10 @@
+// `continue` must name an enclosing loop.
+// error: 8:9: no enclosing loop is named `rows`
+
+fn f() {
+    rows: loop i: u64 in 0..3 {
+    }
+    cols: loop j: u64 in 0..3 {
+        continue rows
+    }
+}

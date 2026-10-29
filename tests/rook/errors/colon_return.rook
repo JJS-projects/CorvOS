@@ -1,0 +1,6 @@
+// Return types are written with an arrow.
+// error: 4:7: return types are written with `->`
+
+fn f(): u64 {
+    return 1
+}

@@ -1,0 +1,6 @@
+// `a or b and c` reads differently in different languages, so brackets are required.
+// error: 5:14: `and` inside `or` needs brackets
+
+fn f(a: bool, b: bool, c: bool) -> bool {
+    return a or b and c
+}

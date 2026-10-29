@@ -1,0 +1,4 @@
+// Top-level constants are SCREAMING_CASE.
+// error: 4:1: top-level constants are SCREAMING_CASE, like `PAGE_SIZE`
+
+pageSize: u64 = 4096

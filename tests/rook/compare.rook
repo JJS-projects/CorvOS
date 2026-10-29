@@ -1,0 +1,29 @@
+// Ordering uses signed or unsigned comparison depending on the type.
+// expect: true
+// expect: false
+// expect: true
+// expect: false
+// expect: true
+// expect: true
+// expect: true
+// expect: false
+
+extern fn print_bool(b: bool)
+
+fn test_main() {
+    neg: i8 = -1
+    pos: i8 = 1
+    print_bool(neg < pos)
+    print_bool(neg > pos)
+    big: u8 = 255
+    small: u8 = 1
+    print_bool(big > small)
+    print_bool(big <= small)
+    min: i64 = -9223372036854775807 - 1
+    max: i64 = 9223372036854775807
+    print_bool(min < max)
+    print_bool(min <= min)
+    top: u64 = 18446744073709551615
+    print_bool(top >= 0)
+    print_bool(top < 1)
+}

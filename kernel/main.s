@@ -4,8 +4,9 @@
 // reports the exception level, and idles. It is written in assembly because
 // Rook does not exist yet; milestone 2 rewrites it in Rook.
 //
-// Building with --defsym FAULT_TEST=1 (see Makefile) adds a deliberate
-// breakpoint so the tests can check that the exception vectors work.
+// Test builds (see Makefile):
+//   --defsym FAULT_TEST=1  adds a deliberate breakpoint, to test the vectors
+//   --defsym ROOK_TEST=1   calls test_main(), a compiled Rook test program
 
     .section .text
 // void kernel_main(u64 entry_el)
@@ -35,6 +36,14 @@ kernel_main:
     adr     x0, msg_newline
     bl      uart_puts
 
+.ifdef ROOK_TEST
+    adr     x0, msg_test_start          // run a compiled Rook test program
+    bl      uart_puts
+    bl      test_main
+    adr     x0, msg_test_done
+    bl      uart_puts
+.endif
+
 .ifdef FAULT_TEST
     adr     x0, msg_fault
     bl      uart_puts
@@ -54,4 +63,6 @@ msg_entry:   .asciz "Raven: firmware entered at EL"
 msg_el:      .asciz "Raven: running at EL"
 msg_newline: .asciz "\n"
 msg_fault:   .asciz "Raven: FAULT_TEST build, triggering a breakpoint\n"
+msg_test_start: .asciz "Raven: running Rook test\n"
+msg_test_done:  .asciz "Raven: test_main returned\n"
 msg_idle:    .asciz "Raven: boot complete, idling\n"

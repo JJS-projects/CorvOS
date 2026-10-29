@@ -1,0 +1,6 @@
+// `not a == b` means `not (a == b)` in some languages and `(not a) == b` in others.
+// error: 5:12: `not` before a comparison is ambiguous
+
+fn f(a: bool, b: bool) -> bool {
+    return not a == b
+}

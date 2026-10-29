@@ -1,0 +1,6 @@
+// Both branches of an `if` used as a value must have the same type.
+// error: 5:34: both branches of `if` must have the same type, found u8 and bool
+
+fn f(fast: bool) {
+    x: u8 = if fast { 8 } else { false }
+}

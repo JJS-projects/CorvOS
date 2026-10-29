@@ -1,0 +1,32 @@
+// On bools, `and` and `or` short-circuit: the right side runs only when needed.
+// `xor` and `not` are logical too.
+// expect: true
+// expect: 1
+// expect: false
+// expect: 2
+// expect: false
+// expect: true
+// expect: true
+// expect: false
+// expect: true
+// expect: false
+
+extern fn print_u64(x: u64)
+extern fn print_bool(b: bool)
+
+fn noisy(id: u64, result: bool) -> bool {
+    print_u64(id)
+    return result
+}
+
+fn test_main() {
+    print_bool(true or noisy(99, false))
+    print_bool(noisy(1, false) and noisy(98, true))
+    print_bool(noisy(2, true) and false)
+    x: i32 = -5
+    print_bool(x < 0 and x > -10)
+    print_bool(not (x == 5))
+    print_bool(true != true)
+    print_bool(true xor false)
+    print_bool(not true or false)
+}

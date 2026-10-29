@@ -1,0 +1,7 @@
+// A bare expression whose value is thrown away is almost always a mistake.
+// error: 6:5: value is unused
+
+fn f() {
+    mut x: u64 = 1
+    x == 2
+}

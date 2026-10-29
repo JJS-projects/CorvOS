@@ -1,0 +1,31 @@
+// `if` can be used as a value when each branch is a single expression.
+// expect: 8
+// expect: 1
+// expect: 121
+// expect: 2
+// expect: 3
+// expect: true
+
+extern fn print_u64(x: u64)
+extern fn print_bool(b: bool)
+
+fn sign_class(x: i32) -> u64 {
+    return if x < 0 { 1 } else if x == 0 { 2 } else { 3 }
+}
+
+fn test_main() {
+    fast: bool = true
+    step: u64 = if fast { 8 } else { 1 }
+    print_u64(step)
+    slow: u64 = if not fast { 8 } else { 1 }
+    print_u64(slow)
+    c: u8 = if step > 4 {
+        'y'
+    } else {
+        'n'
+    }
+    print_u64(c as u64)
+    print_u64(sign_class(0))
+    print_u64(sign_class(5))
+    print_bool(if step == 8 { true } else { false })
+}

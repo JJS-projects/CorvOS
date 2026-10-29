@@ -1,0 +1,6 @@
+// `let` comes from other languages; Rook declares with `name: type = value`.
+// error: 5:5: Rook has no `let`
+
+fn f() {
+    let x: u64 = 1
+}

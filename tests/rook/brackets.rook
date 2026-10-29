@@ -1,0 +1,24 @@
+// With brackets, mixed operators mean exactly what they say.
+// expect: true
+// expect: false
+// expect: true
+// expect: false
+// expect: 13
+// expect: 32
+// expect: 7
+
+extern fn print_u64(x: u64)
+extern fn print_bool(b: bool)
+
+fn test_main() {
+    t: bool = true
+    f: bool = false
+    print_bool(t or (f and f))
+    print_bool((t or f) and f)
+    print_bool(not (t == f))
+    print_bool((not t) == t)
+    a: u64 = 3
+    print_u64((a shl 2) + 1)
+    print_u64((a shl (2 + 1)) + 8)
+    print_u64((a or 4) xor 0)
+}

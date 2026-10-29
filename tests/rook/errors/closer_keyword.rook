@@ -1,0 +1,7 @@
+// Closers name a function or a loop label, never a keyword.
+// error: 7:3: a closer names a function or a loop label, not `loop`
+
+fn f(x: u64) {
+    waiting: loop x > 0 {
+        if x == 1 {
+} loop

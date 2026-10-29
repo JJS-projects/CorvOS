@@ -1,0 +1,7 @@
+// Rook has one loop keyword.
+// error: 5:5: use `loop condition
+
+fn f() {
+    while true {
+    }
+}

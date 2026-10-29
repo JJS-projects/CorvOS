@@ -28,4 +28,5 @@ jobs:
           path: |
             build/kernel8.img
             build/test-logs/
+            build/rook-tests/*.s
           if-no-files-found: ignore
