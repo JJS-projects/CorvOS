@@ -1,0 +1,6 @@
+// Variables are snake_case.
+// error: 5:5: variable names are snake_case, like `line_len`
+
+fn f() {
+    lineLen: u64 = 0
+}

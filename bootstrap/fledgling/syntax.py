@@ -48,7 +48,7 @@ class Name(Expr):
 
 @dataclass
 class Unary(Expr):
-    op: str                     # "-" or "!"
+    op: str                     # "-" or "not"
     operand: Expr
 
 
@@ -71,6 +71,14 @@ class Cast(Expr):
     target: TypeRef
 
 
+@dataclass
+class IfExpr(Expr):
+    """`if c { a } else { b }` used as a value: each branch is one expression."""
+    cond: Expr
+    then: Expr
+    else_: Expr
+
+
 # ---- statements --------------------------------------------------------
 
 @dataclass
@@ -79,10 +87,11 @@ class Stmt:
 
 
 @dataclass
-class Let(Stmt):
+class Decl(Stmt):
+    """`name: type = value` or `mut name: type = value`."""
     name: str
     mutable: bool
-    type: Optional[TypeRef]
+    type: TypeRef
     init: Expr
 
     def __post_init__(self):
@@ -115,9 +124,25 @@ class If(Stmt):
 
 
 @dataclass
-class While(Stmt):
-    cond: Expr
+class Loop(Stmt):
+    """`loop { }` (cond is None) or `loop cond { }`."""
+    cond: Optional[Expr]
     body: Block
+
+
+@dataclass
+class ForRange(Stmt):
+    """`loop i in start..end { }`: i goes from start up to, not including, end."""
+    var: str
+    type: Optional[TypeRef]
+    start: Expr
+    end: Expr
+    body: Block
+
+    def __post_init__(self):
+        self.slot = None        # set by checker: the loop variable
+        self.end_slot = None    # set by checker: the end value, evaluated once
+        self.ty = None          # set by checker
 
 
 @dataclass
@@ -155,6 +180,7 @@ class FnDecl:
     ret: Optional[TypeRef]
     body: Optional[Block]       # None for `extern fn`
     pos: Pos
+    public: bool = False
 
     def __post_init__(self):
         self.nslots = 0         # set by checker: number of 8-byte local slots
@@ -162,10 +188,12 @@ class FnDecl:
 
 @dataclass
 class ConstDecl:
+    """A top-level `NAME: type = value`."""
     name: str
     type: TypeRef
     value: Expr
     pos: Pos
+    public: bool = False
 
 
 @dataclass

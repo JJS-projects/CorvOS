@@ -1,0 +1,9 @@
+// `and` is looser than `==`, so `x and MASK != 0` means `x and (MASK != 0)`,
+// which mixes an integer and a bool. Brackets fix it: `(x and MASK) != 0`.
+// error: 8:14: `and` needs both sides to have the same type, found u32 and bool
+
+MASK: u32 = 0x10
+
+fn f(x: u32) -> bool {
+    return x and MASK != 0
+}

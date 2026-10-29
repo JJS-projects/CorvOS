@@ -41,7 +41,7 @@ and the full capability table are in [rook.md](rook.md).
 
 ### 3.1 Actors
 
-- An actor has private state, a mailbox, and behaviours (message handlers).
+- An actor has private state, a mailbox, and handlers (`on` message handlers).
 - Actors communicate only by asynchronous message send.
 - Interrupts are delivered to driver actors as ordinary messages.
 

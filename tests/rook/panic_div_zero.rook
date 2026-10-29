@@ -2,12 +2,12 @@
 // expect: 7
 // expect-panic: division by zero at panic_div_zero.rook:12
 
-extern fn print_u64(x: U64)
-extern fn print_i64(x: I64)
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
 
 fn test_main() {
-    let zero: U32 = 0
-    let seven: U32 = 7
-    print_u64((seven / 1) as U64)
-    print_u64((seven / zero) as U64)
+    zero: u32 = 0
+    seven: u32 = 7
+    print_u64((seven / 1) as u64)
+    print_u64((seven / zero) as u64)
 }

@@ -25,7 +25,7 @@ checks that a deliberate fault is reported by the exception vectors.
 
 ## 3. Actors and messages
 
-- `actor`, `spawn`, `send`, behaviours, mailboxes.
+- `actor`, `spawn`, `new`, `on` handlers, mailboxes.
 - Single-core cooperative scheduler in Raven (there is no separate runtime).
 - Every send goes through Raven; mailboxes are lock-free queues laid out so a
   same-domain fast path can be added later.

@@ -1,8 +1,8 @@
 # Rook language
 
-Status: agreed starting point, October 2026. Syntax details are expected to move
-while Fledgling is being written; the semantics below are the important part.
-Decisions are recorded in [decisions.md](decisions.md) (19 to 25).
+Status: agreed starting point, October 2026, with the style settled in detail
+(decisions 35–52 in [decisions.md](decisions.md)). Expect small tweaks as real
+code gets written.
 
 ## 1. A first look
 
@@ -10,128 +10,240 @@ A UART line editor: bytes come in from the UART, are echoed back, and complete
 lines are handed to a shell.
 
 ```rook
-// echo.rook
+/// A UART line editor: echoes typed bytes and hands complete lines to a shell.
 
-interface ByteSink {
-    be byte(b: U8)
+LINE_MAX: u64 = 128
+
+pub interface ByteSink {
+    on byte(b: u8)
 }
 
-interface LineSink {
-    be line(text: Buffer val)
+pub interface LineSink {
+    on line(text: val Buffer)
 }
 
-// The only place authority comes from. Raven starts Main with a Boot value
-// holding capabilities for the hardware; everything else is handed down from here.
-actor Main {
-    be start(boot: Boot val) {
-        let uart   = spawn Uart(regs: boot.uart_regs, irq: boot.uart_irq)
-        let shell  = spawn Shell(out: uart)
-        let editor = spawn LineEditor(out: uart, lines: shell as LineSink)
-        uart.subscribe(editor as ByteSink)   // editor gets only `byte`
-    }
-}
+/// Raven starts Main holding the only authority in the system.
+pub actor Main {
+    new(boot: val Boot) {
+        uart: Uart = spawn Uart(boot.uart_regs, boot.uart_irq)
+        shell: Shell = spawn Shell(uart)
+        editor: LineEditor = spawn LineEditor(uart, shell as LineSink)
+        uart.subscribe(editor as ByteSink)    // editor can only receive `byte`
+} Main
 
-actor Uart {
-    let regs: Mmio val   // covers exactly the UART's registers, nothing else
-    let irq: Irq val     // Raven sends this actor `interrupt` when it fires
-    var listener: Option<ByteSink tag> = None
+pub actor Uart {
+    regs: val Mmio                            // exactly the UART's registers
+    irq: val Irq
+    mut listener: Option<ByteSink>
 
-    be subscribe(to: ByteSink tag) {
-        listener = Some(to)
-    }
-
-    be write(b: U8) {
-        while regs.read32(FR) & TXFF != 0 {}
-        regs.write32(DR, b as U32)
+    new(regs: val Mmio, irq: val Irq) {
+        .regs = regs
+        .irq = irq
+        .listener = None
     }
 
-    be interrupt() {
-        while regs.read32(FR) & RXFE == 0 {
-            let b = regs.read32(DR) as U8
-            match listener {
-                Some(l) => l.byte(b),
-                None    => {},
-            }
-        }
+    pub on subscribe(to: ByteSink) {
+        .listener = Some(to)
     }
-}
+
+    pub on write(b: u8) {
+        loop (.regs.read32(FR) and TXFF) != 0 { }
+        .regs.write32(DR, b as u32)
+    }
+
+    /// Raven delivers the UART interrupt as this message.
+    on interrupt() {
+        loop (.regs.read32(FR) and RXFE) == 0 {
+            b: u8 = .regs.read32(DR) as u8
+            match .listener {
+                Some(l) => l.byte(b)
+                None => { }
+} Uart
 
 actor LineEditor: ByteSink {
-    let out: Uart              // actor references are always `tag`
-    let lines: LineSink tag
-    var buf: Buffer iso = Buffer.new(128)
+    out: Uart
+    lines: LineSink
+    mut buf: iso Buffer
 
-    be byte(b: U8) {
-        out.write(b)                              // echo it back
-        if b == '\n' {
-            let line: Buffer val = consume buf    // freeze: iso -> val
-            buf = Buffer.new(128)                 // field must be refilled
-            lines.line(line)
-        } else {
-            match append(mut buf, b) {
-                Ok(())  => {},
-                Err(e)  => out.write('!'),        // expected failure: handled
-            }
-        }
+    new(out: Uart, lines: LineSink) {
+        .out = out
+        .lines = lines
+        .buf = Buffer.new(LINE_MAX)
     }
-}
 
-fn append(buf: mut Buffer, b: U8): Result<(), Full> {
+    on byte(b: u8) {
+        .out.write(b)                          // echo it back
+        if b == '\n' {
+            line: val Buffer = consume .buf    // freeze: iso -> val
+            .buf = Buffer.new(LINE_MAX)
+            .lines.line(line)
+        } else {
+            match append(mut .buf, b) {
+                Ok(()) => { }
+                Err(full) => .out.write('!')
+} LineEditor
+
+fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
     if buf.len() == buf.capacity() {
         return Err(Full)
     }
     buf.push(b)
-    Ok(())
+    return Ok(())
 }
 ```
 
-## 2. Actors and behaviours
+## 2. Style at a glance
 
-- `actor` declares an actor type with private fields (`let` immutable, `var` mutable).
-- `be` declares a **behaviour**: an asynchronous message handler. Calling one
-  (`out.write(b)`) sends a message and returns immediately; it has no return value.
-- `fn` declares an ordinary synchronous function.
-- `spawn T(field: value, ...)` creates an actor and returns a reference to it.
+| Topic | Rook | Notes |
+|---|---|---|
+| Built-in types | `u8` … `u64`, `i8` … `i64`, `bool` | User types are CamelCase, so built-ins stand out |
+| Statement endings | newline | No semicolons. A line continues after an operator, `,` or `as`, or inside `( )` / `[ ]` |
+| Declarations | `limit: u64 = 100`, `mut count: u64 = 0` | Immutable by default. The type is always written |
+| Constants | `PAGE_SIZE: u64 = 4096` at top level | Computed at compile time; top-level `mut` is an error |
+| Functions | `fn add(a: u64, b: u64) -> u64 { return a + b }` | Results are always given with `return` |
+| Choosing a value | `step: u64 = if fast { 8 } else { 1 }` | Each branch one expression; `else` required |
+| Logic and bits | `and`, `or`, `xor`, `not`, `shl`, `shr` | Logical on `bool`, bitwise on integers |
+| Loops | `loop i in 0..n { }`, `loop cond { }`, `loop { }` | One keyword; ranges exclude the end |
+| Blocks | `{ … }`, with an optional named closer `} name` | `} name` closes everything back to that block |
+| Capabilities | `iso Buffer`, `val Block`, `mut Buffer`, `read Buffer` | Written before the type; omitted on actor references |
+| Message handlers | `on write(b: u8) { }` | `new(...)` initialises an actor; `spawn Uart(...)` creates one |
+| Own fields | `.regs`, `.listener` | `self` is the actor's own reference |
+| Errors | `Result` handled with explicit `match` | No `?` shortcut |
+| `match` arms | `Ok(b) => b` on separate lines | No commas |
+| Naming | `snake_case` values and functions, `CamelCase` types, `SCREAMING_CASE` constants | Enforced by the compiler |
+| Comments | `// note`, `/// documentation` | No block comments |
+| Visibility | private by default, `pub` to export | |
+
+## 3. Declarations, functions and control flow
+
+### 3.1 Declarations
+
+```rook
+limit: u64 = 100              // immutable
+mut count: u64 = 0            // mutable
+count += 1                    // assignment: no type
+```
+
+A declaration always names its type, so a declaration (`x: u64 = 1`) can never be
+confused with an assignment (`x = 1`), and a typo can't silently create a new
+variable. Variables must be initialised. The same `name: type` form is used for
+parameters, actor fields and top-level constants.
+
+### 3.2 Functions and values
+
+- `fn name(params) -> type { }`. A function with no `->` returns nothing.
+- Results are always given with `return`; blocks don't produce values.
+- The one exception is `if` used as a value: `if c { a } else { b }`, where each
+  branch is a single expression and `else` is required. `else if` chains work.
+
+### 3.3 Operators
+
+`and`, `or`, `xor` and `not` are **logical on `bool`** (with `and`/`or`
+short-circuiting) and **bitwise on integers**. `shl` and `shr` shift; `shr` is
+arithmetic on signed types. Rook has no truthiness, so `if flags and MASK` is a type
+error, not a silent bug.
+
+Precedence, loosest first:
+
+| Level | Operators |
+|---|---|
+| 1 | `or` `xor` |
+| 2 | `and` |
+| 3 | `not` (prefix) |
+| 4 | `==` `!=` `<` `<=` `>` `>=` (can't be chained) |
+| 5 | `+` `-` |
+| 6 | `*` `/` `%` `shl` `shr` |
+| 7 | `-` (prefix) |
+| 8 | `as` |
+
+Because `and` is looser than `==`, testing a bit needs brackets:
+`(status and RXFE) != 0`. Writing `status and RXFE != 0` is a type error that the
+compiler reports. Clearing a bit reads naturally: `flags and not MASK`.
+Compound assignment exists for arithmetic only (`+=`, `-=`, `*=`, `/=`, `%=`).
+
+### 3.4 Loops
+
+```rook
+loop i in 0..len { }          // i = 0, 1, ..., len - 1; len is evaluated once
+loop j: i32 in -2..3 { }      // the variable's type can be given
+loop not done { }             // while a condition holds
+loop { }                      // until `break` (or forever)
+```
+
+`break` and `continue` work in all three forms. The loop variable is immutable.
+
+### 3.5 Blocks and named closers
+
+Blocks use braces. A closer may name the block it closes: `} name` closes every
+open block back to and including the **nearest** block called `name`. A function
+is called by its name, a loop by `loop`, and an `if` by `if`. The compiler checks
+that the name matches an open block.
+
+```rook
+on interrupt() {
+    loop (.regs.read32(FR) and RXFE) == 0 {
+        b: u8 = .regs.read32(DR) as u8
+        match .listener {
+            Some(l) => l.byte(b)
+            None => { }
+} interrupt                   // closes the match, the loop and the handler
+```
+
+Use a bare `}` for short blocks, and a named closer where several blocks end
+together.
+
+## 4. Actors and handlers
+
+- `actor` declares an actor type with private fields, written `name: type`, or
+  `mut name: type` for fields that change after creation.
+- `on` declares a **handler**: an asynchronous message handler. Calling one
+  (`uart.write(b)`) sends a message and returns immediately; it has no result.
+- `new(...)` runs once when the actor is created. It must set every field; fields
+  without `mut` can be set only there, and only once.
+- `spawn Uart(args)` creates an actor, runs its `new`, and returns a reference.
+- Inside an actor, its own fields are written `.field`; `self` is a reference to
+  the actor itself, for handing out (`counter.read(self as Reply<u64>)`).
 - An actor processes one message at a time, so its fields never need locks.
 
-## 3. Replies: pass a reference
+## 5. Replies: pass a reference
 
 There is no hidden request/response machinery. To get an answer, send a reference
 the receiver can reply to, usually narrowed to an interface:
 
 ```rook
-interface Reply<T> {
-    be got(value: T)
+pub interface Reply<T> {
+    on got(value: T)
 }
 
-actor Client: Reply<U64> {
-    be start(counter: Counter) {
-        counter.read(self as Reply<U64>)
+actor Client: Reply<u64> {
+    on start(counter: Counter) {
+        counter.read(self as Reply<u64>)
     }
 
-    be got(value: U64) {
+    on got(value: u64) {
         log(value)
     }
 
-    be shutdown() { ... }   // not reachable through a Reply<U64> reference
+    on shutdown() { }         // not reachable through a Reply<u64> reference
 }
 ```
 
-## 4. Authority: references and interfaces
+## 6. Authority: references and interfaces
 
 - An actor reference is the authority to send to that actor. There is no other
   way to reach an actor: no global names, no registry, no casting from integers.
-- **Narrowing**: `self as Reply<U64>` gives out a reference that can only send the
-  behaviours in that interface. There is no downcast back, so the compiler enforces
+- **Narrowing**: `self as Reply<u64>` gives out a reference that can only send the
+  handlers in that interface. There is no downcast back, so the compiler enforces
   it at zero runtime cost.
 - **Revocation** is not a language feature: a proxy actor implementing the same
   interface, which can be told to stop forwarding, is ordinary library code.
 
-## 5. Reference capabilities
+## 7. Reference capabilities
 
 Every reference to data carries a capability saying what you may do with it and
 whether anyone else can see it. The rule they enforce: **no actor ever holds a
-write reference to data another actor can see.**
+write reference to data another actor can see.** Capabilities are written before
+the type: `iso Buffer`.
 
 | Cap | Meaning | Sendable? | Freed by |
 |---|---|---|---|
@@ -145,31 +257,40 @@ This is Pony's model cut down to fit ownership without a garbage collector. Pony
 `ref`, `box` and `trn` are not included: borrows cover `ref` and `box`, and
 building an `iso` then consuming it into a `val` covers `trn`.
 
-### 5.1 Ownership in practice
+### 7.1 Ownership in practice
 
 - `consume x` moves `x`; the compiler forbids using `x` afterwards.
-- `let v: T val = consume x` where `x` is `T iso` **freezes** it. Freezing applies to
+- `v: val T = consume x`, where `x` is `iso T`, **freezes** it. Freezing applies to
   the whole structure, so frozen data has no cycles and refcounting is enough.
-- Consuming a field leaves it empty; it must be assigned again before the behaviour
+- Consuming a field leaves it empty; it must be assigned again before the handler
   ends.
-- Borrows are written at the call site (`append(mut buf, b)`), cannot be stored or
-  sent, and end when the call returns.
-- Actor types are always `tag`, so the cap can be left off (`out: Uart`).
+- Borrows are written the same way at the call site and in the parameter:
+  `append(mut .buf, b)` passes to `fn append(buf: mut Buffer, ...)`. They can't be
+  stored or sent, and end when the call returns.
+- Actor and interface references are always `tag`, so the cap is left off
+  (`out: Uart`). Data always states its capability.
 
-### 5.2 What this gives up
+### 7.2 What this gives up
 
 Shared mutable objects inside one actor (graphs, doubly linked lists) are awkward,
 as in Rust: use indices into an arena. An opt-in refcounted local cell can be added
 later if this becomes painful.
 
-## 6. Errors
+## 8. Errors
 
-- **Expected failures** return `Result<T, E>` and are handled with `match`.
+- **Expected failures** return `Result<T, E>` and are handled with an explicit
+  `match`. There is no `?` shortcut, so every error path is visible:
+  ```rook
+  block: val Block = match disk.read(n) {
+      Ok(b) => b
+      Err(e) => return Err(e)
+  }
+  ```
 - **Bugs** (failed bounds check, `panic`, out-of-range register access, integer
   overflow) crash the actor. Its whole domain is restarted by its supervisor
   (see [design.md](design.md#7-supervision)).
 
-## 7. Hardware access and `unsafe`
+## 9. Hardware access and `unsafe`
 
 - Hardware is reached through **capabilities**, never raw addresses. Raven hands a
   driver an `Mmio` value covering exactly its device's registers, and an `Irq`
@@ -182,19 +303,25 @@ later if this becomes painful.
   out. Drivers ask a small trusted DMA actor in Raven, which checks that every
   address range belongs to the requesting domain.
 
-## 8. Types and modules
+## 10. Types, modules and naming
 
-- **Primitive types**: `U8` to `U64`, `I8` to `I64`, `Bool`.
+- **Primitive types**: `u8` to `u64`, `i8` to `i64`, `bool`.
 - **Structs**, and **enums** with data, matched with `match` (exhaustively checked).
 - **Generics** (`Result<T, E>`, `Option<T>`, `Reply<T>`), compiled to a separate copy
   per type.
 - **Interfaces** are the only abstraction mechanism: they narrow actor references
   and constrain generics. There is no separate trait system.
-- **Modules**: one file per module, explicit imports.
+- **Modules**: one file per module, explicit imports. Everything is private unless
+  marked `pub`. In an object-capability system this is about code organisation,
+  not security: authority comes only from references.
 - **No global mutable state**: no `static mut`, no singletons. A global would be
   authority nobody was handed.
+- **Naming is enforced**: `snake_case` for functions, handlers, variables and
+  fields; `CamelCase` for types; `SCREAMING_CASE` for constants. Since a capitalised
+  name is always a type, the parser never has to guess.
+- **Comments**: `//` for notes, `///` for documentation of the item that follows.
 
-## 9. Fledgling's subset
+## 11. Fledgling's subset
 
 Fledgling (milestone 2) compiles only what is needed to write the real compiler and
 the first kernel code. No generics, interfaces or actors at first; those arrive
@@ -202,46 +329,40 @@ with milestone 3. It is being built in three steps:
 
 | Step | Adds | Status |
 |---|---|---|
-| Core | functions, `extern fn`, `const`, `let`/`var`, integers, `Bool`, `if`/`else`, `while`, `break`/`continue`, `return`, casts | done |
+| Core | functions, `extern fn`, constants, declarations, integers, `bool`, `if` (also as a value), all three `loop` forms, `break`/`continue`, `return`, casts, named closers, `pub` | done |
 | Data | structs, enums, `match` | next |
 | Hardware | Raven's `unsafe`, raw pointers, volatile register access, byte strings | after that |
 
-### 9.1 Rules settled while building the core
+### 11.1 Rules settled while building the core
 
-- **No semicolons.** A newline ends a statement, except inside `( )` or `[ ]`, or
-  after a token that can't end an expression (a binary operator, `=`, `,`, `as`).
-  So a long expression is split by ending the line with an operator.
-- **Variables must be initialised**: `let x: U8 = 0`, never `let x: U8`.
 - **Integer literals take their type from context**: the declared type, the other
-  operand, or the parameter they are passed to. With no context they are `U64`.
-  Character literals (`'A'`, `'\n'`, `'\x41'`) are `U8` by default.
-- **`as` converts between integer types (and from `Bool`)** by truncating or
+  operand, or the parameter they are passed to. With no context they are `u64`.
+  Character literals (`'A'`, `'\n'`, `'\x41'`) are `u8` by default.
+- **`as` converts between integer types (and from `bool`)** by truncating or
   extending, like Rust's `as`. It never panics.
 - **Integer overflow, division by zero and oversized shifts panic.** This applies at
   every width, and to `MIN / -1`. Constant expressions are checked at compile time.
   Explicit wrapping operators can be added later if code needs them.
-- **`!` is logical not on `Bool` and bitwise not on integers.** There is no `~`.
-- **Operators follow Rust's precedence**, so `x & MASK != 0` means `(x & MASK) != 0`.
-  Comparisons can't be chained (`a < b < c` is an error).
 - **A statement can't throw a value away**: `x == 2` on its own line is an error.
   Only calls may stand alone.
-- **`const NAME: Type = expr`** declares a typed compile-time constant, computed from
-  literals and earlier constants.
 - **`extern fn name(...)`** declares a function written in assembly. All functions
   use the AAPCS64 calling convention, so Rook and assembly call each other directly.
   At most 8 parameters for now.
+- **Indentation is spaces only**: a tab is an error.
+- **Helpful errors for other languages' habits**: `let`, `var`, `const`, `while`,
+  `for`, `&&`, `||`, `!` and C bit operators are rejected with the Rook spelling.
 - **A panic** calls the kernel's `rook_panic`, which prints
   `Raven: panic: <what> at <file>:<line>` and halts. Once actors exist, it will crash
   only the actor's domain instead.
 
-## 10. Open questions
+## 12. Open questions
 
 - **Default capabilities**: how much can be inferred for locals, and which caps must
-  always be written (fields, parameters, behaviour arguments)?
+  always be written (fields, parameters, handler arguments)?
 - **Message ordering**: guaranteed order between one sender and one receiver (as in
   Pony) is the likely answer.
-- **Strings and characters**: representation and literal types (`'\n'` above is a `U8`
-  for now).
-- **Wrapping arithmetic**: overflow panics (section 9.1); do we need explicit
+- **Strings**: representation and literal types.
+- **Wrapping arithmetic**: overflow panics (section 11.1); do we need explicit
   wrapping operators, and what do they look like?
-- **Constructors**: field-initialiser `spawn` as above, or Pony-style `new` methods?
+- **Formatter**: a mandatory formatter (`rook fmt`) is assumed by several decisions
+  (layout of braces, indentation); it arrives with the self-hosted tools.

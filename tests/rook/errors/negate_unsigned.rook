@@ -1,7 +1,7 @@
 // Unsigned values cannot be negated.
-// error: 6:13: can't negate a value of type U32
+// error: 6:14: can't negate a value of type u32
 
 fn f() {
-    let a: U32 = 5
-    let b = -a
+    a: u32 = 5
+    b: u32 = -a
 }

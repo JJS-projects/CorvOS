@@ -1,0 +1,6 @@
+// An `if` used as a value must have an `else`.
+// error: 5:17: needs an `else`
+
+fn f(fast: bool) {
+    step: u64 = if fast { 8 }
+}

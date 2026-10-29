@@ -9,19 +9,19 @@
 // expect: 0
 // expect: 65
 
-extern fn print_u64(x: U64)
-extern fn print_i64(x: I64)
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
 
 fn test_main() {
-    print_u64((300 as U8) as U64)
-    let a: I8 = -1
-    print_u64((a as U8) as U64)
-    print_i64(a as I64)
-    print_u64(a as U64)
-    print_u64((a as U32) as U64)
-    let b: U8 = 128
-    print_i64((b as I8) as I64)
-    print_u64(true as U64)
-    print_u64(false as U64)
-    print_u64('A' as U64)
+    print_u64((300 as u8) as u64)
+    a: i8 = -1
+    print_u64((a as u8) as u64)
+    print_i64(a as i64)
+    print_u64(a as u64)
+    print_u64((a as u32) as u64)
+    b: u8 = 128
+    print_i64((b as i8) as i64)
+    print_u64(true as u64)
+    print_u64(false as u64)
+    print_u64('A' as u64)
 }

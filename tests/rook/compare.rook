@@ -8,22 +8,22 @@
 // expect: true
 // expect: false
 
-extern fn print_bool(b: Bool)
+extern fn print_bool(b: bool)
 
 fn test_main() {
-    let neg: I8 = -1
-    let pos: I8 = 1
+    neg: i8 = -1
+    pos: i8 = 1
     print_bool(neg < pos)
     print_bool(neg > pos)
-    let big: U8 = 255
-    let small: U8 = 1
+    big: u8 = 255
+    small: u8 = 1
     print_bool(big > small)
     print_bool(big <= small)
-    let min: I64 = -9223372036854775807 - 1
-    let max: I64 = 9223372036854775807
+    min: i64 = -9223372036854775807 - 1
+    max: i64 = 9223372036854775807
     print_bool(min < max)
     print_bool(min <= min)
-    let top: U64 = 18446744073709551615
+    top: u64 = 18446744073709551615
     print_bool(top >= 0)
     print_bool(top < 1)
 }

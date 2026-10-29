@@ -1,0 +1,4 @@
+// There is no global mutable state.
+// error: 4:1: there is no global mutable state
+
+mut COUNTER: u64 = 0

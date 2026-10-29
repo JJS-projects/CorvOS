@@ -3,8 +3,8 @@
 Rook has no semicolons. A newline ends a statement, so the lexer emits NEWLINE
 tokens, except where a statement obviously continues:
   - inside ( ) or [ ]
-  - after a token that can't end an expression (a binary operator, `=`, `,`,
-    `as`, an opening bracket)
+  - after a token that can't end an expression (an operator, `=`, `,`, `as`,
+    an opening bracket)
 """
 
 from dataclasses import dataclass
@@ -12,32 +12,47 @@ from dataclasses import dataclass
 from .errors import CompileError, Pos
 
 KEYWORDS = {
-    "fn", "extern", "const", "let", "var", "if", "else", "while", "break",
+    "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
     "continue", "return", "true", "false", "as",
+    "and", "or", "xor", "not", "shl", "shr",
 }
 
 # Reserved for later milestones: using them now is an error, so programs
 # written today keep working when the features arrive.
 RESERVED = {
-    "actor", "be", "spawn", "interface", "struct", "enum", "match", "unsafe",
-    "consume", "iso", "val", "tag", "import", "self",
+    "actor", "interface", "on", "new", "spawn", "match", "consume", "self",
+    "struct", "enum", "unsafe", "import",
 }
 
-# Longest first, so `<<=` wins over `<<` and `<`.
+# Words from other languages that Rook deliberately doesn't use, with a hint.
+NOT_ROOK = {
+    "let": "Rook has no `let`: declare with `name: type = value`",
+    "var": "Rook has no `var`: declare with `mut name: type = value`",
+    "const": "Rook has no `const`: a top-level `NAME: type = value` is a constant",
+    "while": "Rook has no `while`: use `loop condition { ... }`",
+    "for": "Rook has no `for`: use `loop i in start..end { ... }`",
+}
+
+# Longest first, so `..` wins over `.` and `->` over `-`.
 PUNCT = [
-    "<<=", ">>=",
-    "==", "!=", "<=", ">=", "&&", "||", "<<", ">>",
-    "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "=>",
-    "+", "-", "*", "/", "%", "&", "|", "^", "!", "<", ">", "=",
+    "==", "!=", "<=", ">=", "->", "=>", "..",
+    "+=", "-=", "*=", "/=", "%=",
+    "+", "-", "*", "/", "%", "<", ">", "=",
     "(", ")", "{", "}", "[", "]", ",", ":", ".",
 ]
 
 # After these, a newline does not end the statement.
 CONTINUES = {
-    "+", "-", "*", "/", "%", "&", "|", "^", "!", "<", ">", "=",
-    "==", "!=", "<=", ">=", "&&", "||", "<<", ">>",
-    "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "=>",
-    "(", "[", ",", ":", ".", "as",
+    "+", "-", "*", "/", "%", "<", ">", "=", "==", "!=", "<=", ">=",
+    "+=", "-=", "*=", "/=", "%=", "->", "=>", "..",
+    "(", "[", ",", ":", ".",
+    "as", "and", "or", "xor", "not", "shl", "shr",
+}
+
+# Symbols from C-family languages, with what Rook uses instead.
+SYMBOL_HINTS = {
+    "&&": "and", "||": "or", "!": "not", "&": "and", "|": "or", "^": "xor",
+    "~": "not", "<<": "shl",
 }
 
 ESCAPES = {"n": 10, "t": 9, "r": 13, "0": 0, "\\": 92, "'": 39, '"': 34}
@@ -69,9 +84,11 @@ def lex(source):
                 emit("newline", "\\n", None, pos)
             i, line, col = i + 1, line + 1, 1
             continue
-        if c in " \t\r":
+        if c in " \r":
             i, col = i + 1, col + 1
             continue
+        if c == "\t":
+            raise CompileError("tabs aren't allowed; indent with spaces", pos)
         if source.startswith("//", i):
             while i < len(source) and source[i] != "\n":
                 i += 1
@@ -86,6 +103,8 @@ def lex(source):
                 raise CompileError(
                     f"`{word}` is reserved for a later milestone and not supported by Fledgling yet",
                     pos)
+            if word in NOT_ROOK:
+                raise CompileError(NOT_ROOK[word], pos)
             emit(word if word in KEYWORDS else "ident", word, None, pos)
             col += j - i
             i = j
@@ -144,6 +163,10 @@ def lex(source):
             i = j
             continue
 
+        for sym in ("&&", "||", "<<"):
+            if source.startswith(sym, i):
+                raise CompileError(f"Rook writes `{sym}` as `{SYMBOL_HINTS[sym]}`", pos)
+
         for p in PUNCT:
             if source.startswith(p, i):
                 if p in ("(", "["):
@@ -155,6 +178,9 @@ def lex(source):
                 col += len(p)
                 break
         else:
+            for sym in ("!", "&", "|", "^", "~"):
+                if source.startswith(sym, i):
+                    raise CompileError(f"Rook writes `{sym}` as `{SYMBOL_HINTS[sym]}`", pos)
             raise CompileError(f"unexpected character `{c}`", pos)
 
     if tokens and tokens[-1].kind != "newline":

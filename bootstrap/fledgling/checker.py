@@ -8,19 +8,37 @@ Besides checking, it annotates the tree for the code generator:
 
 Integer literals take their type from context (the declared type of a
 variable, the other operand, a parameter type). With no context they default
-to U64; character literals default to U8.
+to u64; character literals default to u8.
+
+Naming conventions are enforced: functions, parameters and variables are
+snake_case, top-level constants are SCREAMING_CASE.
 """
+
+import re
+
 
 from .errors import CompileError
 from . import syntax as S
 from .rtypes import BOOL, UNIT, U8, U64, NAMED_TYPES, IntType, is_int
 
 ARITH = {"+", "-", "*", "/", "%"}
-BITWISE = {"&", "|", "^"}
-SHIFTS = {"<<", ">>"}
+LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
+SHIFTS = {"shl", "shr"}
 EQUALITY = {"==", "!="}
 ORDERING = {"<", "<=", ">", ">="}
-LOGICAL = {"&&", "||"}
+
+SNAKE = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+SCREAMING = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$")
+
+
+def require_snake(name, what, pos):
+    if not SNAKE.match(name):
+        raise CompileError(f"{what} names are snake_case, like `{to_snake(name)}`: `{name}`", pos)
+
+
+def to_snake(name):
+    name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name).lower()
+    return re.sub(r"_+", "_", name).strip("_") or "name"
 
 
 def check(program):
@@ -48,6 +66,9 @@ class Checker:
         # Signatures first, so functions can call each other in any order.
         for item in prog.items:
             if isinstance(item, S.FnDecl):
+                require_snake(item.name, "function", item.pos)
+                for p in item.params:
+                    require_snake(p.name, "parameter", p.pos)
                 self.declare_unique(item.name, item.pos)
                 params = [self.resolve_type(p.type) for p in item.params]
                 if len(params) > 8:
@@ -57,6 +78,10 @@ class Checker:
         # Constants in order: each may use the ones before it.
         for item in prog.items:
             if isinstance(item, S.ConstDecl):
+                if not SCREAMING.match(item.name):
+                    raise CompileError(
+                        f"top-level constants are SCREAMING_CASE, like `{to_snake(item.name).upper()}`: "
+                        f"`{item.name}`", item.pos)
                 self.declare_unique(item.name, item.pos)
                 ty = self.resolve_type(item.type)
                 self.scopes, self.fn = [], None
@@ -117,11 +142,10 @@ class Checker:
         return returns
 
     def stmt(self, s):
-        if isinstance(s, S.Let):
-            expected = self.resolve_type(s.type) if s.type else None
-            ty = self.expr(s.init, expected)
-            if ty == UNIT:
-                raise CompileError(f"`{s.name}` would have no value: the call returns nothing", s.init.pos)
+        if isinstance(s, S.Decl):
+            require_snake(s.name, "variable", s.pos)
+            ty = self.resolve_type(s.type)
+            self.expr(s.init, ty)
             s.slot = self.new_local(s.name, ty, s.mutable)
             return False
 
@@ -133,7 +157,7 @@ class Checker:
                 raise CompileError(f"unknown variable `{s.target.ident}`", s.target.pos)
             if not local.mutable:
                 raise CompileError(
-                    f"can't assign to `{s.target.ident}`: declare it with `var` to make it mutable",
+                    f"can't assign to `{s.target.ident}`: declare it with `mut` to make it mutable",
                     s.pos)
             if s.op != "=":
                 s.value = S.Binary(s.pos, s.op[:-1], S.Name(s.target.pos, s.target.ident), s.value)
@@ -159,14 +183,35 @@ class Checker:
                 else_returns = self.block(s.else_)
             return then_returns and else_returns
 
-        if isinstance(s, S.While):
-            self.expr(s.cond, BOOL)
+        if isinstance(s, S.Loop):
+            if s.cond is not None:
+                self.expr(s.cond, BOOL)
             self.loop_depth += 1
             self.block(s.body)
             self.loop_depth -= 1
-            # `while true` with no `break` never falls through.
-            forever = isinstance(s.cond, S.BoolLit) and s.cond.value
+            # `loop { }` (or `loop true`) with no `break` never falls through.
+            forever = s.cond is None or (isinstance(s.cond, S.BoolLit) and s.cond.value)
             return forever and not contains_break(s.body)
+
+        if isinstance(s, S.ForRange):
+            require_snake(s.var, "loop variable", s.pos)
+            if s.type is not None:
+                ty = self.resolve_type(s.type)
+                self.expr(s.start, ty)
+                self.expr(s.end, ty)
+            else:
+                ty = self.same_type_pair(s.start, s.end, None, "a range")
+            if not is_int(ty):
+                raise CompileError(f"a range needs integers, found {ty}", s.start.pos)
+            s.ty = ty
+            self.scopes.append({})
+            s.end_slot = self.new_local(" end", ty, mutable=False)
+            s.slot = self.new_local(s.var, ty, mutable=False)
+            self.loop_depth += 1
+            self.block(s.body)
+            self.loop_depth -= 1
+            self.scopes.pop()
+            return False
 
         if isinstance(s, (S.Break, S.Continue)):
             if self.loop_depth == 0:
@@ -190,10 +235,11 @@ class Checker:
 
     # ---- expressions ---------------------------------------------------
 
-    def expr(self, e, expected=None):
+    def expr(self, e, expected=None, hint=None):
         """Check `e`, set `e.ty`, and return it. If `expected` is given, the
-        expression must have that type."""
-        ty = self.infer(e, expected)
+        expression must have that type. A `hint` only guides the types of
+        literals inside `e`; a mismatch is reported by the caller."""
+        ty = self.infer(e, expected if expected is not None else hint)
         e.ty = ty
         if expected is not None and ty != expected:
             raise CompileError(f"expected {expected}, found {ty}", e.pos)
@@ -225,14 +271,19 @@ class Checker:
 
         if isinstance(e, S.Unary):
             if e.op == "-":
-                ty = self.expr(e.operand, expected if is_int(expected) else None)
+                ty = self.expr(e.operand, hint=expected if is_int(expected) else None)
                 if not (is_int(ty) and ty.signed):
                     raise CompileError(f"can't negate a value of type {ty}", e.pos)
                 return ty
-            ty = self.expr(e.operand, expected if expected in (BOOL,) or is_int(expected) else None)
+            ty = self.expr(e.operand, hint=expected if expected == BOOL or is_int(expected) else None)
             if ty != BOOL and not is_int(ty):
-                raise CompileError(f"`!` needs a Bool or an integer, found {ty}", e.pos)
+                raise CompileError(f"`not` needs a bool or an integer, found {ty}", e.pos)
             return ty
+
+        if isinstance(e, S.IfExpr):
+            self.expr(e.cond, BOOL)
+            hint = expected
+            return self.same_type_pair(e.then, e.else_, hint, "both branches of `if`")
 
         if isinstance(e, S.Binary):
             return self.binary(e, expected)
@@ -264,16 +315,24 @@ class Checker:
 
         raise AssertionError(f"unknown expression {e!r}")
 
+    def same_type_pair(self, a, b, hint, what):
+        """Check two expressions that must share a type. The one that isn't a
+        bare literal is checked first, so the literal can take its type."""
+        if untyped_literal(a) and not untyped_literal(b):
+            bty = self.expr(b, hint=hint)
+            aty = self.expr(a, hint=bty if is_int(bty) else hint)
+        else:
+            aty = self.expr(a, hint=hint)
+            bty = self.expr(b, hint=aty)
+        if aty != bty:
+            raise CompileError(f"{what} must have the same type, found {aty} and {bty}", b.pos)
+        return aty
+
     def binary(self, e, expected):
         op = e.op
-        if op in LOGICAL:
-            self.expr(e.left, BOOL)
-            self.expr(e.right, BOOL)
-            return BOOL
-
         if op in SHIFTS:
             hint = expected if is_int(expected) else None
-            lty = self.expr(e.left, hint)
+            lty = self.expr(e.left, hint=hint)
             if not is_int(lty):
                 raise CompileError(f"`{op}` needs an integer on the left, found {lty}", e.left.pos)
             rty = self.expr(e.right)
@@ -283,23 +342,29 @@ class Checker:
 
         # Both operands share a type. Check the side that isn't a bare literal
         # first, so the literal can take its type.
-        if op in ARITH or op in BITWISE:
+        if op in ARITH:
             hint = expected if is_int(expected) else None
+        elif op in LOGIC:
+            hint = expected if expected == BOOL or is_int(expected) else None
         else:
             hint = None
         if untyped_literal(e.left) and not untyped_literal(e.right):
-            rty = self.expr(e.right, hint)
-            lty = self.expr(e.left, rty if is_int(rty) else None)
+            rty = self.expr(e.right, hint=hint)
+            lty = self.expr(e.left, hint=rty if is_int(rty) else hint)
         else:
-            lty = self.expr(e.left, hint)
-            rty = self.expr(e.right, lty if untyped_literal(e.right) and is_int(lty) else None)
+            lty = self.expr(e.left, hint=hint)
+            rty = self.expr(e.right, hint=lty)
         if lty != rty:
             raise CompileError(f"`{op}` needs both sides to have the same type, found {lty} and {rty}",
                                e.pos)
 
-        if op in ARITH or op in BITWISE:
+        if op in ARITH:
             if not is_int(lty):
                 raise CompileError(f"`{op}` needs integers, found {lty}", e.pos)
+            return lty
+        if op in LOGIC:
+            if lty != BOOL and not is_int(lty):
+                raise CompileError(f"`{op}` needs bools or integers, found {lty}", e.pos)
             return lty
         if op in EQUALITY:
             if not is_int(lty) and lty != BOOL:
@@ -331,6 +396,8 @@ class Checker:
             if e.ty == BOOL:
                 return 1 - v
             return wrap(~v, e.ty)
+        if isinstance(e, S.IfExpr):
+            return self.const_eval(e.then) if self.const_eval(e.cond) else self.const_eval(e.else_)
         if isinstance(e, S.Binary):
             a, b = self.const_eval(e.left), self.const_eval(e.right)
             op = e.op
@@ -341,21 +408,19 @@ class Checker:
             if op == "*": return self.fit(a * b, e)
             if op == "/": return self.fit(trunc_div(a, b), e)
             if op == "%": return a - b * trunc_div(a, b)
-            if op == "&": return a & b
-            if op == "|": return a | b
-            if op == "^": return a ^ b
+            if op == "and": return a & b
+            if op == "or": return a | b
+            if op == "xor": return a ^ b
             if op in SHIFTS:
                 if not 0 <= b < e.ty.bits:
                     raise CompileError(f"shift amount {b} is too large for {e.ty}", e.pos)
-                return wrap(a << b, e.ty) if op == "<<" else a >> b
+                return wrap(a << b, e.ty) if op == "shl" else a >> b
             if op == "==": return int(a == b)
             if op == "!=": return int(a != b)
             if op == "<": return int(a < b)
             if op == "<=": return int(a <= b)
             if op == ">": return int(a > b)
             if op == ">=": return int(a >= b)
-            if op == "&&": return int(a and b)
-            if op == "||": return int(a or b)
         raise CompileError("constants must be computed from literals and other constants", e.pos)
 
     def fit(self, v, e):
@@ -383,7 +448,8 @@ def untyped_literal(e):
 
 
 def contains_break(block):
-    """Does `block` contain a `break` for its enclosing loop (not a nested one)?"""
+    """Does `block` contain a `break` for its enclosing loop? Breaks inside
+    nested loops belong to those loops and don't count."""
     for s in block.stmts:
         if isinstance(s, S.Break):
             return True

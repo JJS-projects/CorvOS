@@ -67,4 +67,5 @@ Or open a GitHub Codespace, which sets all of this up for you. See
 
 Milestone 1 is done: Raven boots in QEMU, drops to EL1, prints over the UART and
 reports any exception. Milestone 2 is in progress: Fledgling compiles the core of
-Rook (functions, integers, control flow) to AArch64. Not yet tried on real hardware.
+Rook (functions, integers, control flow) to AArch64, in the style settled in
+[rook.md](docs/rook.md#2-style-at-a-glance). Not yet tried on real hardware.

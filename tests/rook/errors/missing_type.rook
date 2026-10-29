@@ -1,0 +1,6 @@
+// Declarations always state their type.
+// error: 5:11: declarations need a type
+
+fn f() {
+    mut x = 1
+}

@@ -2,6 +2,6 @@
 // error is found at the `}`.
 // error: 7:1: expected `)`, found `}`
 
-fn f(): U64 {
+fn f() -> u64 {
     return (1 + 2
 }

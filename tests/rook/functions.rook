@@ -8,53 +8,52 @@
 // expect: 4096
 // expect: 300
 
-extern fn print_u64(x: U64)
-extern fn print_bool(b: Bool)
+extern fn print_u64(x: u64)
 
-const PAGE_SHIFT: U64 = 12
-const PAGE_SIZE: U64 = 1 << PAGE_SHIFT
+PAGE_SHIFT: u64 = 12
+PAGE_SIZE: u64 = 1 shl PAGE_SHIFT
 
-fn fact(n: U64): U64 {
+fn fact(n: u64) -> u64 {
     if n <= 1 {
         return 1
     }
     return n * fact(n - 1)
 }
 
-fn fib(n: U64): U64 {
+fn fib(n: u64) -> u64 {
     if n < 2 {
         return n
     }
     return fib(n - 1) + fib(n - 2)
 }
 
-fn is_even(n: U64): Bool {
+fn is_even(n: u64) -> bool {
     if n == 0 {
         return true
     }
     return is_odd(n - 1)
 }
 
-fn is_odd(n: U64): Bool {
+fn is_odd(n: u64) -> bool {
     if n == 0 {
         return false
     }
     return is_even(n - 1)
 }
 
-fn sum8(a: U64, b: U64, c: U64, d: U64, e: U64, f: U64, g: U64, h: U64): U64 {
+fn sum8(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) -> u64 {
     return a + b + c + d + e + f + g + h
 }
 
-fn widen(a: U8, b: U16): U64 {
-    return a as U64 + b as U64
+fn widen(a: u8, b: u16) -> u64 {
+    return a as u64 + b as u64
 }
 
 fn test_main() {
     print_u64(fact(20))
     print_u64(fib(20))
-    print_u64(is_even(10) as U64)
-    print_u64(is_even(7) as U64)
+    print_u64(is_even(10) as u64)
+    print_u64(is_even(7) as u64)
     print_u64(sum8(1, 2, 3, 4, 5, 6, 7, 8))
     print_u64(PAGE_SIZE)
     print_u64(widen(255, 45))

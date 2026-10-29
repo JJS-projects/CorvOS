@@ -1,8 +1,9 @@
 # bootstrap
 
 **Fledgling**, the throwaway bootstrap compiler for Rook, written in Python 3
-(standard library only). It compiles the subset of Rook described in
-[docs/rook.md](../docs/rook.md#9-fledglings-subset) to GNU AArch64 assembly. It is
+(standard library only, and run without a bytecode cache, so a stale
+copy can never be used). It compiles the subset of Rook described in
+[docs/rook.md](../docs/rook.md#11-fledglings-subset) to GNU AArch64 assembly. It is
 retired at milestone 5, when the Rook compiler can compile itself.
 
 ```sh

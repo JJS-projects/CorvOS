@@ -1,4 +1,5 @@
-// Bitwise operators, shifts (logical and arithmetic) and `!`.
+// On integers, `and`, `or`, `xor` and `not` work bit by bit; `shl` and `shr`
+// shift (logical for unsigned, arithmetic for signed).
 // expect: 8
 // expect: 14
 // expect: 6
@@ -10,28 +11,35 @@
 // expect: -1
 // expect: 1
 // expect: 9223372036854775808
+// expect: 240
+// expect: 49152
 
-extern fn print_u64(x: U64)
-extern fn print_i64(x: I64)
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
+
+PINS: u32 = (1 shl 14) or (1 shl 15)
 
 fn test_main() {
-    let a: U8 = 12
-    let b: U8 = 10
-    print_u64((a & b) as U64)
-    print_u64((a | b) as U64)
-    print_u64((a ^ b) as U64)
-    let c: U8 = 10
-    print_u64((!c) as U64)
-    let d: U32 = 255
-    print_u64((!d) as U64)
-    let e: U8 = 0xAA
-    print_u64((e << 4) as U64)
-    print_u64((e >> 3) as U64)
-    let f: I32 = -8
-    print_i64((f >> 2) as I64)
-    print_i64((f >> 31) as I64)
-    let h: I64 = -2
-    print_i64(!h)
-    let g: U64 = 1
-    print_u64(g << 63)
+    a: u8 = 12
+    b: u8 = 10
+    print_u64((a and b) as u64)
+    print_u64((a or b) as u64)
+    print_u64((a xor b) as u64)
+    c: u8 = 10
+    print_u64((not c) as u64)
+    d: u32 = 255
+    print_u64((not d) as u64)
+    e: u8 = 0xAA
+    print_u64((e shl 4) as u64)
+    print_u64((e shr 3) as u64)
+    f: i32 = -8
+    print_i64((f shr 2) as i64)
+    print_i64((f shr 31) as i64)
+    h: i64 = -2
+    print_i64(not h)
+    g: u64 = 1
+    print_u64(g shl 63)
+    flags: u32 = 0xFF
+    print_u64((flags and not 0x0F) as u64)
+    print_u64(PINS as u64)
 }

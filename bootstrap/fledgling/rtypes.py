@@ -29,21 +29,21 @@ class SimpleType:
         return self.name
 
 
-BOOL = SimpleType("Bool")
+BOOL = SimpleType("bool")
 UNIT = SimpleType("()")
 
 INT_TYPES = {
     t.name: t for t in [
-        IntType("U8", 8, False), IntType("U16", 16, False),
-        IntType("U32", 32, False), IntType("U64", 64, False),
-        IntType("I8", 8, True), IntType("I16", 16, True),
-        IntType("I32", 32, True), IntType("I64", 64, True),
+        IntType("u8", 8, False), IntType("u16", 16, False),
+        IntType("u32", 32, False), IntType("u64", 64, False),
+        IntType("i8", 8, True), IntType("i16", 16, True),
+        IntType("i32", 32, True), IntType("i64", 64, True),
     ]
 }
-U8 = INT_TYPES["U8"]
-U64 = INT_TYPES["U64"]
+U8 = INT_TYPES["u8"]
+U64 = INT_TYPES["u64"]
 
-NAMED_TYPES = dict(INT_TYPES, Bool=BOOL)
+NAMED_TYPES = dict(INT_TYPES, bool=BOOL)
 
 
 def is_int(ty):

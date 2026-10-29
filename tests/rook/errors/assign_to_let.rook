@@ -1,7 +1,0 @@
-// Assigning to a `let` variable is rejected; `var` is needed.
-// error: 6:7: declare it with `var`
-
-fn f() {
-    let x: U64 = 1
-    x = 2
-}

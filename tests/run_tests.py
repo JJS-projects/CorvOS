@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "bootstrap"))
+sys.dont_write_bytecode = True      # never run a stale cached copy of the compiler
 LOG_DIR = os.path.join(ROOT, "build", "test-logs")
 QEMU = os.environ.get("QEMU", "qemu-system-aarch64")
 

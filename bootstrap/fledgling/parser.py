@@ -1,35 +1,37 @@
 """Parser: tokens -> syntax tree (recursive descent).
 
-Operator precedence, loosest first (same as Rust):
-    ||
-    &&
-    == != < <= > >=      (non-associative)
-    |
-    ^
-    &
-    << >>
-    + -
-    * / %
-    unary - !
+Operator precedence, loosest first:
+    or  xor
+    and
+    not                         (prefix)
+    ==  !=  <  <=  >  >=        (non-associative)
+    +  -
+    *  /  %  shl  shr
+    -                           (prefix)
     as
+`and`, `or`, `xor` and `not` are logical on bool and bitwise on integers.
+Because `and` is looser than comparisons, `x and MASK != 0` means
+`x and (MASK != 0)`, which the checker rejects; write `(x and MASK) != 0`.
+
+Blocks are closed by `}`. A named closer, `} name`, closes every open block
+back to and including the one called `name`: a function by its name, a loop
+by `loop`, an `if` by `if`.
 """
 
 from .errors import CompileError
 from . import syntax as S
 
 BINARY_LEVELS = [
-    ["||"],
-    ["&&"],
+    ["or", "xor"],
+    ["and"],
+    None,                       # prefix `not` sits here
     ["==", "!=", "<", "<=", ">", ">="],
-    ["|"],
-    ["^"],
-    ["&"],
-    ["<<", ">>"],
     ["+", "-"],
-    ["*", "/", "%"],
+    ["*", "/", "%", "shl", "shr"],
 ]
 COMPARISONS = {"==", "!=", "<", "<=", ">", ">="}
-ASSIGN_OPS = {"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="}
+ASSIGN_OPS = {"=", "+=", "-=", "*=", "/=", "%="}
+CLOSER_NAMES = {"ident", "loop", "if"}
 
 
 def parse(tokens):
@@ -40,6 +42,7 @@ class Parser:
     def __init__(self, tokens):
         self.tokens = tokens
         self.i = 0
+        self.open_blocks = []   # label sets of the blocks currently open
 
     # ---- helpers -------------------------------------------------------
 
@@ -79,22 +82,30 @@ class Parser:
         prog = S.Program()
         self.skip_newlines()
         while not self.at("eof"):
+            public = False
+            if self.at("pub"):
+                self.advance()
+                public = True
             if self.at("fn"):
-                prog.items.append(self.fn_decl(extern=False))
+                prog.items.append(self.fn_decl(extern=False, public=public))
             elif self.at("extern"):
                 self.advance()
-                prog.items.append(self.fn_decl(extern=True))
-            elif self.at("const"):
-                prog.items.append(self.const_decl())
+                prog.items.append(self.fn_decl(extern=True, public=public))
+            elif self.at("mut"):
+                raise CompileError(
+                    "there is no global mutable state in Rook: top-level declarations can't be `mut`",
+                    self.peek().pos)
+            elif self.at("ident") and self.peek(1).kind == ":":
+                prog.items.append(self.const_decl(public))
             else:
                 tok = self.peek()
                 raise CompileError(
-                    f"expected `fn`, `extern fn` or `const` at top level, found {describe_tok(tok)}",
+                    f"expected `fn`, `extern fn` or a constant at top level, found {describe_tok(tok)}",
                     tok.pos)
             self.skip_newlines()
         return prog
 
-    def fn_decl(self, extern):
+    def fn_decl(self, extern, public):
         start = self.expect("fn")
         name = self.expect("ident", "function name").text
         self.expect("(")
@@ -107,9 +118,12 @@ class Parser:
                 self.expect(",", "`,` or `)`")
         self.expect(")")
         ret = None
-        if self.at(":"):
+        if self.at("->"):
             self.advance()
             ret = self.type_ref()
+        elif self.at(":"):
+            raise CompileError("return types are written with `->`, as in `fn f() -> u64`",
+                               self.peek().pos)
         body = None
         if extern:
             if self.at("{"):
@@ -117,60 +131,79 @@ class Parser:
                                    self.peek().pos)
             self.end_statement()
         else:
-            body = self.block()
-        return S.FnDecl(name, params, ret, body, start.pos)
+            body = self.block({name})
+            self.end_statement()
+        return S.FnDecl(name, params, ret, body, start.pos, public)
 
-    def const_decl(self):
-        start = self.expect("const")
-        name = self.expect("ident", "constant name").text
-        self.expect(":", "`:` and a type (constants must be typed)")
+    def const_decl(self, public):
+        name = self.expect("ident")
+        self.expect(":")
         ty = self.type_ref()
-        self.expect("=")
+        self.expect("=", "`=` and a value")
         value = self.expr()
         self.end_statement()
-        return S.ConstDecl(name, ty, value, start.pos)
+        return S.ConstDecl(name.text, ty, value, name.pos, public)
 
     def type_ref(self):
         tok = self.expect("ident", "a type")
         return S.TypeRef(tok.text, tok.pos)
 
-    # ---- statements ----------------------------------------------------
+    # ---- blocks and named closers -------------------------------------
 
-    def block(self):
+    def block(self, labels):
+        """Parse `{ statements }`. `labels` are the names a named closer can
+        use for this block. If a named closer names an outer block, this block
+        ends without consuming it, and the outer block consumes it."""
         start = self.expect("{")
+        self.open_blocks.append(labels)
         stmts = []
-        self.skip_newlines()
-        while not self.at("}"):
+        while True:
+            self.skip_newlines()
+            if self.at("}"):
+                name_tok = self.peek(1)
+                if name_tok.kind not in CLOSER_NAMES:
+                    self.advance()                  # plain `}`
+                    break
+                name = name_tok.text
+                if name in labels:
+                    self.advance()                  # `} name` closing this block
+                    self.advance()
+                    break
+                if any(name in outer for outer in self.open_blocks[:-1]):
+                    break                           # closes an outer block too
+                raise CompileError(f"`}} {name}` doesn't match any open block", name_tok.pos)
             if self.at("eof"):
                 raise CompileError("unclosed `{`", start.pos)
             stmts.append(self.statement())
-            self.skip_newlines()
-        self.expect("}")
+        self.open_blocks.pop()
         return S.Block(stmts, start.pos)
+
+    # ---- statements ----------------------------------------------------
 
     def statement(self):
         tok = self.peek()
-        if tok.kind in ("let", "var"):
-            self.advance()
-            name = self.expect("ident", "variable name").text
-            ty = None
-            if self.at(":"):
+        if tok.kind == "mut" or (tok.kind == "ident" and self.peek(1).kind == ":"):
+            mutable = tok.kind == "mut"
+            if mutable:
                 self.advance()
-                ty = self.type_ref()
+            name = self.expect("ident", "variable name")
+            if not self.at(":"):
+                raise CompileError("declarations need a type: `mut name: type = value`",
+                                   self.peek().pos)
+            self.advance()
+            ty = self.type_ref()
             self.expect("=", "`=` (variables must be initialised)")
             init = self.expr()
             self.end_statement()
-            return S.Let(tok.pos, name, tok.kind == "var", ty, init)
+            return S.Decl(tok.pos, name.text, mutable, ty, init)
         if tok.kind == "if":
             stmt = self.if_stmt()
             self.end_statement()
             return stmt
-        if tok.kind == "while":
-            self.advance()
-            cond = self.expr()
-            body = self.block()
+        if tok.kind == "loop":
+            stmt = self.loop_stmt()
             self.end_statement()
-            return S.While(tok.pos, cond, body)
+            return stmt
         if tok.kind == "break":
             self.advance()
             self.end_statement()
@@ -201,17 +234,35 @@ class Parser:
     def if_stmt(self):
         start = self.expect("if")
         cond = self.expr()
-        then = self.block()
+        then = self.block({"if"})
         else_ = None
         # Allow `else` on the line after the closing `}`.
         save = self.i
         self.skip_newlines()
         if self.at("else"):
             self.advance()
-            else_ = self.if_stmt() if self.at("if") else self.block()
+            else_ = self.if_stmt() if self.at("if") else self.block({"if"})
         else:
             self.i = save
         return S.If(start.pos, cond, then, else_)
+
+    def loop_stmt(self):
+        start = self.expect("loop")
+        if self.at("{"):
+            return S.Loop(start.pos, None, self.block({"loop"}))
+        if self.at("ident") and self.peek(1).kind in ("in", ":"):
+            var = self.advance().text
+            ty = None
+            if self.at(":"):
+                self.advance()
+                ty = self.type_ref()
+            self.expect("in")
+            first = self.expr()
+            self.expect("..", "`..` (a range is written `start..end`)")
+            last = self.expr()
+            return S.ForRange(start.pos, var, ty, first, last, self.block({"loop"}))
+        cond = self.expr()
+        return S.Loop(start.pos, cond, self.block({"loop"}))
 
     # ---- expressions ---------------------------------------------------
 
@@ -221,25 +272,33 @@ class Parser:
     def binary(self, level):
         if level == len(BINARY_LEVELS):
             return self.unary()
-        left = self.binary(level + 1)
         ops = BINARY_LEVELS[level]
+        if ops is None:
+            return self.not_expr(level)
+        left = self.binary(level + 1)
         while self.peek().kind in ops:
             op = self.advance()
             right = self.binary(level + 1)
             if op.kind in COMPARISONS and self.peek().kind in COMPARISONS:
-                raise CompileError("comparisons can't be chained; use `&&`", self.peek().pos)
+                raise CompileError("comparisons can't be chained; use `and`", self.peek().pos)
             left = S.Binary(op.pos, op.kind, left, right)
         return left
 
+    def not_expr(self, level):
+        if self.at("not"):
+            tok = self.advance()
+            return S.Unary(tok.pos, "not", self.not_expr(level))
+        return self.binary(level + 1)
+
     def unary(self):
         tok = self.peek()
-        if tok.kind in ("-", "!"):
+        if tok.kind == "-":
             self.advance()
             operand = self.unary()
-            # Fold `-literal` so that e.g. -128 is a valid I8 literal.
-            if tok.kind == "-" and isinstance(operand, S.IntLit) and not operand.is_char:
+            # Fold `-literal` so that e.g. -128 is a valid i8 literal.
+            if isinstance(operand, S.IntLit) and not operand.is_char:
                 return S.IntLit(tok.pos, -operand.value)
-            return S.Unary(tok.pos, tok.kind, operand)
+            return S.Unary(tok.pos, "-", operand)
         return self.cast()
 
     def cast(self):
@@ -260,6 +319,8 @@ class Parser:
         if tok.kind in ("true", "false"):
             self.advance()
             return S.BoolLit(tok.pos, tok.kind == "true")
+        if tok.kind == "if":
+            return self.if_expr()
         if tok.kind == "ident":
             self.advance()
             if self.at("("):
@@ -279,6 +340,31 @@ class Parser:
             return inner
         raise CompileError(f"expected an expression, found {describe_tok(tok)}", tok.pos)
 
+    def if_expr(self):
+        """`if c { a } else { b }` as a value."""
+        start = self.expect("if")
+        cond = self.expr()
+        then = self.branch_value()
+        save = self.i
+        self.skip_newlines()
+        if not self.at("else"):
+            self.i = save
+            raise CompileError("an `if` used as a value needs an `else`", start.pos)
+        self.advance()
+        else_ = self.if_expr() if self.at("if") else self.branch_value()
+        return S.IfExpr(start.pos, cond, then, else_)
+
+    def branch_value(self):
+        self.expect("{")
+        self.skip_newlines()
+        value = self.expr()
+        self.skip_newlines()
+        if not self.at("}"):
+            raise CompileError("each branch of an `if` used as a value must be a single expression",
+                               self.peek().pos)
+        self.advance()
+        return value
+
 
 def describe(kind):
     return {"ident": "a name", "newline": "end of line", "eof": "end of file",
@@ -286,8 +372,6 @@ def describe(kind):
 
 
 def describe_tok(tok):
-    if tok.kind == "ident":
-        return f"`{tok.text}`"
-    if tok.kind in ("int", "char"):
+    if tok.kind in ("ident", "int", "char"):
         return f"`{tok.text}`"
     return describe(tok.kind)

@@ -1,6 +1,6 @@
 // a < b < c is rejected rather than silently meaning (a < b) < c.
 // error: 5:18: comparisons can't be chained
 
-fn f(a: U64, b: U64, c: U64): Bool {
+fn f(a: u64, b: u64, c: u64) -> bool {
     return a < b < c
 }

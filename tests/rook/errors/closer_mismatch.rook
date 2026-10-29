@@ -1,0 +1,7 @@
+// A named closer must name a block that is open.
+// error: 7:3: `} handle` doesn't match any open block
+
+fn f(x: u64) {
+    loop x > 0 {
+        if x == 1 {
+} handle

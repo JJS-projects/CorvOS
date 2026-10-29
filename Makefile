@@ -12,7 +12,7 @@ ASFLAGS := -march=armv8-a
 LDFLAGS := -T kernel/link.ld --no-warn-rwx-segments
 
 FLEDGLING_SRCS := $(wildcard bootstrap/fledgling/*.py)
-FLEDGLING      := PYTHONPATH=bootstrap $(PYTHON) -m fledgling
+FLEDGLING      := PYTHONPATH=bootstrap PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m fledgling
 
 SRCS := $(wildcard kernel/arch/aarch64/*.s) kernel/main.s kernel/panic.s
 

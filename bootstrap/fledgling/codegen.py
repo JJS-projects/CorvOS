@@ -6,7 +6,7 @@ Deliberately simple, since Fledgling is thrown away after milestone 5:
   - x16 and x17 are scratch registers (AAPCS64 IP0/IP1)
 
 Values are kept in 64-bit registers in normal form: unsigned types
-zero-extended, signed types sign-extended, Bool as 0 or 1. Every operation
+zero-extended, signed types sign-extended, bool as 0 or 1. Every operation
 restores normal form, which keeps comparisons simple.
 
 Integer overflow, division by zero and oversized shifts branch to a panic stub
@@ -176,7 +176,7 @@ class Gen:
 
     def stmt(self, s):
         self.lines.append(f"    // line {s.pos.line}")
-        if isinstance(s, S.Let):
+        if isinstance(s, S.Decl):
             self.expr(s.init)
             self.store_slot(s.slot)
         elif isinstance(s, S.Assign):
@@ -197,16 +197,41 @@ class Gen:
             elif isinstance(s.else_, S.Block):
                 self.block(s.else_)
             self.label(end_label)
-        elif isinstance(s, S.While):
-            start = self.new_label("while")
-            end = self.new_label("endwhile")
+        elif isinstance(s, S.Loop):
+            start = self.new_label("loop")
+            end = self.new_label("endloop")
             self.label(start)
-            self.expr(s.cond)
-            self.emit(f"cbz x0, {end}")
+            if s.cond is not None:
+                self.expr(s.cond)
+                self.emit(f"cbz x0, {end}")
             self.loops.append((start, end))
             self.block(s.body)
             self.loops.pop()
             self.emit(f"b {start}")
+            self.label(end)
+        elif isinstance(s, S.ForRange):
+            # The end is evaluated once. The variable can't overflow when
+            # incremented, because it is always below the end.
+            cond = self.new_label("range")
+            step = self.new_label("rangestep")
+            end = self.new_label("endrange")
+            self.expr(s.start)
+            self.store_slot(s.slot)
+            self.expr(s.end)
+            self.store_slot(s.end_slot)
+            self.label(cond)
+            self.load_slot(s.slot)
+            self.load_slot(s.end_slot, "x1")
+            self.emit("cmp x0, x1")
+            self.emit(f"{'b.ge' if s.ty.signed else 'b.hs'} {end}")
+            self.loops.append((step, end))
+            self.block(s.body)
+            self.loops.pop()
+            self.label(step)
+            self.load_slot(s.slot)
+            self.emit("add x0, x0, #1")
+            self.store_slot(s.slot)
+            self.emit(f"b {cond}")
             self.label(end)
         elif isinstance(s, S.Break):
             self.emit(f"b {self.loops[-1][1]}")
@@ -238,6 +263,16 @@ class Gen:
         elif isinstance(e, S.Cast):
             self.expr(e.expr)
             self.normalize(e.ty)
+        elif isinstance(e, S.IfExpr):
+            else_label = self.new_label("ifelse")
+            end_label = self.new_label("ifend")
+            self.expr(e.cond)
+            self.emit(f"cbz x0, {else_label}")
+            self.expr(e.then)
+            self.emit(f"b {end_label}")
+            self.label(else_label)
+            self.expr(e.else_)
+            self.label(end_label)
         elif isinstance(e, S.Call):
             for arg in e.args:
                 self.expr(arg)
@@ -268,11 +303,12 @@ class Gen:
 
     def binary(self, e):
         op = e.op
-        if op in ("&&", "||"):
+        if op in ("and", "or") and e.ty == BOOL:
+            # Logical, short-circuit: x0 is already the answer if the left
+            # side decides it.
             end = self.new_label("logic")
             self.expr(e.left)
-            # x0 is already the answer if the left side decides it.
-            self.emit(f"{'cbz' if op == '&&' else 'cbnz'} x0, {end}")
+            self.emit(f"{'cbz' if op == 'and' else 'cbnz'} x0, {end}")
             self.expr(e.right)
             self.label(end)
             return
@@ -333,15 +369,16 @@ class Gen:
             else:
                 self.emit(f"{div} x16, x0, x1")
                 self.emit("msub x0, x16, x1, x0")
-        elif op in ("&", "|", "^"):
-            insn = {"&": "and", "|": "orr", "^": "eor"}[op]
+        elif op in ("and", "or", "xor"):
+            # Bitwise on integers (and `xor` on bools): normal form is kept.
+            insn = {"and": "and", "or": "orr", "xor": "eor"}[op]
             self.emit(f"{insn} x0, x0, x1")
-        elif op in ("<<", ">>"):
+        elif op in ("shl", "shr"):
             # Negative amounts are huge when compared unsigned, so this
             # catches them too.
             self.emit(f"cmp x1, #{ty.bits}")
             self.panic_branch("b.hs", "shift", e.pos)
-            if op == "<<":
+            if op == "shl":
                 self.emit("lsl x0, x0, x1")
                 self.normalize(ty)
             else:
