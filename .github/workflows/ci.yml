@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and QEMU
+        run: tools/install-deps.sh
+
+      - name: Build
+        run: make
+
+      - name: Test in QEMU
+        run: make test
+
+      - name: Upload kernel and test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corvos-${{ github.sha }}
+          path: |
+            build/kernel8.img
+            build/test-logs/
+          if-no-files-found: ignore

@@ -1,0 +1,11 @@
+# Raspberry Pi firmware config for CorvOS (Pi Zero 2 W).
+
+# Boot our 64-bit kernel image.
+arm_64bit=1
+kernel=kernel8.img
+
+# Put the PL011 UART on GPIO 14/15 (by default it is wired to Bluetooth)
+# and give it the 48 MHz clock Raven's baud-rate divisor assumes.
+enable_uart=1
+dtoverlay=disable-bt
+init_uart_clock=48000000

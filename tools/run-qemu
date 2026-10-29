@@ -1,0 +1,9 @@
+#!/bin/sh
+# Boot a CorvOS kernel image in QEMU, with the UART on this terminal.
+# Quit with Ctrl-A then X.
+#
+# Usage: tools/run-qemu [build/kernel8.img] [extra QEMU args...]
+set -eu
+KERNEL=${1:-build/kernel8.img}
+[ $# -gt 0 ] && shift
+exec qemu-system-aarch64 -M raspi3b -kernel "$KERNEL" -nographic "$@"

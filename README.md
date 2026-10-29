@@ -32,6 +32,7 @@ Nutcracker.
 - [Rook](docs/rook.md): the language, with a sample program
 - [Roadmap](docs/roadmap.md): milestones, in order
 - [Decision log](docs/decisions.md): what was decided, the alternatives, and why
+- [Workflow](docs/workflow.md): how changes are built, tested, reviewed and merged
 
 ## Repository layout
 
@@ -51,6 +52,18 @@ with `git subtree split` if it ever needs a life of its own.
 There is deliberately no runtime directory: Raven is the runtime. See
 [design.md](docs/design.md#6-raven-the-kernel).
 
+## Quick start
+
+```sh
+tools/install-deps.sh   # Ubuntu/Debian: AArch64 binutils, QEMU, make, python3
+make test               # build the kernel and run the QEMU test suite
+make run                # boot it with the UART on your terminal (Ctrl-A X quits)
+```
+
+Or open a GitHub Codespace, which sets all of this up for you. See
+[workflow.md](docs/workflow.md) for macOS and other options.
+
 ## Status
 
-Design agreed; nothing built yet. Next up is milestone 1 (boot and UART in QEMU).
+Milestone 1: Raven boots in QEMU, drops to EL1, prints over the UART and reports
+any exception. Not yet tried on real hardware.

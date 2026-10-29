@@ -1,0 +1,5 @@
+{
+  "name": "CorvOS",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "postCreateCommand": "tools/install-deps.sh && make test"
+}
