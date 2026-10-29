@@ -1,0 +1,10 @@
+// A call's result can't be ignored silently.
+// error: 9:5: the result of `checksum` is unused; write `discard checksum(...)`
+
+fn checksum(x: u64) -> u64 {
+    return x
+}
+
+fn f() {
+    checksum(1)
+}

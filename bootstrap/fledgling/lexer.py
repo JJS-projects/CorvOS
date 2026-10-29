@@ -13,7 +13,7 @@ from .errors import CompileError, Pos
 
 KEYWORDS = {
     "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
-    "continue", "return", "true", "false", "as",
+    "continue", "return", "true", "false", "as", "wrap", "discard",
     "and", "or", "xor", "not", "shl", "shr",
 }
 
@@ -46,7 +46,7 @@ CONTINUES = {
     "+", "-", "*", "/", "%", "<", ">", "=", "==", "!=", "<=", ">=",
     "+=", "-=", "*=", "/=", "%=", "->", "=>", "..",
     "(", "[", ",", ":", ".",
-    "as", "and", "or", "xor", "not", "shl", "shr",
+    "as", "wrap", "and", "or", "xor", "not", "shl", "shr",
 }
 
 # Symbols from C-family languages, with what Rook uses instead.

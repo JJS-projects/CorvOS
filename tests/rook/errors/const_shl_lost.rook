@@ -1,0 +1,4 @@
+// Constant shifts are checked at compile time too.
+// error: 4:16: `shl` would lose set bits of u8
+
+TOP: u8 = 0xF0 shl 1

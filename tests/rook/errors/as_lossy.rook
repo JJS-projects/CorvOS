@@ -1,0 +1,6 @@
+// `as` only converts when no value can be lost.
+// error: 5:14: `as` can't convert u64 to u8: some values would be lost; use `wrap u8`
+
+fn f(x: u64) -> u8 {
+    return x as u8
+}

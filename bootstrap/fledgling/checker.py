@@ -19,7 +19,7 @@ import re
 
 from .errors import CompileError
 from . import syntax as S
-from .rtypes import BOOL, UNIT, U8, U64, NAMED_TYPES, IntType, is_int
+from .rtypes import BOOL, UNIT, U8, U64, NAMED_TYPES, IntType, is_int, lossless
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -174,9 +174,16 @@ class Checker:
             return False
 
         if isinstance(s, S.ExprStmt):
+            if s.discard:
+                if self.expr(s.expr) == UNIT:
+                    raise CompileError("nothing to discard: the call returns no value", s.expr.pos)
+                return False
             if not isinstance(s.expr, S.Call):
                 raise CompileError("this expression's value is unused", s.pos)
-            self.expr(s.expr)
+            if self.expr(s.expr) != UNIT:
+                raise CompileError(
+                    f"the result of `{s.expr.callee}` is unused; "
+                    f"write `discard {s.expr.callee}(...)` to ignore it on purpose", s.pos)
             return False
 
         if isinstance(s, S.If):
@@ -300,10 +307,19 @@ class Checker:
         if isinstance(e, S.Cast):
             target = self.resolve_type(e.target)
             if not is_int(target):
-                raise CompileError(f"can only cast to integer types, not {target}", e.target.pos)
-            src = self.expr(e.expr)
+                raise CompileError(f"can only convert to integer types, not {target}", e.target.pos)
+            # A bare literal takes the target type directly: `5 as u8` is a u8 literal.
+            hint = target if e.kind == "as" and untyped_literal(e.expr) else None
+            src = self.expr(e.expr, hint=hint)
             if not is_int(src) and src != BOOL:
-                raise CompileError(f"can't cast {src} to {target}", e.pos)
+                raise CompileError(f"can't convert {src} to {target}", e.pos)
+            if e.kind == "as" and not lossless(src, target):
+                raise CompileError(
+                    f"`as` can't convert {src} to {target}: some values would be lost; "
+                    f"use `wrap {target}` to keep the low bits on purpose", e.pos)
+            if e.kind == "wrap" and lossless(src, target):
+                raise CompileError(
+                    f"`wrap` can't lose anything converting {src} to {target}; use `as`", e.pos)
             return target
 
         if isinstance(e, S.Call):
@@ -423,7 +439,12 @@ class Checker:
             if op in SHIFTS:
                 if not 0 <= b < e.ty.bits:
                     raise CompileError(f"shift amount {b} is too large for {e.ty}", e.pos)
-                return wrap(a << b, e.ty) if op == "shl" else a >> b
+                if op == "shr":
+                    return a >> b
+                result = wrap(a << b, e.ty)
+                if result >> b != a:
+                    raise CompileError(f"`shl` would lose set bits of {e.ty}", e.pos)
+                return result
             if op == "==": return int(a == b)
             if op == "!=": return int(a != b)
             if op == "<": return int(a < b)

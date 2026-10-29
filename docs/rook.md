@@ -1,7 +1,7 @@
 # Rook language
 
 Status: agreed starting point, October 2026, with the style settled in detail
-(decisions 35–60 in [decisions.md](decisions.md)), and checked against the
+(decisions 35–63 in [decisions.md](decisions.md)), and checked against the
 [design principles](principles.md). Expect small tweaks as real
 code gets written.
 
@@ -55,7 +55,7 @@ pub actor Uart {
     /// Raven delivers the UART interrupt as this message.
     on interrupt() {
         drain: loop (.regs.read32(FR) and RXFE) == 0 {
-            b: u8 = .regs.read32(DR) as u8
+            b: u8 = .regs.read32(DR) wrap u8
             match .listener {
                 Some(l) => l.byte(b)
                 None => { }
@@ -103,7 +103,9 @@ fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
 | Constants | `PAGE_SIZE: u64 = 4096` at top level | Computed at compile time; top-level `mut` is an error |
 | Functions | `fn add(a: u64, b: u64) -> u64 { return a + b }` | Results are always given with `return` |
 | Choosing a value | `step: u64 = if fast { 8 } else { 1 }` | Each branch one expression; `else` required |
-| Logic and bits | `and`, `or`, `xor`, `not`, `shl`, `shr` | Logical on `bool`, bitwise on integers. Brackets required where languages disagree |
+| Logic and bits | `and`, `or`, `xor`, `not`, `shl`, `shr` | Logical on `bool`, bitwise on integers. Brackets required where languages disagree. `shl` panics rather than lose set bits |
+| Converting | `small as u64`, `reg wrap u8` | `as` only when nothing can be lost; `wrap` keeps the low bits on purpose |
+| Ignoring a result | `discard checksum(buf)` | An unused result is otherwise an error |
 | Loops | `rows: loop i: u64 in 0..n { }`, `waiting: loop cond { }`, `retry: loop { }` | One keyword; every loop is named; ranges exclude the end |
 | Leaving loops | `break rows`, `continue rows` | Always name the loop, which can be an outer one |
 | Blocks | `{ … }`, with an optional named closer `} name` | `} name` closes everything back to the function or loop with that name |
@@ -215,7 +217,7 @@ The compiler checks that the name matches an open block.
 ```rook
 on interrupt() {
     drain: loop (.regs.read32(FR) and RXFE) == 0 {
-        b: u8 = .regs.read32(DR) as u8
+        b: u8 = .regs.read32(DR) wrap u8
         match .listener {
             Some(l) => l.byte(b)
             None => { }
@@ -372,13 +374,20 @@ with milestone 3. It is being built in three steps:
 - **Integer literals take their type from context**: the declared type, the other
   operand, or the parameter they are passed to. With no context they are `u64`.
   Character literals (`'A'`, `'\n'`, `'\x41'`) are `u8` by default.
-- **`as` converts between integer types (and from `bool`)** by truncating or
-  extending, like Rust's `as`. It never panics.
+- **Converting integers**: `x as T` compiles only when every value of `x`'s type
+  fits in `T` (widening, or from `bool`), so it can never lose information.
+  Anything that could, such as narrowing or changing signedness, is written
+  `x wrap T`: it keeps the low bits and reinterprets the sign, like Rust's `as`.
+  `wrap` is an error where nothing could be lost, so each word always means one
+  thing. A bare literal takes `as`'s target type directly: `7 as u8`.
 - **Integer overflow, division by zero and oversized shifts panic.** This applies at
   every width, and to `MIN / -1`. Constant expressions are checked at compile time.
   Explicit wrapping operators can be added later if code needs them.
-- **A statement can't throw a value away**: `x == 2` on its own line is an error.
-  Only calls may stand alone.
+- **`shl` panics rather than lose set bits.** Shifting back must give the original
+  value (arithmetically, for signed types), so `x shl 1` is as safe as `x * 2`. To
+  drop bits on purpose, mask them off first: `(x and 0x0F) shl 4`.
+- **Nothing is thrown away silently.** `x == 2` on its own line is an error, and so
+  is a call whose result isn't used. `discard f()` ignores a result on purpose.
 - **`extern fn name(...)`** declares a function written in assembly. All functions
   use the AAPCS64 calling convention, so Rook and assembly call each other directly.
   At most 8 parameters for now. **Known gap:** any file can declare any symbol and
@@ -400,11 +409,5 @@ with milestone 3. It is being built in three steps:
 - **Strings**: representation and literal types.
 - **Wrapping arithmetic**: overflow panics (section 11.1); do we need explicit
   wrapping operators, and what do they look like?
-- **Lossy casts** (principle 1): `as` truncates and reinterprets signs silently.
-  Should risky conversions need their own word?
-- **`shl` dropping bits** (principle 1): `x * 2` panics on overflow but `x shl 1`
-  silently loses the top bit.
-- **Discarded results** (principles 1 and 3): a call's result can be ignored
-  silently, which will matter once functions return `Result`.
 - **Formatter**: a mandatory formatter (`rook fmt`) is assumed by several decisions
   (layout of braces, indentation); it arrives with the self-hosted tools.

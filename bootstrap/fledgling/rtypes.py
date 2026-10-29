@@ -48,3 +48,10 @@ NAMED_TYPES = dict(INT_TYPES, bool=BOOL)
 
 def is_int(ty):
     return isinstance(ty, IntType)
+
+
+def lossless(src, dst):
+    """Can every value of `src` be represented in `dst`?"""
+    if src == BOOL:
+        return is_int(dst)
+    return is_int(src) and is_int(dst) and dst.min <= src.min and src.max <= dst.max

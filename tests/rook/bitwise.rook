@@ -1,5 +1,6 @@
 // On integers, `and`, `or`, `xor` and `not` work bit by bit; `shl` and `shr`
-// shift (logical for unsigned, arithmetic for signed).
+// shift (logical for unsigned, arithmetic for signed). `shl` never silently loses
+// set bits: mask them off first to drop them on purpose.
 // expect: 8
 // expect: 14
 // expect: 6
@@ -30,7 +31,7 @@ fn test_main() {
     d: u32 = 255
     print_u64((not d) as u64)
     e: u8 = 0xAA
-    print_u64((e shl 4) as u64)
+    print_u64(((e and 0x0F) shl 4) as u64)
     print_u64((e shr 3) as u64)
     f: i32 = -8
     print_i64((f shr 2) as i64)

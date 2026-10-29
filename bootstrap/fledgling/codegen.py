@@ -25,6 +25,7 @@ PANIC_MESSAGES = {
     "overflow": "integer overflow",
     "div0": "division by zero",
     "shift": "shift amount too large",
+    "shiftlost": "shl lost set bits",
 }
 
 SIGNED_COND = {"<": "lt", "<=": "le", ">": "gt", ">=": "ge"}
@@ -379,8 +380,14 @@ class Gen:
             self.emit(f"cmp x1, #{ty.bits}")
             self.panic_branch("b.hs", "shift", e.pos)
             if op == "shl":
+                # Panic if set bits are lost: shifting back must give the
+                # original value (arithmetically, for signed types).
+                self.emit("mov x17, x0")
                 self.emit("lsl x0, x0, x1")
                 self.normalize(ty)
+                self.emit(f"{'asr' if ty.signed else 'lsr'} x16, x0, x1")
+                self.emit("cmp x16, x17")
+                self.panic_branch("b.ne", "shiftlost", e.pos)
             else:
                 self.emit(f"{'asr' if ty.signed else 'lsr'} x0, x0, x1")
         else:

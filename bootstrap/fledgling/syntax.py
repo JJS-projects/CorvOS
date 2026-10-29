@@ -68,8 +68,10 @@ class Call(Expr):
 
 @dataclass
 class Cast(Expr):
+    """`x as T` (never loses information) or `x wrap T` (keeps the low bits)."""
     expr: Expr
     target: TypeRef
+    kind: str = "as"
 
 
 @dataclass
@@ -109,6 +111,7 @@ class Assign(Stmt):
 @dataclass
 class ExprStmt(Stmt):
     expr: Expr
+    discard: bool = False       # `discard f()`: the value is thrown away on purpose
 
 
 @dataclass

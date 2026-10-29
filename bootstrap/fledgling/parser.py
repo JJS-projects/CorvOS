@@ -8,7 +8,7 @@ Operator precedence, loosest first:
     +  -
     *  /  %  shl  shr
     -                           (prefix)
-    as
+    as  wrap
 `and`, `or`, `xor` and `not` are logical on bool and bitwise on integers.
 Because `and` is looser than comparisons, `x and MASK != 0` means
 `x and (MASK != 0)`, which the checker rejects; write `(x and MASK) != 0`.
@@ -233,6 +233,11 @@ class Parser:
             self.end_statement()
             cls = S.Break if tok.kind == "break" else S.Continue
             return cls(tok.pos, label)
+        if tok.kind == "discard":
+            self.advance()
+            expr = self.expr()
+            self.end_statement()
+            return S.ExprStmt(tok.pos, expr, discard=True)
         if tok.kind == "return":
             self.advance()
             value = None
@@ -333,9 +338,9 @@ class Parser:
 
     def cast(self):
         expr = self.primary()
-        while self.at("as"):
+        while self.at("as") or self.at("wrap"):
             tok = self.advance()
-            expr = S.Cast(tok.pos, expr, self.type_ref())
+            expr = S.Cast(tok.pos, expr, self.type_ref(), tok.kind)
         return expr
 
     def primary(self):

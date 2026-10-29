@@ -1,0 +1,6 @@
+// `wrap` marks a conversion that can lose information; for a safe one, use `as`.
+// error: 5:14: `wrap` can't lose anything converting u8 to u64; use `as`
+
+fn f(x: u8) -> u64 {
+    return x wrap u64
+}

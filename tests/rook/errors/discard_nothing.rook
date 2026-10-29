@@ -1,0 +1,9 @@
+// `discard` needs a value to throw away.
+// error: 8:13: nothing to discard
+
+fn flush() {
+}
+
+fn f() {
+    discard flush()
+}
