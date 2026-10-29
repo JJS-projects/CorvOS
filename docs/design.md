@@ -36,6 +36,9 @@ actor cannot reach anything it was not given. The other three claims are tested 
 
 ## 3. Rook, the language
 
+This section covers the semantics that matter to the OS. Syntax, a sample program
+and the full capability table are in [rook.md](rook.md).
+
 ### 3.1 Actors
 
 - An actor has private state, a mailbox, and behaviours (message handlers).
@@ -63,7 +66,12 @@ stop forwarding through (revocation).
 - **Immutable** data may be shared between actors freely.
 - **Mutable** data cannot be shared. It is either moved (the sender loses it) or copied.
 
-This is close to Pony's reference capabilities, simplified.
+This is enforced by Pony-style reference capabilities, cut down to fit ownership:
+`iso` (owned, sendable by move), `val` (frozen, shared), `tag` (actor references),
+plus `mut` and `read` borrows within one actor. See [rook.md](rook.md#5-reference-capabilities).
+
+Replies use plain references: a sender passes a reference (usually narrowed to an
+interface such as `Reply<T>`) that the receiver sends its answer to.
 
 ### 3.4 Memory: ownership plus refcounted frozen data
 
@@ -80,11 +88,21 @@ This is close to Pony's reference capabilities, simplified.
 Why: the smallest trusted base and no runtime collector, which suits a security
 claim. Only deliberately shared data pays any runtime cost.
 
-### 3.5 Unsafe code
+### 3.5 Hardware access and unsafe code
 
-Poking hardware registers, setting up page tables and the like needs an `unsafe`
-escape hatch. Any actor containing unsafe code is untrusted by definition for the
-purposes of section 5.
+- Hardware is reached through **capabilities**: Raven hands a driver an `Mmio` value
+  covering exactly its device's registers, plus an `Irq` value that routes the
+  interrupt to it as a message. Access is bounds checked.
+- Ordinary drivers therefore contain **no `unsafe` code**. `unsafe` exists only
+  inside Raven.
+- **DMA-capable devices** are the exception, because without an IOMMU they can write
+  anywhere. Their DMA registers are never handed to drivers; drivers ask a trusted
+  DMA actor in Raven, which checks every address range.
+
+### 3.6 Errors
+
+Expected failures return `Result<T, E>`. Bugs (panics, failed bounds checks,
+overflow) crash the actor, and its domain is restarted by its supervisor.
 
 ## 4. Compiler and toolchain
 
@@ -112,9 +130,10 @@ Isolation is enforced in two layers:
 
 **Trust decides the boundaries:**
 
-- Code the compiler fully verifies (no `unsafe`) may share a domain.
-- Anything containing `unsafe` code (drivers, for example) or from an untrusted
-  origin gets its own domain.
+- Code the compiler fully verifies may share a domain. Since `unsafe` exists only in
+  Raven, this includes drivers that use only `Mmio` and `Irq` capabilities.
+- Anything from an untrusted origin, or a driver for a DMA-capable device, gets its
+  own domain.
 - More boundaries than this are always allowed; fewer are never allowed.
 
 **A domain fails and restarts as a unit.** If anything in a domain faults, its
@@ -174,9 +193,9 @@ fault-tolerance claim will be tested.
 
 ## 9. Open questions
 
-- **DMA without an IOMMU** (decide by milestone 7). Proposed answer: only a small
-  trusted kernel actor can program DMA, and it checks that every address range belongs
-  to the requesting domain.
+- **DMA without an IOMMU**: the approach is settled (a trusted DMA actor in Raven
+  checks every address range; section 3.5). The details of its interface are decided
+  at milestone 7.
 - **Mailbox bounds and backpressure**: bounded or unbounded, and what happens when full.
 - **Scheduling policy** across cores: work stealing, per-core run queues, affinity.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).

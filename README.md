@@ -29,6 +29,7 @@ Nutcracker.
 ## Documents
 
 - [Design](docs/design.md): the concept and the key design decisions
+- [Rook](docs/rook.md): the language, with a sample program
 - [Roadmap](docs/roadmap.md): milestones, in order
 - [Decision log](docs/decisions.md): what was decided, the alternatives, and why
 
