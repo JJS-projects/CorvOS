@@ -2,5 +2,5 @@
 // error: 5:5: `break` outside a loop
 
 fn f() {
-    break
+    break rows
 }

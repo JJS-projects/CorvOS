@@ -1,4 +1,4 @@
-// if/else chains, loops with break and continue, early return.
+// if/else chains, loops with labelled break and continue, early return.
 // expect: 25
 // expect: 1
 // expect: 2
@@ -22,7 +22,7 @@ fn classify(n: u64) -> u64 {
 
 fn first_multiple_of_7(from: u64) -> u64 {
     mut n: u64 = from
-    loop {
+    search: loop {
         if n % 7 == 0 {
             return n
         }
@@ -33,10 +33,10 @@ fn first_multiple_of_7(from: u64) -> u64 {
 fn test_main() {
     mut i: u64 = 0
     mut odd_sum: u64 = 0
-    loop i < 10 {
+    odds: loop i < 10 {
         i += 1
         if i % 2 == 0 {
-            continue
+            continue odds
         }
         odd_sum += i
     }
@@ -47,11 +47,11 @@ fn test_main() {
 
     mut pairs: u64 = 0
     mut x: u64 = 0
-    loop x < 4 {
+    rows: loop x < 4 {
         mut y: u64 = 0
-        loop y < 4 {
+        cols: loop y < 4 {
             if y > x {
-                break
+                break cols
             }
             if y < x {
                 pairs += 1
@@ -64,9 +64,9 @@ fn test_main() {
 
     mut total: u64 = 0
     mut k: u64 = 0
-    loop k < 100 {
+    summing: loop k < 100 {
         if k == 5 {
-            break
+            break summing
         }
         total += k
         k += 1

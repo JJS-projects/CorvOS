@@ -73,7 +73,7 @@ class Gen:
         self.fn = fn
         self.ret_label = self.new_label(f"ret_{fn.name}")
         self.panics = []        # (label, kind, line)
-        self.loops = []         # (continue_label, break_label)
+        self.loops = {}         # loop label -> (continue_label, break_label)
 
         self.lines.append("")
         self.lines.append(f"// fn {fn.name} (line {fn.pos.line})")
@@ -204,9 +204,9 @@ class Gen:
             if s.cond is not None:
                 self.expr(s.cond)
                 self.emit(f"cbz x0, {end}")
-            self.loops.append((start, end))
+            self.loops[s.label] = (start, end)
             self.block(s.body)
-            self.loops.pop()
+            del self.loops[s.label]
             self.emit(f"b {start}")
             self.label(end)
         elif isinstance(s, S.ForRange):
@@ -224,9 +224,9 @@ class Gen:
             self.load_slot(s.end_slot, "x1")
             self.emit("cmp x0, x1")
             self.emit(f"{'b.ge' if s.ty.signed else 'b.hs'} {end}")
-            self.loops.append((step, end))
+            self.loops[s.label] = (step, end)
             self.block(s.body)
-            self.loops.pop()
+            del self.loops[s.label]
             self.label(step)
             self.load_slot(s.slot)
             self.emit("add x0, x0, #1")
@@ -234,9 +234,9 @@ class Gen:
             self.emit(f"b {cond}")
             self.label(end)
         elif isinstance(s, S.Break):
-            self.emit(f"b {self.loops[-1][1]}")
+            self.emit(f"b {self.loops[s.label][1]}")
         elif isinstance(s, S.Continue):
-            self.emit(f"b {self.loops[-1][0]}")
+            self.emit(f"b {self.loops[s.label][0]}")
         elif isinstance(s, S.Return):
             if s.value is not None:
                 self.expr(s.value)

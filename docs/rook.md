@@ -1,7 +1,7 @@
 # Rook language
 
 Status: agreed starting point, October 2026, with the style settled in detail
-(decisions 35–52 in [decisions.md](decisions.md)). Expect small tweaks as real
+(decisions 35–55 in [decisions.md](decisions.md)). Expect small tweaks as real
 code gets written.
 
 ## 1. A first look
@@ -47,13 +47,13 @@ pub actor Uart {
     }
 
     pub on write(b: u8) {
-        loop (.regs.read32(FR) and TXFF) != 0 { }
+        wait_for_space: loop (.regs.read32(FR) and TXFF) != 0 { }
         .regs.write32(DR, b as u32)
     }
 
     /// Raven delivers the UART interrupt as this message.
     on interrupt() {
-        loop (.regs.read32(FR) and RXFE) == 0 {
+        drain: loop (.regs.read32(FR) and RXFE) == 0 {
             b: u8 = .regs.read32(DR) as u8
             match .listener {
                 Some(l) => l.byte(b)
@@ -103,8 +103,9 @@ fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
 | Functions | `fn add(a: u64, b: u64) -> u64 { return a + b }` | Results are always given with `return` |
 | Choosing a value | `step: u64 = if fast { 8 } else { 1 }` | Each branch one expression; `else` required |
 | Logic and bits | `and`, `or`, `xor`, `not`, `shl`, `shr` | Logical on `bool`, bitwise on integers |
-| Loops | `loop i in 0..n { }`, `loop cond { }`, `loop { }` | One keyword; ranges exclude the end |
-| Blocks | `{ … }`, with an optional named closer `} name` | `} name` closes everything back to that block |
+| Loops | `rows: loop i in 0..n { }`, `waiting: loop cond { }`, `retry: loop { }` | One keyword; every loop is named; ranges exclude the end |
+| Leaving loops | `break rows`, `continue rows` | Always name the loop, which can be an outer one |
+| Blocks | `{ … }`, with an optional named closer `} name` | `} name` closes everything back to the function or loop with that name |
 | Capabilities | `iso Buffer`, `val Block`, `mut Buffer`, `read Buffer` | Written before the type; omitted on actor references |
 | Message handlers | `on write(b: u8) { }` | `new(...)` initialises an actor; `spawn Uart(...)` creates one |
 | Own fields | `.regs`, `.listener` | `self` is the actor's own reference |
@@ -163,30 +164,47 @@ Compound assignment exists for arithmetic only (`+=`, `-=`, `*=`, `/=`, `%=`).
 
 ### 3.4 Loops
 
+Every loop has a name, written like a declaration in front of `loop`:
+
 ```rook
-loop i in 0..len { }          // i = 0, 1, ..., len - 1; len is evaluated once
-loop j: i32 in -2..3 { }      // the variable's type can be given
-loop not done { }             // while a condition holds
-loop { }                      // until `break` (or forever)
+bytes: loop i in 0..len { }       // i = 0, 1, ..., len - 1; len is evaluated once
+steps: loop j: i32 in -2..3 { }   // the variable's type can be given
+polling: loop not done { }        // while a condition holds
+idle: loop { }                    // until `break idle` (or forever)
 ```
 
-`break` and `continue` work in all three forms. The loop variable is immutable.
+`break` and `continue` always name the loop they act on, so they can reach an
+outer loop directly:
+
+```rook
+rows: loop y in 0..height {
+    cols: loop x in 0..width {
+        if grid.at(x, y) == target {
+            break rows                // leaves both loops
+        }
+    }
+}
+```
+
+The loop variable is immutable. A label can't reuse the name of a block it's inside.
 
 ### 3.5 Blocks and named closers
 
 Blocks use braces. A closer may name the block it closes: `} name` closes every
-open block back to and including the **nearest** block called `name`. A function
-is called by its name, a loop by `loop`, and an `if` by `if`. The compiler checks
-that the name matches an open block.
+open block back to and including the block called `name`. Only names written in
+the code can be used: a function, handler or actor by its name, or a loop by its
+label. Keywords (`} loop`, `} if`) are not names, so a closer is never ambiguous.
+The compiler checks that the name matches an open block.
 
 ```rook
 on interrupt() {
-    loop (.regs.read32(FR) and RXFE) == 0 {
+    drain: loop (.regs.read32(FR) and RXFE) == 0 {
         b: u8 = .regs.read32(DR) as u8
         match .listener {
             Some(l) => l.byte(b)
             None => { }
-} interrupt                   // closes the match, the loop and the handler
+    } drain                   // closes the match and the loop
+} interrupt                   // a named closer for a single block is a checked label
 ```
 
 Use a bare `}` for short blocks, and a named closer where several blocks end
@@ -329,7 +347,7 @@ with milestone 3. It is being built in three steps:
 
 | Step | Adds | Status |
 |---|---|---|
-| Core | functions, `extern fn`, constants, declarations, integers, `bool`, `if` (also as a value), all three `loop` forms, `break`/`continue`, `return`, casts, named closers, `pub` | done |
+| Core | functions, `extern fn`, constants, declarations, integers, `bool`, `if` (also as a value), all three named `loop` forms, `break`/`continue` by name, `return`, casts, named closers, `pub` | done |
 | Data | structs, enums, `match` | next |
 | Hardware | Raven's `unsafe`, raw pointers, volatile register access, byte strings | after that |
 

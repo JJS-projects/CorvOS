@@ -1,5 +1,5 @@
 // A named closer `} name` closes every open block back to and including the
-// nearest one it names: a function by its name, a loop by `loop`, an `if` by `if`.
+// block it names: a function by its name, or a loop by its label.
 // expect: 12
 // expect: 1
 // expect: 5
@@ -9,28 +9,28 @@ extern fn print_u64(x: u64)
 
 fn count_pairs(n: u64) -> u64 {
     mut pairs: u64 = 0
-    loop i in 0..n {
-        loop j in 0..n {
+    rows: loop i in 0..n {
+        cols: loop j in 0..n {
             if i < j {
                 pairs += 1
-        } loop
-    }
+        } cols
+    } rows
     return pairs * 2
 }
 
 fn first_even_over(limit: u64) -> u64 {
-    loop i in limit..100 {
+    search: loop i in limit..100 {
         if i % 2 == 0 {
             if i > limit {
                 return i
-    } loop
+    } search
     return 0
 } first_even_over
 
 fn report_two(x: u64) {
     if x > 3 {
         mut y: u64 = x
-        loop y > 0 {
+        countdown: loop y > 0 {
             y -= 1
             if y == 2 {
                 print_u64(y)

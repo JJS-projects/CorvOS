@@ -125,14 +125,16 @@ class If(Stmt):
 
 @dataclass
 class Loop(Stmt):
-    """`loop { }` (cond is None) or `loop cond { }`."""
+    """`label: loop { }` (cond is None) or `label: loop cond { }`."""
+    label: str
     cond: Optional[Expr]
     body: Block
 
 
 @dataclass
 class ForRange(Stmt):
-    """`loop i in start..end { }`: i goes from start up to, not including, end."""
+    """`label: loop i in start..end { }`: i goes from start up to, not including, end."""
+    label: str
     var: str
     type: Optional[TypeRef]
     start: Expr
@@ -147,12 +149,12 @@ class ForRange(Stmt):
 
 @dataclass
 class Break(Stmt):
-    pass
+    label: str
 
 
 @dataclass
 class Continue(Stmt):
-    pass
+    label: str
 
 
 @dataclass

@@ -14,8 +14,9 @@ Because `and` is looser than comparisons, `x and MASK != 0` means
 `x and (MASK != 0)`, which the checker rejects; write `(x and MASK) != 0`.
 
 Blocks are closed by `}`. A named closer, `} name`, closes every open block
-back to and including the one called `name`: a function by its name, a loop
-by `loop`, an `if` by `if`.
+back to and including the one called `name`. Only names written in the code can
+be used: a function's name, or a loop's label. Every loop is labelled
+(`rows: loop ...`), and `break` and `continue` name the loop they act on.
 """
 
 from .errors import CompileError
@@ -31,7 +32,7 @@ BINARY_LEVELS = [
 ]
 COMPARISONS = {"==", "!=", "<", "<=", ">", ">="}
 ASSIGN_OPS = {"=", "+=", "-=", "*=", "/=", "%="}
-CLOSER_NAMES = {"ident", "loop", "if"}
+CLOSER_NAMES = {"ident"}
 
 
 def parse(tokens):
@@ -161,6 +162,10 @@ class Parser:
             self.skip_newlines()
             if self.at("}"):
                 name_tok = self.peek(1)
+                if name_tok.kind in ("loop", "if"):
+                    raise CompileError(
+                        f"a closer names a function or a loop label, not `{name_tok.kind}`",
+                        name_tok.pos)
                 if name_tok.kind not in CLOSER_NAMES:
                     self.advance()                  # plain `}`
                     break
@@ -182,6 +187,15 @@ class Parser:
 
     def statement(self):
         tok = self.peek()
+        if tok.kind == "ident" and self.peek(1).kind == ":" and self.peek(2).kind == "loop":
+            label = self.advance().text
+            self.advance()
+            for outer in self.open_blocks:
+                if label in outer:
+                    raise CompileError(f"`{label}` already names an enclosing block", tok.pos)
+            stmt = self.loop_stmt(label, tok.pos)
+            self.end_statement()
+            return stmt
         if tok.kind == "mut" or (tok.kind == "ident" and self.peek(1).kind == ":"):
             mutable = tok.kind == "mut"
             if mutable:
@@ -201,17 +215,16 @@ class Parser:
             self.end_statement()
             return stmt
         if tok.kind == "loop":
-            stmt = self.loop_stmt()
-            self.end_statement()
-            return stmt
-        if tok.kind == "break":
+            raise CompileError("every loop is named: write `name: loop ...`", tok.pos)
+        if tok.kind in ("break", "continue"):
             self.advance()
+            if not self.at("ident"):
+                raise CompileError(
+                    f"`{tok.kind}` names the loop it acts on, as in `{tok.kind} rows`", tok.pos)
+            label = self.advance().text
             self.end_statement()
-            return S.Break(tok.pos)
-        if tok.kind == "continue":
-            self.advance()
-            self.end_statement()
-            return S.Continue(tok.pos)
+            cls = S.Break if tok.kind == "break" else S.Continue
+            return cls(tok.pos, label)
         if tok.kind == "return":
             self.advance()
             value = None
@@ -234,22 +247,22 @@ class Parser:
     def if_stmt(self):
         start = self.expect("if")
         cond = self.expr()
-        then = self.block({"if"})
+        then = self.block(set())
         else_ = None
         # Allow `else` on the line after the closing `}`.
         save = self.i
         self.skip_newlines()
         if self.at("else"):
             self.advance()
-            else_ = self.if_stmt() if self.at("if") else self.block({"if"})
+            else_ = self.if_stmt() if self.at("if") else self.block(set())
         else:
             self.i = save
         return S.If(start.pos, cond, then, else_)
 
-    def loop_stmt(self):
-        start = self.expect("loop")
+    def loop_stmt(self, label, pos):
+        self.expect("loop")
         if self.at("{"):
-            return S.Loop(start.pos, None, self.block({"loop"}))
+            return S.Loop(pos, label, None, self.block({label}))
         if self.at("ident") and self.peek(1).kind in ("in", ":"):
             var = self.advance().text
             ty = None
@@ -260,9 +273,9 @@ class Parser:
             first = self.expr()
             self.expect("..", "`..` (a range is written `start..end`)")
             last = self.expr()
-            return S.ForRange(start.pos, var, ty, first, last, self.block({"loop"}))
+            return S.ForRange(pos, label, var, ty, first, last, self.block({label}))
         cond = self.expr()
-        return S.Loop(start.pos, cond, self.block({"loop"}))
+        return S.Loop(pos, label, cond, self.block({label}))
 
     # ---- expressions ---------------------------------------------------
 

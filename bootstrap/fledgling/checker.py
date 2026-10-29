@@ -105,7 +105,7 @@ class Checker:
         self.fn = self.fns[decl.name]
         self.scopes = [{}]
         self.nslots = 0
-        self.loop_depth = 0
+        self.loops = []          # labels of the enclosing loops, innermost last
         for param, ty in zip(decl.params, self.fn.params):
             if param.name in self.scopes[0]:
                 raise CompileError(f"duplicate parameter `{param.name}`", param.pos)
@@ -184,16 +184,18 @@ class Checker:
             return then_returns and else_returns
 
         if isinstance(s, S.Loop):
+            require_snake(s.label, "loop label", s.pos)
             if s.cond is not None:
                 self.expr(s.cond, BOOL)
-            self.loop_depth += 1
+            self.loops.append(s.label)
             self.block(s.body)
-            self.loop_depth -= 1
-            # `loop { }` (or `loop true`) with no `break` never falls through.
+            self.loops.pop()
+            # `loop { }` (or `loop true`) that nothing breaks out of never falls through.
             forever = s.cond is None or (isinstance(s.cond, S.BoolLit) and s.cond.value)
-            return forever and not contains_break(s.body)
+            return forever and not breaks_to(s.body, s.label)
 
         if isinstance(s, S.ForRange):
+            require_snake(s.label, "loop label", s.pos)
             require_snake(s.var, "loop variable", s.pos)
             if s.type is not None:
                 ty = self.resolve_type(s.type)
@@ -207,16 +209,19 @@ class Checker:
             self.scopes.append({})
             s.end_slot = self.new_local(" end", ty, mutable=False)
             s.slot = self.new_local(s.var, ty, mutable=False)
-            self.loop_depth += 1
+            self.loops.append(s.label)
             self.block(s.body)
-            self.loop_depth -= 1
+            self.loops.pop()
             self.scopes.pop()
             return False
 
         if isinstance(s, (S.Break, S.Continue)):
-            if self.loop_depth == 0:
+            if s.label not in self.loops:
                 word = "break" if isinstance(s, S.Break) else "continue"
-                raise CompileError(f"`{word}` outside a loop", s.pos)
+                if not self.loops:
+                    raise CompileError(f"`{word}` outside a loop", s.pos)
+                raise CompileError(f"`{word} {s.label}`: no enclosing loop is named `{s.label}`",
+                                   s.pos)
             return False
 
         if isinstance(s, S.Return):
@@ -447,20 +452,19 @@ def untyped_literal(e):
     return isinstance(e, S.IntLit)
 
 
-def contains_break(block):
-    """Does `block` contain a `break` for its enclosing loop? Breaks inside
-    nested loops belong to those loops and don't count."""
+def breaks_to(block, label):
+    """Does anything inside `block`, at any depth, `break label`?"""
     for s in block.stmts:
-        if isinstance(s, S.Break):
+        if isinstance(s, S.Break) and s.label == label:
+            return True
+        if isinstance(s, (S.Loop, S.ForRange)) and breaks_to(s.body, label):
             return True
         if isinstance(s, S.If):
-            if contains_break(s.then):
-                return True
-            branch = s.else_
+            branch = s
             while isinstance(branch, S.If):
-                if contains_break(branch.then):
+                if breaks_to(branch.then, label):
                     return True
                 branch = branch.else_
-            if isinstance(branch, S.Block) and contains_break(branch):
+            if isinstance(branch, S.Block) and breaks_to(branch, label):
                 return True
     return False

@@ -1,0 +1,7 @@
+// Every loop is named, so closers, `break` and `continue` can refer to it.
+// error: 5:5: every loop is named
+
+fn f() {
+    loop {
+    }
+}

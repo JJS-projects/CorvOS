@@ -1,0 +1,9 @@
+// A loop label can't reuse the name of a block it is inside.
+// error: 6:9: `rows` already names an enclosing block
+
+fn f() {
+    rows: loop i in 0..3 {
+        rows: loop j in 0..3 {
+        }
+    }
+}
