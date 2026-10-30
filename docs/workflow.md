@@ -74,6 +74,18 @@ These are how the work is done, as opposed to the design
   compiler's assembly) is kept so it can be read.
 - **Decisions name their principle.** A new entry in `decisions.md` says which
   principle settled it, or why none did.
+- **Design questions are asked one at a time**, each with code samples that show
+  every option fairly, in realistic Rook rather than toy snippets. How the
+  language feels matters, so nothing is built until the owner has chosen. A rule
+  derived while building (not chosen by the owner) is marked "derived; open to
+  review" in `decisions.md` and listed in the PR.
+- **Error messages are read before they become tests.** Each new error test's
+  program is compiled first, and its message and caret position are checked by
+  eye before the `// error:` line is written from them.
+- **Deliberate-bug checks are scripted.** For each new rule, a script edits the
+  compiler (or Rook code) to break it, runs `make test`, restores the file, and
+  records which tests failed. The table goes in the PR. A check no test catches
+  is either covered by a new test or listed as untested, with the reason.
 
 ## Merging
 
@@ -85,4 +97,5 @@ These are how the work is done, as opposed to the design
 ## Real hardware
 
 QEMU is the reference for testing. Real Pi Zero 2 W runs are manual and
-recorded in the PR when done; see `tools/sdcard/README.md`.
+recorded in the PR when done; see `tools/sdcard/README.md`. The plan for
+automating them is in [roadmap.md](roadmap.md#later-real-hardware-in-ci).
