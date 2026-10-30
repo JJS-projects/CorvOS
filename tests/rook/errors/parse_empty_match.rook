@@ -1,0 +1,7 @@
+// A `match` has at least one arm.
+// error: 5:5: a `match` needs at least one arm
+
+fn f(n: u64) {
+    match n {
+    }
+}

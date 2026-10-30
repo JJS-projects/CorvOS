@@ -1,0 +1,6 @@
+// A character literal holds one character.
+// error: 5:13: empty character literal
+
+fn f() {
+    x: u8 = ''
+}

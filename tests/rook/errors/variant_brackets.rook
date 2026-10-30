@@ -1,0 +1,10 @@
+// A variant without fields is built without brackets.
+// error: 9:15: `Idle` has no fields: write `Idle`
+
+enum Mode {
+    Idle
+}
+
+fn f() {
+    x: Mode = Idle()
+}

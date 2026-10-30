@@ -1,0 +1,6 @@
+// Ordering comparisons need integers; bools have no order.
+// error: 5:14: `<` needs integers, found bool
+
+fn f(a: bool, b: bool) -> bool {
+    return a < b
+}

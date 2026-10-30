@@ -1,0 +1,6 @@
+// Character literals are ASCII; text is UTF-8 bytes.
+// error: 5:13: character literals must be ASCII
+
+fn f() {
+    x: u8 = 'é'
+}

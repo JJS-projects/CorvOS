@@ -1,0 +1,6 @@
+// A `match` that never closes is reported where it opened.
+// error: 5:13: unclosed `{`
+
+fn f(n: u64) {
+    match n {
+        else => discard 1

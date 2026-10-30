@@ -1,0 +1,10 @@
+// Calling a method the struct doesn't have.
+// error: 9:7: `Thing` has no method `nope`
+
+struct Thing {
+    x: u64
+}
+
+fn f(p: Thing) {
+    p.nope()
+}

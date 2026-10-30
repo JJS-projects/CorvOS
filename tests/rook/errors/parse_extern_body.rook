@@ -1,0 +1,5 @@
+// An `extern fn` is written elsewhere, so it has no body.
+// error: 4:15: `extern fn` declares a function written elsewhere and has no body
+
+extern fn g() {
+}

@@ -1,0 +1,6 @@
+// A `\x` escape needs two hex digits.
+// error: 5:16: invalid `\x` escape (needs two hex digits)
+
+fn f() {
+    s: Bytes = "\xZZ"
+}

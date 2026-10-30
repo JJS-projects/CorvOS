@@ -1,0 +1,6 @@
+// A struct value names a struct that exists.
+// error: 5:14: unknown type `Foo`
+
+fn f() {
+    x: u64 = Foo(a: 1)
+}

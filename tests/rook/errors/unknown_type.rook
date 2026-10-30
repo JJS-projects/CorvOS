@@ -1,0 +1,5 @@
+// A parameter's type must exist.
+// error: 4:9: unknown type `Foo`
+
+fn f(x: Foo) {
+}

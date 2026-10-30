@@ -1,0 +1,10 @@
+// `not` works on bools and integers.
+// error: 9:13: `not` needs a bool or an integer, found Thing
+
+struct Thing {
+    x: u64
+}
+
+fn f(p: Thing) {
+    discard not p
+}

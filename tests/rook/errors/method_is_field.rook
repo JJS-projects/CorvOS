@@ -1,0 +1,10 @@
+// A method can't reuse the name of a field.
+// error: 7:5: `x` is already a field of `Thing`
+
+struct Thing {
+    x: u64
+
+    fn x() -> u64 {
+        return 1
+    }
+}

@@ -1,0 +1,7 @@
+// A built-in that doesn't change its arguments can't be passed `mut`.
+// error: 6:11: `panic` doesn't change its arguments, so they aren't marked `mut`
+
+fn f() {
+    mut a: u64 = 1
+    panic(mut a)
+}

@@ -1,0 +1,6 @@
+// A shift amount is an integer.
+// error: 5:20: shift amount must be an integer, found bool
+
+fn f() {
+    x: u64 = 1 shl true
+}

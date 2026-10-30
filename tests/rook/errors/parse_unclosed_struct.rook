@@ -1,0 +1,5 @@
+// A struct that never closes is reported where it opened.
+// error: 4:1: unclosed `{`
+
+struct Thing {
+    x: u64

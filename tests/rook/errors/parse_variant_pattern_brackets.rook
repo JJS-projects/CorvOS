@@ -1,0 +1,14 @@
+// A variant without fields is matched without brackets.
+// error: 11:13: a variant with no fields is written without brackets: `Idle`
+
+enum Mode {
+    Idle
+    Done
+}
+
+fn f(e: Mode) -> u64 {
+    return match e {
+        Idle() => 0
+        Done => 1
+    }
+}

@@ -1,0 +1,8 @@
+// A function is defined once.
+// error: 7:1: `f` is already defined
+
+fn f() {
+}
+
+fn f() {
+}

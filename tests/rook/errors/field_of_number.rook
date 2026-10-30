@@ -1,0 +1,6 @@
+// A number has no fields.
+// error: 5:14: u64 has no field or method `x`
+
+fn f(n: u64) -> u64 {
+    return n.x
+}

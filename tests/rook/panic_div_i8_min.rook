@@ -1,0 +1,10 @@
+// i8 MIN / -1 panics too: the answer, 128, doesn't fit in 8 bits.
+// expect: 0
+// expect-panic: integer overflow at panic_div_i8_min.rook:9
+
+fn test_main() {
+    a: i8 = -127 - 1
+    b: i8 = -1
+    print_i64((a % b) as i64)
+    print_i64((a / b) as i64)
+}

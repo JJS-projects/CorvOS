@@ -1,0 +1,17 @@
+// Only a variable or a field can be lent as `mut`, not a call's result.
+// error: 16:7: can only lend as `mut` a variable or a field
+
+struct Thing {
+    x: u64
+}
+
+fn make() -> Thing {
+    return Thing(x: 1)
+}
+
+fn g(t: mut Thing) {
+}
+
+fn f() {
+    g(mut make())
+}

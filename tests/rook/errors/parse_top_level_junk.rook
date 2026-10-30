@@ -1,0 +1,4 @@
+// Only functions, types and constants go at the top level.
+// error: 4:1: expected `fn`, `extern fn`, `struct`, `enum` or a constant at top level, found `42`
+
+42

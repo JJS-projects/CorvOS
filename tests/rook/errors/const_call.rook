@@ -1,0 +1,8 @@
+// Constants are computed at compile time, so they can't call functions.
+// error: 8:14: constants can't call functions
+
+fn g() -> u64 {
+    return 1
+}
+
+LIMIT: u64 = g()

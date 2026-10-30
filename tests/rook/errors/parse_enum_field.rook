@@ -1,0 +1,7 @@
+// An enum has variants, not fields.
+// error: 6:5: an enum has variants, not fields: write `Name` or `Name(field: type)`
+
+enum Mode {
+    Idle
+    x: u64
+}

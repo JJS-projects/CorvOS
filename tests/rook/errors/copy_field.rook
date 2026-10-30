@@ -1,0 +1,14 @@
+// Putting a struct held in another struct's field into a variable copies it, so it must be explicit.
+// error: 13:18: `b` would be a copy of `o.inner`; write `copy(o.inner)` to copy it
+
+struct Inner {
+    v: u64
+}
+
+struct Outer {
+    inner: Inner
+}
+
+fn f(o: Outer) {
+    b: Inner = o.inner
+}

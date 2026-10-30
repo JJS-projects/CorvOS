@@ -1,0 +1,10 @@
+// `as` converts numbers; a struct can't be converted.
+// error: 9:14: can't convert Thing to u64
+
+struct Thing {
+    x: u64
+}
+
+fn f(t: Thing) -> u64 {
+    return t as u64
+}

@@ -1,0 +1,9 @@
+// A constant is a number or a bool; an enum value isn't either.
+// error: 9:17: constants must be numbers or bools
+
+enum Mode {
+    Idle
+    Done
+}
+
+DEFAULT: Mode = Idle

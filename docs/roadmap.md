@@ -53,8 +53,8 @@ hardware, in several small PRs (listed under *Progress*).
 
 1. *Test harness* (done): the Makefile rebuilds on change; tests run on `raspi3b`
    and `raspi3ap` and fail on QEMU device reports; `make coverage` reports the
-   compiler lines no test reaches (93.0% at the start; the gaps are the next PR).
-2. Tests for those gaps.
+   compiler lines no test reaches (93.0% at the start).
+2. *Tests for those gaps* (done): coverage of the compiler is 99.4%, and `make coverage` now fails on any new gap.
 3. Differential testing.
 4. Bring-up checklist, activity LED and serial harness.
 

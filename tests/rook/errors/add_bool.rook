@@ -1,0 +1,6 @@
+// Arithmetic needs integers; bools aren't numbers.
+// error: 5:20: `+` needs integers, found bool
+
+fn f() {
+    x: bool = true + true
+}

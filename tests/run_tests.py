@@ -25,7 +25,8 @@ Four kinds of test:
              as trusted) that Fledgling must reject:
                  // error: 7:5: can't assign to `x`
              The error must be in that file, at that line:column, and contain
-             that message.
+             that message. A header line `// alone` compiles the file by itself,
+             without Raven's code (for errors about what a program must include).
 
   harness/...  Checks of the test harness and build itself, defined in
              HARNESS_TESTS below: the things a Rook program can't test.
@@ -354,12 +355,13 @@ class ErrorTest:
     line: int
     col: int
     message: str
+    alone: bool = False
 
     @classmethod
     def from_file(cls, path):
         rel = os.path.relpath(path, os.path.join(ROOT, "tests", "rook", "errors"))
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
-        description, spec = "", None
+        description, spec, alone = "", None, False
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -367,20 +369,24 @@ class ErrorTest:
             text = line[2:].strip()
             if text.startswith("error:"):
                 spec = text[len("error:"):].strip()
+            elif text == "alone":
+                alone = True
             elif not description:
                 description = text
         if spec is None:
             raise SystemExit(f"{path}: missing `// error: LINE:COL: message` header")
         where, message = spec.split(" ", 1)
         line_no, col = where.rstrip(":").split(":")
-        return cls(f"error/{base}", description, path, int(line_no), int(col), message.strip())
+        return cls(f"error/{base}", description, path, int(line_no), int(col), message.strip(),
+                   alone)
 
     def run(self):
-        files = [(p, open(p).read()) for p in ERROR_LIB + [self.path]]
+        lib = [] if self.alone else ERROR_LIB
+        files = [(p, open(p).read()) for p in lib + [self.path]]
         try:
             compile_program(files, TRUSTED_DIRS)
         except CompileError as err:
-            got = err.format(os.path.basename(self.path))
+            got = err.format(os.path.basename(self.path), dict(files).get(err.pos.file))
             if err.pos.file != self.path:
                 return False, f"error in {err.pos.file}, not in the test", got
             if (err.pos.line, err.pos.col) != (self.line, self.col):
@@ -426,6 +432,25 @@ def check_machines():
     for need in ("raspi3b", "raspi3ap"):
         if need not in MACHINES:
             return f"{need} is not in MACHINES ({' '.join(MACHINES)})"
+    return None
+
+
+def check_error_display():
+    """The compiler command shows the source line with a caret under the error."""
+    test = ErrorTest.from_file(os.path.join(ROOT, "tests", "rook", "errors", "assign_to_immutable.rook"))
+    env = dict(os.environ, PYTHONPATH=os.path.join(ROOT, "bootstrap"), PYTHONDONTWRITEBYTECODE="1")
+    result = subprocess.run(
+        [sys.executable, "-m", "fledgling", *ERROR_LIB, test.path,
+         *[arg for d in TRUSTED_DIRS for arg in ("--trusted", d)]],
+        cwd=ROOT, env=env, capture_output=True, text=True)
+    lines = result.stderr.splitlines()
+    if result.returncode != 1 or len(lines) < 3:
+        return f"expected exit status 1 and an error, got {result.returncode}: {result.stderr!r}"
+    source = open(test.path).read().splitlines()[test.line - 1]
+    if lines[-2] != "    " + source:
+        return f"source line not shown: {lines[-2]!r}"
+    if lines[-1] != "    " + " " * (test.col - 1) + "^":
+        return f"caret not under column {test.col}: {lines[-1]!r}"
     return None
 
 
@@ -480,6 +505,8 @@ HARNESS_TESTS = [
                 check_machines),
     HarnessTest("harness/wrong_expectations", "A Rook test with a wrong fault or QEMU-log "
                 "expectation fails", check_wrong_expectations_fail),
+    HarnessTest("harness/error_display", "The compiler shows the source line with a caret under "
+                "the error", check_error_display),
     HarnessTest("harness/make_deps", "Changing the Makefile rebuilds everything built from it",
                 check_make_deps),
 ]

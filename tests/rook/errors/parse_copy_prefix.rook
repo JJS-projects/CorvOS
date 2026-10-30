@@ -1,0 +1,10 @@
+// Copying is written `copy(value)`, never `copy value`.
+// error: 9:21: write `copy(value)`
+
+struct Thing {
+    x: u64
+}
+
+fn f(a: Thing) {
+    b: Thing = copy a
+}

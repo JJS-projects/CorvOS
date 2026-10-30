@@ -1,0 +1,6 @@
+// `unsafe` is followed by a block.
+// error: 5:12: `unsafe` marks a block: `unsafe { ... }`
+
+fn f() {
+    unsafe x = 1
+}

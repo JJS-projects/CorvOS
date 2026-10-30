@@ -1,0 +1,10 @@
+// A variant is not a type; its enum is.
+// error: 9:9: `Idle` is a variant of `Mode`, not a type
+
+enum Mode {
+    Idle
+    Done
+}
+
+fn f(x: Idle) {
+}

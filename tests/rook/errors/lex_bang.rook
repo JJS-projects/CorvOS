@@ -1,0 +1,6 @@
+// Rook writes `!` as `not`.
+// error: 5:15: Rook writes `!` as `not`
+
+fn f() {
+    x: bool = !true
+}

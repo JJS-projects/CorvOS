@@ -1,0 +1,6 @@
+// Only integers can be shifted.
+// error: 5:15: `shl` needs an integer on the left, found bool
+
+fn f() {
+    x: bool = true shl 1
+}

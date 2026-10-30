@@ -1,0 +1,10 @@
+// Inside a method, `.copy()` is rejected like any other method-style copy.
+// error: 8:17: copying is written `copy(value)`, not as a method
+
+struct Thing {
+    x: u64
+
+    fn twin() -> Thing {
+        return .copy()
+    }
+}

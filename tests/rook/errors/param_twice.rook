@@ -1,0 +1,5 @@
+// A parameter name is used once.
+// error: 4:14: duplicate parameter `a`
+
+fn f(a: u64, a: u64) {
+}

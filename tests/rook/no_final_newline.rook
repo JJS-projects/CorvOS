@@ -1,0 +1,6 @@
+// A file may end without a final newline.
+// expect: 3
+
+fn test_main() {
+    print_u64(1 + 2)
+}

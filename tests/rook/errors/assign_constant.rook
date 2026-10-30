@@ -1,0 +1,8 @@
+// A constant can't be assigned to.
+// error: 7:5: can't assign to constant `LIMIT`
+
+LIMIT: u64 = 1
+
+fn f() {
+    LIMIT = 2
+}

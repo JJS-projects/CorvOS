@@ -1,0 +1,6 @@
+// A character literal ends on the same line.
+// error: 5:13: unterminated character literal
+
+fn f() {
+    x: u8 = 'a
+}

@@ -1,0 +1,6 @@
+// A number needs digits after its `0x` prefix.
+// error: 5:14: invalid number `0x`
+
+fn f() {
+    x: u64 = 0x
+}

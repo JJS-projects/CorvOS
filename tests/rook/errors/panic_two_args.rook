@@ -1,0 +1,6 @@
+// `panic` takes one message.
+// error: 5:5: `panic` takes one argument: a message
+
+fn f() {
+    panic("a", "b")
+}

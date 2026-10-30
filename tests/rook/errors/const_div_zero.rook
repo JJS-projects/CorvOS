@@ -1,0 +1,4 @@
+// Constant division by zero is caught at compile time.
+// error: 4:16: division by zero in constant
+
+ZERO: u64 = 10 / 0

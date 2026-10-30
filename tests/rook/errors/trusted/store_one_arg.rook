@@ -1,0 +1,8 @@
+// `store8` takes an address and a value.
+// error: 6:9: `store8` takes two arguments: an address and a value
+
+fn f() {
+    unsafe {
+        store8(1)
+    }
+}

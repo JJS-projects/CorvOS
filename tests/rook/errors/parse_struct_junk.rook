@@ -1,0 +1,6 @@
+// Only fields and methods go inside a struct.
+// error: 5:5: expected a field or a method, found `5`
+
+struct Thing {
+    5
+}
