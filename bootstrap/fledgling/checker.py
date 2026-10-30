@@ -628,7 +628,11 @@ class Checker:
                 raise CompileError(f"`{op}` needs bools or integers, found {lty}", e.pos)
             return lty
         if op in EQUALITY:
-            if not is_int(lty) and lty != BOOL and not is_struct(lty):
+            if is_struct(lty):
+                # Decision 74: a struct can only do what its declaration shows.
+                raise CompileError(f"`{op}` doesn't compare structs; write a method such as "
+                                   f"`equals` in `{lty}`", e.pos)
+            if not is_int(lty) and lty != BOOL:
                 raise CompileError(f"can't compare values of type {lty}", e.pos)
             return BOOL
         if op in ORDERING:

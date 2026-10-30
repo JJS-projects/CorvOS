@@ -453,22 +453,6 @@ class Gen:
         self.pop("x0")
         operand = e.left.ty
 
-        if is_struct(operand):
-            # Struct equality: every word equal (all fields are kept in normal form).
-            differ = self.new_label("differ")
-            done = self.new_label("compared")
-            for i in range(operand.words):
-                self.emit(f"ldr x16, [x0, #{8 * i}]")
-                self.emit(f"ldr x17, [x1, #{8 * i}]")
-                self.emit("cmp x16, x17")
-                self.emit(f"b.ne {differ}")
-            self.emit(f"mov x0, #{1 if op == '==' else 0}")
-            self.emit(f"b {done}")
-            self.label(differ)
-            self.emit(f"mov x0, #{0 if op == '==' else 1}")
-            self.label(done)
-            return
-
         if op in EQ_COND or op in SIGNED_COND:
             if op in EQ_COND:
                 cond = EQ_COND[op]

@@ -289,7 +289,8 @@ fn demo() {
   return its own local struct; it is moved out.
 - **Mutability belongs to the variable**, not the fields: a `mut` variable can have
   any field changed (`a.x = 5`), and fields are never marked `mut`.
-- **`==` and `!=`** compare every field.
+- **Structs have no built-in `==`.** Write a method such as `equals` where one is
+  needed, so everything a struct can do is written in it.
 - A struct can't contain itself by value, since it would have no fixed size.
 
 ## 4. Actors and handlers
