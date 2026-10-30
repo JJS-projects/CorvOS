@@ -80,7 +80,7 @@ actor LineEditor: ByteSink {
     on byte(b: u8) {
         .out.write(b)                          // echo it back
         if b == '\n' {
-            line: val Buffer = consume .buf    // freeze: iso -> val
+            line: val Buffer = consume(.buf)   // freeze: iso -> val
             .buf = Buffer.new(LINE_MAX)
             .lines.line(line)
         } else {
@@ -280,7 +280,9 @@ fn demo() {
 - **Copies are explicit**: `b: Point = a` is an error, because it would silently
   copy `a`. Write `copy(a)`. Numbers are always copied, so `copy` only takes a struct.
   `copy` is built in rather than a method, so a struct's methods are exactly the
-  ones written inside it.
+  ones written inside it. Built-ins that produce a value are all written this way,
+  as calls with reserved names (`copy(a)`, and later `consume(x)`); operators and
+  statement words (`as`, `wrap`, `discard`, `spawn`) are keywords.
 - **What can be stored**: a new value (a struct literal, a call's result, a
   `copy(...)`, or an `if` choosing between new values) can be stored in a variable,
   a field, or returned. A lent value can't, without `copy(...)`. A function may
@@ -357,8 +359,8 @@ building an `iso` then consuming it into a `val` covers `trn`.
 
 ### 7.1 Ownership in practice
 
-- `consume x` moves `x`; the compiler forbids using `x` afterwards.
-- `v: val T = consume x`, where `x` is `iso T`, **freezes** it. Freezing applies to
+- `consume(x)` moves `x`; the compiler forbids using `x` afterwards.
+- `v: val T = consume(x)`, where `x` is `iso T`, **freezes** it. Freezing applies to
   the whole structure, so frozen data has no cycles and refcounting is enough.
 - Consuming a field leaves it empty; it must be assigned again before the handler
   ends.
