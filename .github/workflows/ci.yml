@@ -20,6 +20,9 @@ jobs:
       - name: Test in QEMU
         run: make test
 
+      - name: Compiler coverage (report only)
+        run: make coverage
+
       - name: Upload kernel and test logs
         if: always()
         uses: actions/upload-artifact@v4

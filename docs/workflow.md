@@ -37,13 +37,14 @@ to try it yourself, there are three ways, from easiest:
 |---|---|
 | `make` | Build `build/kernel8.img` |
 | `make test` | Build and run every QEMU test |
+| `make coverage` | List the compiler lines no test reaches (Python's `trace`, no extra install) |
 | `make run` | Boot the kernel in QEMU with the UART on your terminal (quit: Ctrl-A then X) |
 | `make disasm` | Disassemble the kernel |
 | `make sdcard` | Collect files for a real Pi Zero 2 W (see `tools/sdcard/`) |
 
 ## Tests
 
-`make test` builds everything and runs `tests/run_tests.py`, which has three kinds
+`make test` builds everything and runs `tests/run_tests.py`, which has four kinds
 of test:
 
 | Kind | Where | What it checks |
@@ -51,7 +52,16 @@ of test:
 | `boot/...` | `BOOT_TESTS` in `tests/run_tests.py` | The kernel boots in QEMU; expected UART lines appear in order, forbidden ones never do. |
 | `rook/...` | `tests/rook/*.rook` | A Rook program, compiled and booted in QEMU, prints exactly the `// expect:` lines in its header (and panics with the `// expect-panic:` message, if given). |
 | `error/...` | `tests/rook/errors/*.rook` | The compiler rejects the program with the `// error: LINE:COL: message` given in its header. |
+| `harness/...` | `HARNESS_TESTS` in `tests/run_tests.py` | The harness and build themselves: things a Rook program can't check, such as that changing the Makefile rebuilds everything. |
 
+- `boot/` and `rook/` tests run on two QEMU machines: `raspi3b` (1 GB) and
+  `raspi3ap` (512 MB, like the Zero 2 W). QEMU also logs accesses to unimplemented
+  or misused devices, and any such report fails the test. A Rook program that
+  causes one on purpose says so in its header:
+  `// expect-qemu-log: pl011_write: Bad offset 0x100`. Other optional headers:
+  `// machines: raspi3b` (run only there) and
+  `// expect-fault: FAR_EL1:  0x0000000030000000` (must end in a reported CPU fault).
+  `MACHINES=raspi3b make test` runs one machine only.
 - Run a subset with `python3 tests/run_tests.py rook/` (any test name or prefix),
   after `make test` has built the images.
 - Full QEMU output of each run is saved in `build/test-logs/`.
@@ -84,7 +94,8 @@ These are how the work is done, as opposed to the design
   eye before the `// error:` line is written from them.
 - **Deliberate-bug checks are scripted.** For each new rule, a script edits the
   compiler (or Rook code) to break it, runs `make test`, restores the file, and
-  records which tests failed. The table goes in the PR. A check no test catches
+  records which tests failed (`tools/bug-check.py FILE OLD NEW` does this for one
+  edit). The table goes in the PR. A check no test catches
   is either covered by a new test or listed as untested, with the reason.
 
 ## Merging

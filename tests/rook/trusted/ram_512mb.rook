@@ -1,0 +1,11 @@
+// The raspi3ap machine has 512 MB of RAM, like the Zero 2 W, so the same
+// address is outside it: the CPU faults and Raven reports the address.
+// machines: raspi3ap
+// expect-fault: FAR_EL1:  0x0000000030000000
+// expect-qemu-log: Invalid write at addr 0x30000000
+
+fn test_main() {
+    unsafe {
+        store32(0x30000000, 42)
+    }
+}

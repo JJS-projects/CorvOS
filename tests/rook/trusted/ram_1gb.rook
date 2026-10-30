@@ -1,0 +1,10 @@
+// The raspi3b machine has 1 GB of RAM, so an address 768 MB in can be used.
+// machines: raspi3b
+// expect: 42
+
+fn test_main() {
+    unsafe {
+        store32(0x30000000, 42)
+        print_u64(load32(0x30000000) as u64)
+    }
+}
