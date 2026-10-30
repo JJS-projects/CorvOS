@@ -1,0 +1,59 @@
+// Enums are lent like structs: passed without copying, changed through `mut`,
+// and copied with copy(...). A match used as a value can build new enums.
+// expect: 4
+// expect: 0
+// expect: 6
+// expect: 2
+// expect: 1
+
+extern fn print_u64(x: u64)
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+enum Slot {
+    Empty
+    Full(at: Point)
+}
+
+struct Holder {
+    id: u64
+    slot: Slot
+}
+
+fn x_of(s: Slot) -> u64 {
+    return match s {
+        Empty => 0
+        Full(at: at) => at.x
+    }
+}
+
+fn clear(s: mut Slot) {
+    s = Empty
+}
+
+fn kind(s: Slot) -> u64 {
+    return match s {
+        Empty => 1
+        Full(at: _) => 2
+    }
+}
+
+fn test_main() {
+    mut h: Holder = Holder(id: 1, slot: Full(at: Point(x: 4, y: 5)))
+    print_u64(x_of(h.slot))                 // 4
+    clear(mut h.slot)
+    print_u64(x_of(h.slot))                 // 0
+    pick: bool = true
+    s: Slot = match pick {
+        true => Full(at: Point(x: 6, y: 0))
+        false => Empty
+    }
+    print_u64(x_of(s))                      // 6
+    mut t: Slot = copy(s)
+    print_u64(kind(t))                      // 2
+    clear(mut t)
+    print_u64(kind(t) + kind(s) - 2)        // 1: t is Empty, s is still Full
+}

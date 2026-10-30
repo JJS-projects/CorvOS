@@ -1,0 +1,12 @@
+// Enum fields are only read through match, which checks the variant first.
+// error: 11:14: `State` is an enum: read its fields with `match`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(s: State) -> u64 {
+    return s.job
+}

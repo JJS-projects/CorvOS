@@ -1,0 +1,9 @@
+// A range must contain at least one value.
+// error: 6:9: this range is empty: its end must be greater than its start
+
+fn f(b: u8) -> u64 {
+    return match b {
+        10..10 => 1
+        else => 2
+    }
+}

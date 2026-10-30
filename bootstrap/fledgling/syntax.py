@@ -46,6 +46,8 @@ class Name(Expr):
         super().__post_init__()
         self.slot = None        # set by checker: local variable slot
         self.const_value = None  # set by checker: value if this names a const
+        self.variant = None     # set by checker: if this is a variant without fields
+        self.temp = None        # set by checker: frame slot for that variant's value
 
 
 @dataclass
@@ -81,13 +83,14 @@ class Cast(Expr):
 
 @dataclass
 class StructLit(Expr):
-    """`Point(x: 1, y: 2)`: every field named, in declaration order."""
+    """`Point(x: 1, y: 2)` or `Busy(job: 3)`: every field named, in declaration order."""
     name: str
     fields: list                # [(field name, Expr, Pos)]
 
     def __post_init__(self):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot of the new value
+        self.variant = None     # set by checker: the Variant, for an enum value
 
 
 @dataclass
@@ -118,6 +121,50 @@ class Copy(Expr):
     def __post_init__(self):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot for the copy
+
+
+@dataclass
+class SelfValue(Expr):
+    """`.` on its own inside a method: the method's whole struct or enum."""
+
+
+@dataclass
+class Pattern:
+    """One pattern in a `match` arm. A variant pattern has `name` (and
+    `bindings` if written with brackets); a value pattern has `value` (and
+    `end` for a range `value..end`)."""
+    pos: Pos
+    name: Optional[str] = None
+    bindings: Optional[list] = None     # [(field name, binding name or "_", Pos)]
+    value: Optional[Expr] = None
+    end: Optional[Expr] = None
+
+    def __post_init__(self):
+        self.variant = None     # set by checker: the Variant matched
+        self.slots = []         # set by checker: [(binding slot, field offset, is_aggregate)]
+        self.lo = None          # set by checker: the values matched are lo <= v < hi
+        self.hi = None
+
+
+@dataclass
+class Arm:
+    """`patterns => body`. `patterns` is None for `else`. `body` is an Expr in
+    a match used as a value (or a Return/Break/Continue that leaves it), and a
+    Block or a single statement otherwise."""
+    pos: Pos
+    patterns: Optional[list]
+    body: object
+
+
+@dataclass
+class MatchExpr(Expr):
+    """`match value { arms }` used as a value."""
+    subject: Expr
+    arms: list
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.subject_slot = None    # set by checker: the subject's value or address
 
 
 @dataclass
@@ -155,7 +202,7 @@ class Decl(Stmt):
 
 @dataclass
 class Assign(Stmt):
-    target: Expr                # a place: Name or FieldAccess
+    target: Expr                # a place: Name, FieldAccess or SelfValue
     op: str                     # "=", "+=", ...
     value: Expr                 # checker rewrites `x += e` to `x = x + e`
 
@@ -204,6 +251,16 @@ class ForRange(Stmt):
 
 
 @dataclass
+class Match(Stmt):
+    """`match value { arms }` as a statement."""
+    subject: Expr
+    arms: list
+
+    def __post_init__(self):
+        self.subject_slot = None    # set by checker
+
+
+@dataclass
 class Break(Stmt):
     label: str
 
@@ -239,8 +296,8 @@ class FnDecl:
     body: Optional[Block]       # None for `extern fn`
     pos: Pos
     public: bool = False
-    mutating: bool = False      # `mut fn`: a method that may change its struct
-    owner: Optional[str] = None  # the struct a method belongs to
+    mutating: bool = False      # `mut fn`: a method that may change its struct or enum
+    owner: Optional[str] = None  # the struct or enum a method belongs to
 
     def __post_init__(self):
         self.nslots = 0         # set by checker: number of 8-byte local slots
@@ -273,6 +330,22 @@ class Field:
 class StructDecl:
     name: str
     fields: list                # [Field]
+    methods: list               # [FnDecl]
+    pos: Pos
+    public: bool = False
+
+
+@dataclass
+class VariantDecl:
+    name: str
+    fields: Optional[list]      # [Field], or None for a variant written without brackets
+    pos: Pos
+
+
+@dataclass
+class EnumDecl:
+    name: str
+    variants: list              # [VariantDecl]
     methods: list               # [FnDecl]
     pos: Pos
     public: bool = False

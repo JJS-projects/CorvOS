@@ -1,0 +1,10 @@
+// A match used as a value needs at least one arm that gives a value.
+// error: 5:14: every arm leaves, so this `match` has no value
+
+fn f(b: u8) -> u64 {
+    x: u64 = match b {
+        0 => return 1
+        else => return 2
+    }
+    return x
+}

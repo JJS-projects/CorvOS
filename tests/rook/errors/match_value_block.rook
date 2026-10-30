@@ -1,0 +1,9 @@
+// Arms of a match used as a value are single expressions, like if branches.
+// error: 6:14: each arm of a `match` used as a value is a single expression, without `{ }`
+
+fn f(b: u8) -> u64 {
+    return match b {
+        0 => { 1 }
+        else => 2
+    }
+}

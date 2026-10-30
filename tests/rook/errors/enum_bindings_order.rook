@@ -1,0 +1,16 @@
+// Every field is bound, by name, in declaration order.
+// error: 13:9: write the fields of `Busy` once each, in the order they are declared: job, since
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(s: State) -> u64 {
+    return match s {
+        Idle => 0
+        Busy(since: _, job: j) => j
+        Failed(code: _) => 3
+    }
+}

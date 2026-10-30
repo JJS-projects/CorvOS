@@ -1,0 +1,13 @@
+// Structs can't be matched: only enums, integers and bools.
+// error: 10:18: can't match a Point: `match` works on enums, integers and bools
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f(p: Point) -> u64 {
+    return match p {
+        else => 1
+    }
+}

@@ -1,0 +1,10 @@
+// Arms can't overlap, so the order of arms never matters.
+// error: 7:9: this pattern overlaps an earlier one
+
+fn f(b: u8) -> u64 {
+    return match b {
+        0..10 => 1
+        5 => 2
+        else => 3
+    }
+}

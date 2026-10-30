@@ -1,0 +1,9 @@
+// Patterns are literals or constants, never variables.
+// error: 6:9: a pattern is a literal or a constant, and `limit` is a variable
+
+fn f(b: u8, limit: u8) -> u64 {
+    return match b {
+        limit => 1
+        else => 2
+    }
+}

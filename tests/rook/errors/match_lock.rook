@@ -1,0 +1,25 @@
+// While a match binding lends part of a value, the value can't change: the binding would see another variant's data.
+// error: 20:15: can't assign to `s` while `at` is lent from it by this `match`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+enum Slot {
+    Empty
+    Full(at: Point)
+}
+
+fn f() -> u64 {
+    mut s: Slot = Full(at: Point(x: 1, y: 2))
+    mut result: u64 = 0
+    match s {
+        Empty => { }
+        Full(at: at) => {
+            s = Empty
+            result = at.x
+        }
+    }
+    return result
+}

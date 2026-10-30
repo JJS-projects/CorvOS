@@ -1,0 +1,12 @@
+// Enums have no built-in ==; compare with match.
+// error: 11:14: `==` doesn't compare enums; use `match`, or write a method such as `equals` in `State`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(a: State, b: State) -> bool {
+    return a == b
+}

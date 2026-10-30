@@ -1,0 +1,13 @@
+// A loop can end through a `break` inside a match used as a value, so code after
+// the loop is reachable and the function must still return.
+// error: 5:1: `f` must return a u64 on every path
+
+fn f(n: u64) -> u64 {
+    mut total: u64 = 0
+    scan: loop {
+        total += match n {
+            0 => break scan
+            else => 1
+        }
+    }
+}

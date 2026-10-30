@@ -2,7 +2,8 @@
 
 Rook has no semicolons. A newline ends a statement, so the lexer emits NEWLINE
 tokens, except where a statement obviously continues:
-  - inside ( ) or [ ]
+  - inside ( ) or [ ], unless a { } block is open inside them (a `match`
+    passed as an argument has one arm per line)
   - after a token that can't end an expression (an operator, `=`, `,`, `as`,
     an opening bracket)
 """
@@ -14,14 +15,14 @@ from .errors import CompileError, Pos
 KEYWORDS = {
     "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
     "continue", "return", "true", "false", "as", "wrap", "discard",
-    "and", "or", "xor", "not", "shl", "shr", "struct", "copy",
+    "and", "or", "xor", "not", "shl", "shr", "struct", "copy", "enum", "match",
 }
 
 # Reserved for later milestones: using them now is an error, so programs
 # written today keep working when the features arrive.
 RESERVED = {
-    "actor", "interface", "on", "new", "spawn", "match", "consume", "self",
-    "enum", "unsafe", "import",
+    "actor", "interface", "on", "new", "spawn", "consume", "self",
+    "unsafe", "import", "freeze", "narrow",
 }
 
 # Words from other languages that Rook deliberately doesn't use, with a hint.
@@ -69,7 +70,7 @@ class Token:
 def lex(source):
     tokens = []
     i, line, col = 0, 1, 1
-    depth = 0      # nesting of ( and [, where newlines are ignored
+    brackets = []  # open brackets; newlines are ignored when the innermost is ( or [
 
     def emit(kind, text, value, pos):
         tokens.append(Token(kind, text, value, pos))
@@ -80,7 +81,8 @@ def lex(source):
 
         if c == "\n":
             prev = tokens[-1].kind if tokens else "newline"
-            if depth == 0 and prev != "newline" and prev not in CONTINUES:
+            inside = brackets and brackets[-1] in "(["
+            if not inside and prev != "newline" and prev not in CONTINUES:
                 emit("newline", "\\n", None, pos)
             i, line, col = i + 1, line + 1, 1
             continue
@@ -169,10 +171,10 @@ def lex(source):
 
         for p in PUNCT:
             if source.startswith(p, i):
-                if p in ("(", "["):
-                    depth += 1
-                elif p in (")", "]"):
-                    depth = max(0, depth - 1)
+                if p in ("(", "[", "{"):
+                    brackets.append(p)
+                elif p in (")", "]", "}") and brackets:
+                    brackets.pop()
                 emit(p, p, None, pos)
                 i += len(p)
                 col += len(p)

@@ -15,18 +15,24 @@ that calls the kernel's `rook_panic(message, file, line)`, which never returns.
 Functions follow AAPCS64 (arguments in x0-x7, result in x0), so Rook and
 assembly can call each other.
 
-Structs live in memory, never in registers. A struct expression evaluates to
-the *address* of its value. Each struct value takes one 8-byte word per scalar
-field, nested structs inline. Struct arguments are passed as addresses (they are
-lent), a struct result is written to the address the caller passes in x8
-(AAPCS64's indirect result register), and a method receives the address of its
-struct in x0, ahead of its other arguments.
+Structs and enums live in memory, never in registers. Such an expression
+evaluates to the *address* of its value. Each value takes one 8-byte word per
+scalar field, nested values inline. An enum value is a tag word (the variant's
+index) followed by the variant's fields, padded with zeros to the size of the
+largest variant. Arguments are passed as addresses (they are lent), a result
+is written to the address the caller passes in x8 (AAPCS64's indirect result
+register), and a method receives the address of its value in x0, ahead of its
+other arguments.
+
+`self.depth` counts the temporaries pushed on the stack. A `break` or
+`continue` inside a `match` used as a value (say, as a call argument) pops the
+ones pushed since its loop began.
 """
 
 import os
 
 from . import syntax as S
-from .rtypes import BOOL, UNIT, is_int, is_struct
+from .rtypes import BOOL, UNIT, is_aggregate, is_enum, is_int, words
 
 PANIC_MESSAGES = {
     "overflow": "integer overflow",
@@ -70,7 +76,7 @@ class Gen:
         for item in prog.items:
             if isinstance(item, S.FnDecl) and item.body is not None:
                 self.function(item)
-            elif isinstance(item, S.StructDecl):
+            elif isinstance(item, (S.StructDecl, S.EnumDecl)):
                 for method in item.methods:
                     self.function(method)
         self.lines.append("")
@@ -84,7 +90,8 @@ class Gen:
         self.fn = fn
         self.ret_label = self.new_label(f"ret_{fn.name}")
         self.panics = []        # (label, kind, line)
-        self.loops = {}         # loop label -> (continue_label, break_label)
+        self.loops = {}         # loop label -> (continue_label, break_label, depth)
+        self.depth = 0          # temporaries currently pushed
 
         self.lines.append("")
         kind = f"method {fn.owner}.{fn.name}" if fn.owner else f"fn {fn.name}"
@@ -112,7 +119,7 @@ class Gen:
         # Parameters: normalise numbers (the caller may be assembly) and store.
         for i, param in enumerate(fn.params):
             self.emit(f"mov x0, x{first + i}")
-            if not (param.type.mut or is_struct(param.ty)):
+            if not (param.type.mut or is_aggregate(param.ty)):
                 self.normalize(param.ty)
             self.store_slot(param.slot)
 
@@ -163,9 +170,18 @@ class Gen:
 
     def push(self):
         self.emit("str x0, [sp, #-16]!")
+        self.depth += 1
 
     def pop(self, reg):
         self.emit(f"ldr {reg}, [sp], #16")
+        self.depth -= 1
+
+    def leave_to(self, label):
+        """Jump out to a loop label, popping temporaries pushed since the loop began."""
+        target, depth = self.loops[label][:2], self.loops[label][2]
+        if self.depth > depth:
+            self.emit(f"add sp, sp, #{16 * (self.depth - depth)}")
+        return target
 
     def load_imm(self, value, reg="x0"):
         value &= MASK64
@@ -214,7 +230,7 @@ class Gen:
         self.lines.append(f"    // line {s.pos.line}")
         if isinstance(s, S.Decl):
             self.expr(s.init)
-            if is_struct(s.init.ty):
+            if is_aggregate(s.init.ty):
                 self.region_addr(s.slot, s.init.ty.words, "x1")
                 self.copy_words(s.init.ty.words)
             else:
@@ -230,7 +246,7 @@ class Gen:
                 self.addr(target)
                 self.emit("mov x1, x0")
                 self.pop("x0")
-                if is_struct(target.ty):
+                if is_aggregate(target.ty):
                     self.copy_words(target.ty.words)
                 else:
                     self.emit("str x0, [x1]")
@@ -256,7 +272,7 @@ class Gen:
             if s.cond is not None:
                 self.expr(s.cond)
                 self.emit(f"cbz x0, {end}")
-            self.loops[s.label] = (start, end)
+            self.loops[s.label] = (start, end, self.depth)
             self.block(s.body)
             del self.loops[s.label]
             self.emit(f"b {start}")
@@ -276,7 +292,7 @@ class Gen:
             self.load_slot(s.end_slot, "x1")
             self.emit("cmp x0, x1")
             self.emit(f"{'b.ge' if s.ty.signed else 'b.hs'} {end}")
-            self.loops[s.label] = (step, end)
+            self.loops[s.label] = (step, end, self.depth)
             self.block(s.body)
             del self.loops[s.label]
             self.label(step)
@@ -286,13 +302,15 @@ class Gen:
             self.emit(f"b {cond}")
             self.label(end)
         elif isinstance(s, S.Break):
-            self.emit(f"b {self.loops[s.label][1]}")
+            self.emit(f"b {self.leave_to(s.label)[1]}")
         elif isinstance(s, S.Continue):
-            self.emit(f"b {self.loops[s.label][0]}")
+            self.emit(f"b {self.leave_to(s.label)[0]}")
+        elif isinstance(s, S.Match):
+            self.match(s)
         elif isinstance(s, S.Return):
             if s.value is not None:
                 self.expr(s.value)
-                if is_struct(s.value.ty):
+                if is_aggregate(s.value.ty):
                     self.load_slot(self.fn.result_slot, "x1")
                     self.copy_words(s.value.ty.words)
             self.emit(f"b {self.ret_label}")
@@ -307,17 +325,20 @@ class Gen:
         elif isinstance(e, S.BoolLit):
             self.emit(f"mov x0, #{int(e.value)}")
         elif isinstance(e, S.Name):
-            if e.const_value is not None:
+            if e.variant is not None:
+                self.variant_value(e.temp, e.ty, e.variant)
+                self.region_addr(e.temp, e.ty.words)
+            elif e.const_value is not None:
                 self.load_imm(e.const_value)
             elif e.local.kind == "value":
                 self.load_slot(e.slot)
             else:
                 self.addr(e)                    # a struct: its address
-                if not is_struct(e.ty):
+                if not is_aggregate(e.ty):
                     self.emit("ldr x0, [x0]")   # a `mut` number parameter
         elif isinstance(e, S.FieldAccess):
             self.addr(e)
-            if not is_struct(e.ty):
+            if not is_aggregate(e.ty):
                 self.emit("ldr x0, [x0]")
         elif isinstance(e, S.StructLit):
             self.struct_lit(e)
@@ -347,8 +368,84 @@ class Gen:
             self.label(end_label)
         elif isinstance(e, S.Call):
             self.call(e.callee, None, e.args, e.ty, e.temp)
+        elif isinstance(e, S.SelfValue):
+            self.load_slot(self.fn.self_slot)
+        elif isinstance(e, S.MatchExpr):
+            self.match(e)
         else:
             raise AssertionError(f"unknown expression {e!r}")
+
+    # ---- match ---------------------------------------------------------
+
+    def match(self, m):
+        """A match statement or value. The subject's value (or, for an enum,
+        its address) is kept in a slot while the arms run."""
+        ty = m.subject.ty
+        end = self.new_label("matchend")
+        labels = [self.new_label("arm") for _ in m.arms]
+        self.expr(m.subject)
+        self.store_slot(m.subject_slot)
+        else_label = None
+        if is_enum(ty):
+            self.emit("ldr x16, [x0]")                  # the tag
+            for arm, label in zip(m.arms, labels):
+                for p in arm.patterns:
+                    self.emit(f"cmp x16, #{p.variant.tag}")
+                    self.emit(f"b.eq {label}")
+        else:
+            signed = is_int(ty) and ty.signed
+            below = "b.lt" if signed else "b.lo"
+            for arm, label in zip(m.arms, labels):
+                if arm.patterns is None:
+                    else_label = label
+                    continue
+                for p in arm.patterns:
+                    self.load_imm(p.lo, "x1")
+                    self.emit("cmp x0, x1")
+                    if p.hi == p.lo + 1:
+                        self.emit(f"b.eq {label}")
+                        continue
+                    # A range: lo <= x0 < hi. (hi is a value of the type, so
+                    # it can always be loaded and compared.)
+                    outside = self.new_label("outside")
+                    self.emit(f"{below} {outside}")
+                    self.load_imm(p.hi, "x1")
+                    self.emit("cmp x0, x1")
+                    self.emit(f"{below} {label}")
+                    self.label(outside)
+        if else_label is not None:
+            self.emit(f"b {else_label}")
+        else:
+            # The checker proved every value is matched, so this is never reached.
+            self.emit("brk #0x52")
+        for arm, label in zip(m.arms, labels):
+            self.label(label)
+            for p in arm.patterns or []:
+                for slot, offset, agg in p.slots:
+                    self.load_slot(m.subject_slot)
+                    if agg:
+                        self.emit(f"add x0, x0, #{8 * offset}")     # lent: its address
+                    else:
+                        self.emit(f"ldr x0, [x0, #{8 * offset}]")
+                    self.store_slot(slot)
+            if isinstance(arm.body, S.Block):
+                self.block(arm.body)
+            elif isinstance(arm.body, S.Stmt):
+                self.stmt(arm.body)
+            else:
+                self.expr(arm.body)
+            self.emit(f"b {end}")
+        self.label(end)
+
+    def variant_value(self, temp, ty, variant):
+        """Write `variant`'s tag into the enum value at `temp`, and zero the
+        words its fields don't use."""
+        used = 1 + sum(words(fty) for _, fty in variant.fields)
+        self.region_addr(temp, ty.words, "x1")
+        self.emit(f"mov x16, #{variant.tag}")
+        self.emit("str x16, [x1]")
+        for i in range(used, ty.words):
+            self.emit(f"str xzr, [x1, #{8 * i}]")
 
     # ---- structs -------------------------------------------------------
 
@@ -362,6 +459,8 @@ class Gen:
                 self.load_slot(local.slot)
             else:
                 self.region_addr(local.slot, 1)     # a number lent as `mut`
+        elif isinstance(e, S.SelfValue):
+            self.load_slot(self.fn.self_slot)
         elif isinstance(e, S.FieldAccess):
             if e.obj is None:
                 self.load_slot(self.fn.self_slot)
@@ -375,16 +474,19 @@ class Gen:
 
     def struct_lit(self, e):
         st = e.ty
-        for (name, value, _), (_, fty) in zip(e.fields, st.fields):
-            offset, _ = st.offset(name)
+        owner = e.variant if e.variant is not None else st
+        for (name, value, _), (_, fty) in zip(e.fields, owner.fields):
+            offset, _ = owner.offset(name)
             self.expr(value)
             self.region_addr(e.temp, st.words, "x1")
             if offset:
                 self.emit(f"add x1, x1, #{8 * offset}")
-            if is_struct(fty):
+            if is_aggregate(fty):
                 self.copy_words(fty.words)
             else:
                 self.emit("str x0, [x1]")
+        if e.variant is not None:
+            self.variant_value(e.temp, st, e.variant)
         self.region_addr(e.temp, st.words)
 
     def method_call(self, e):
@@ -410,10 +512,10 @@ class Gen:
             n += 1
         for i in reversed(range(n)):
             self.pop(f"x{i}")
-        if is_struct(ret):
+        if is_aggregate(ret):
             self.region_addr(temp, ret.words, "x8")
         self.emit(f"bl {symbol}")
-        if is_struct(ret):
+        if is_aggregate(ret):
             self.region_addr(temp, ret.words)
         elif ret != UNIT:
             self.normalize(ret)

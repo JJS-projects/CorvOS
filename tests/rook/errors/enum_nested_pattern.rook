@@ -1,0 +1,24 @@
+// Patterns aren't nested: bind the field and match it separately.
+// error: 22:21: a field binds a new name, or `_` to ignore it; patterns can't be nested
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+enum Slot {
+    Empty
+    Full(at: Point)
+}
+
+enum Outer {
+    Nothing
+    Holds(slot: Slot)
+}
+
+fn f(o: Outer) -> u64 {
+    return match o {
+        Nothing => 0
+        Holds(slot: Full(at: _)) => 1
+    }
+}

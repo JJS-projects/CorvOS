@@ -1,0 +1,13 @@
+// Variant names are unique across enums, so a bare name is never ambiguous.
+// error: 11:5: `Idle` is already a variant of `State`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+enum Light {
+    Idle
+    On
+}

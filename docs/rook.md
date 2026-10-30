@@ -49,7 +49,7 @@ pub actor Uart {
     }
 
     pub on subscribe(to: ByteSink) {
-        .listener = Some(to)
+        .listener = Some(value: to)
     }
 
     pub on write(b: u8) {
@@ -62,7 +62,7 @@ pub actor Uart {
         drain: loop (.regs.read32(FR) and RXFE) == 0 {
             b: u8 = .regs.read32(DR) wrap u8
             match .listener {
-                Some(l) => l.byte(b)
+                Some(value: l) => l.byte(b)
                 None => { }
 } Uart
 
@@ -85,16 +85,21 @@ actor LineEditor: ByteSink {
             .lines.line(line)
         } else {
             match append(mut .buf, b) {
-                Ok(()) => { }
-                Err(full) => .out.write('!')
+                Ok(value: _) => { }
+                Err(error: _) => .out.write('!')
 } LineEditor
 
-fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
+enum AppendError {
+    Full
+}
+
+/// Adds `b` to the buffer and returns the new length.
+fn append(buf: mut Buffer, b: u8) -> Result<u64, AppendError> {
     if buf.len() == buf.capacity() {
-        return Err(Full)
+        return Err(error: Full)
     }
     buf.push(b)
-    return Ok(())
+    return Ok(value: buf.len())
 }
 ```
 
@@ -124,7 +129,8 @@ fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
 | Message handlers | `on write(b: u8) { }` | `new(...)` initialises an actor; `spawn Uart(...)` creates one |
 | Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
-| `match` arms | `Ok(b) => b` on separate lines | No commas |
+| Enums | `Busy(job: 3, since: now)`, `Idle` | Variant names are unique, so they're written bare |
+| `match` arms | `Busy(job: j, since: _) => j` on separate lines | Every variant listed; numbers need `else` for the rest |
 | Naming | `snake_case` values and functions, `CamelCase` types, `SCREAMING_CASE` constants | Enforced by the compiler |
 | Comments | `// note`, `/// documentation` | No block comments |
 | Visibility | private by default, `pub` to export | |
@@ -230,7 +236,7 @@ on interrupt() {
     drain: loop (.regs.read32(FR) and RXFE) == 0 {
         b: u8 = .regs.read32(DR) wrap u8
         match .listener {
-            Some(l) => l.byte(b)
+            Some(value: l) => l.byte(b)
             None => { }
     } drain                   // closes the match and the loop
 } interrupt                   // a named closer for a single block is a checked label
@@ -295,6 +301,60 @@ fn demo() {
 - **Structs have no built-in `==`.** Write a method such as `equals` where one is
   needed, so everything a struct can do is written in it.
 - A struct can't contain itself by value, since it would have no fixed size.
+
+### 3.7 Enums and `match`
+
+An enum's value is one of its variants. A variant may hold fields, named like a
+struct's. Enums are lent, copied with `copy(...)` and given methods exactly as
+structs are.
+
+```rook
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+
+    fn job() -> u64 {
+        return match . {              // `.` alone: the method's own value
+            Idle => 0
+            Busy(job: job, since: _) => job
+            Failed(code: code) => code as u64
+        }
+    }
+
+    mut fn finish() {
+        . = Idle
+    }
+} State
+
+fn classify(b: u8) -> u8 {
+    return match b {
+        '\n', '\r' => NEWLINE
+        0x20..0x7F => PRINTABLE       // a range excludes its end
+        ESC => ESCAPE                 // a constant
+        else => OTHER
+    }
+}
+```
+
+- **Variants are written bare**: `Idle`, `Busy(job: 3, since: now)`. A variant
+  name belongs to one enum in the whole program, so it is never ambiguous.
+- **Bindings are explicit**: a pattern names every field, in declared order, and
+  binds each to a new name or ignores it with `_`. Patterns aren't nested.
+- **A `match` always covers every value.** On an enum, every variant is listed
+  and there is no `else`, so adding a variant makes each match that misses it an
+  error. On a number, arms are values, comma lists, ranges and constants, and
+  `else =>` covers the rest. On a `bool`, `true` and `false` are listed. Arms
+  can't overlap, so their order never matters, and an `else` that could never
+  run is an error.
+- **Arms work like `if` branches.** In a match used as a value, each arm is one
+  expression, or leaves the match with `return`, `break` or `continue`. In a
+  match statement, each arm is one statement or a `{ block }`.
+- **A binding of a struct or enum field is lent** from the value being matched.
+  While it is in use, that value can't change, so the binding can never see
+  another variant's data.
+- **`.` on its own** is a method's whole value, in structs and enums alike.
+- There is no `==` on enums: match them, or write an `equals` method.
 
 ## 4. Actors and handlers
 
@@ -389,8 +449,8 @@ later if this becomes painful.
   `match`. There is no `?` shortcut, so every error path is visible:
   ```rook
   block: val Block = match disk.read(n) {
-      Ok(b) => b
-      Err(e) => return Err(e)
+      Ok(value: b) => b
+      Err(error: e) => return Err(error: e)
   }
   ```
 - **Bugs** (failed bounds check, `panic`, out-of-range register access, integer
@@ -438,8 +498,8 @@ with milestone 3. It is being built in three steps:
 |---|---|---|
 | Core | functions, `extern fn`, constants, declarations, integers, `bool`, `if` (also as a value), all three named `loop` forms, `break`/`continue` by name, `return`, casts, named closers, `pub` | done |
 | Data (2a) | structs, methods, lending, `copy(...)` | done |
-| Data (2b) | enums, `match` | next |
-| Hardware | Raven's `unsafe`, raw pointers, volatile register access, byte strings | after that |
+| Data (2b) | enums, `match`, `.` | done |
+| Hardware | Raven's `unsafe`, raw pointers, volatile register access, byte strings | next |
 
 ### 11.1 Rules settled while building the core
 
@@ -490,6 +550,25 @@ with milestone 3. It is being built in three steps:
   arguments from `x1`; its symbol is `Struct__method`. This departs from AAPCS64,
   which copies composite arguments. Numbers passed by value still follow AAPCS64, so
   assembly can call Rook functions that take only numbers.
+
+### 11.3 Rules settled while building enums
+
+- **Variant names are unique** across every enum, and can't be used for a type,
+  function or constant either.
+- **An arm with several variants binds nothing**: `Idle, Failed(code: _) => ...`.
+  Bindings there would be ambiguous.
+- **A declaration in a statement arm needs a block** (`=> { x: u64 = 1 }`), so
+  its scope is visible.
+- **A range can't include its type's maximum**, because its end is excluded and
+  must itself be a value of the type: `0x80..0xFF, 0xFF` covers the top of a
+  `u8`. Range loops have the same limit.
+- **Only enums, integers and `bool` can be matched.**
+- **Layout**: an enum is a tag word (the variant's position, from 0) followed by
+  the variant's fields, padded with zeros to the largest variant's size.
+- **`brk #0x52`** follows the arm tests, where no value can arrive because the
+  checker proved every value is matched. If it ever runs, the kernel's exception
+  report shows it.
+- `freeze` and `narrow` are now reserved words (decisions 78 and 79).
 
 ## 12. Open questions
 

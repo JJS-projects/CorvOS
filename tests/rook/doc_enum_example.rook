@@ -1,0 +1,49 @@
+// The enums example from rook.md 3.7.
+// expect: 7
+// expect: 0
+// expect: 2
+// expect: 4
+
+extern fn print_u64(x: u64)
+
+NEWLINE: u8 = 1
+PRINTABLE: u8 = 2
+ESCAPE: u8 = 3
+OTHER: u8 = 4
+ESC: u8 = 27
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+
+    fn job() -> u64 {
+        return match . {              // `.` alone: the method's own value
+            Idle => 0
+            Busy(job: job, since: _) => job
+            Failed(code: code) => code as u64
+        }
+    }
+
+    mut fn finish() {
+        . = Idle
+    }
+} State
+
+fn classify(b: u8) -> u8 {
+    return match b {
+        '\n', '\r' => NEWLINE
+        0x20..0x7F => PRINTABLE       // a range excludes its end
+        ESC => ESCAPE                 // a constant
+        else => OTHER
+    }
+}
+
+fn test_main() {
+    mut s: State = Busy(job: 7, since: 0)
+    print_u64(s.job())
+    s.finish()
+    print_u64(s.job())
+    print_u64(classify('z') as u64)
+    print_u64(classify(0x7F) as u64)
+}

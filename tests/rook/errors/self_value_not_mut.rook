@@ -1,0 +1,11 @@
+// Only a `mut fn` can replace its own value.
+// error: 9:11: can't assign to `.`: only a `mut fn` can change its own value
+
+enum Light {
+    Off
+    On
+
+    fn reset() {
+        . = Off
+    }
+}

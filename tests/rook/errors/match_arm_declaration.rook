@@ -1,0 +1,9 @@
+// A declaration in an arm needs a block, so its scope is visible.
+// error: 6:14: a declaration in an arm needs a block: `=> { ... }`
+
+fn f(b: u8) {
+    match b {
+        0 => x: u64 = 1
+        else => { }
+    }
+}

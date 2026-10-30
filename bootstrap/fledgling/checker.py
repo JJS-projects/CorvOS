@@ -13,15 +13,20 @@ to u64; character literals default to u8.
 Naming conventions are enforced: functions, parameters, variables and fields
 are snake_case, types are CamelCase, top-level constants are SCREAMING_CASE.
 
-Structs are lent, not copied: a struct parameter receives the caller's value by
-reference, read-only unless the parameter is `mut T` and the caller writes
-`mut x`. A new struct value can only come from a "fresh" expression (a struct
-literal, a call, or `copy(...)`), so an existing value is never copied silently.
+Structs and enums ("aggregates") are lent, not copied: a parameter receives
+the caller's value by reference, read-only unless the parameter is `mut T` and
+the caller writes `mut x`. A new value can only come from a "fresh" expression
+(a literal, a call, `copy(...)`, or an `if` or `match` choosing between fresh
+values), so an existing value is never copied silently.
+
+A `match` binding of a struct or enum field is a read-only lend into the value
+being matched. While one is live, the matched variable can't change: otherwise
+`s = Idle` inside the arm would leave the binding reading another variant's data.
 
 Locals are stored in one of three ways (`Local.kind`):
   value   a number or bool, in one 8-byte slot
-  region  a struct owned by this function, in consecutive slots
-  ref     a pointer, in one slot, to a lent struct or `mut` parameter
+  region  a struct or enum owned by this function, in consecutive slots
+  ref     a pointer, in one slot, to a lent value or `mut` parameter
 """
 
 import copy
@@ -30,8 +35,8 @@ import re
 
 from .errors import CompileError
 from . import syntax as S
-from .rtypes import (BOOL, UNIT, U8, U64, NAMED_TYPES, IntType, StructType, is_int,
-                     is_struct, lossless, words)
+from .rtypes import (BOOL, UNIT, U8, U64, NAMED_TYPES, EnumType, IntType, StructType, Variant,
+                     is_aggregate, is_enum, is_int, is_struct, lossless, words)
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -42,6 +47,11 @@ ORDERING = {"<", "<=", ">", ">="}
 SNAKE = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
 SCREAMING = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$")
 CAMEL = re.compile(r"^[A-Z][A-Za-z0-9]*$")
+
+
+def require_camel(name, what, pos):
+    if not (CAMEL.match(name) and any(c.islower() for c in name)):
+        raise CompileError(f"{what} names are CamelCase, like `Point`: `{name}`", pos)
 
 
 def require_snake(name, what, pos):
@@ -77,31 +87,47 @@ class Checker:
         self.fns = {}
         self.consts = {}         # name -> (type, value)
         self.structs = {}        # name -> StructType
-        self.receiver = None     # (StructType, mutating) inside a method
+        self.enums = {}          # name -> EnumType
+        self.variants = {}       # variant name -> Variant (names are unique across enums)
+        self.receiver = None     # (AggregateType, mutating) inside a method
+        self.locked = {}         # variable -> a `match` binding lent from it
 
     # ---- top level -----------------------------------------------------
 
     def program(self, prog):
-        # Struct names first, so types can refer to each other in any order.
+        # Type and variant names first, so types can refer to each other in any order.
         for item in prog.items:
-            if isinstance(item, S.StructDecl):
-                if not (CAMEL.match(item.name) and any(c.islower() for c in item.name)):
-                    raise CompileError(f"type names are CamelCase, like `Point`: `{item.name}`",
-                                       item.pos)
+            if isinstance(item, (S.StructDecl, S.EnumDecl)):
+                require_camel(item.name, "type", item.pos)
                 self.declare_unique(item.name, item.pos)
-                self.structs[item.name] = StructType(item.name, item)
+                if isinstance(item, S.StructDecl):
+                    self.structs[item.name] = StructType(item.name, item)
+                else:
+                    self.enums[item.name] = en = EnumType(item.name, item)
+                    if not item.variants:
+                        raise CompileError(f"`{item.name}` has no variants", item.pos)
+                    for tag, vd in enumerate(item.variants):
+                        require_camel(vd.name, "variant", vd.pos)
+                        self.declare_unique(vd.name, vd.pos)
+                        self.variants[vd.name] = en.variants[vd.name] = Variant(
+                            vd.name, tag, en, vd.pos)
         for st in self.structs.values():
-            self.struct_fields(st)
-        for st in self.structs.values():
-            self.struct_size(st, [])
+            st.fields = self.field_list(st.decl.fields, f"`{st.name}`")
+            if not st.fields:
+                raise CompileError(f"`{st.name}` has no fields", st.decl.pos)
+        for en in self.enums.values():
+            for vd in en.decl.variants:
+                en.variants[vd.name].fields = self.field_list(vd.fields or [], f"`{vd.name}`")
+        for ty in self.aggregates():
+            self.size(ty, [])
         # Signatures next, so functions and methods can call each other in any order.
         for item in prog.items:
             if isinstance(item, S.FnDecl):
                 require_snake(item.name, "function", item.pos)
                 self.declare_unique(item.name, item.pos)
                 self.fns[item.name] = self.signature(item, None)
-        for st in self.structs.values():
-            field_names = {name for name, _ in st.fields}
+        for st in self.aggregates():
+            field_names = {name for name, _ in st.fields} if is_struct(st) else set()
             for m in st.decl.methods:
                 require_snake(m.name, "method", m.pos)
                 if m.name in field_names:
@@ -124,41 +150,56 @@ class Checker:
         for item in prog.items:
             if isinstance(item, S.FnDecl) and item.body is not None:
                 self.function(self.fns[item.name])
-        for st in self.structs.values():
+        for st in self.aggregates():
             for sig in st.methods.values():
                 self.function(sig)
 
+    def aggregates(self):
+        return list(self.structs.values()) + list(self.enums.values())
+
     def declare_unique(self, name, pos):
-        if name in self.fns or name in self.consts or name in self.structs:
+        if name in self.variants:
+            raise CompileError(
+                f"`{name}` is already a variant of `{self.variants[name].enum}`", pos)
+        if (name in self.fns or name in self.consts or name in self.structs
+                or name in self.enums):
             raise CompileError(f"`{name}` is already defined", pos)
 
     def resolve_type(self, ref):
-        ty = NAMED_TYPES.get(ref.name) or self.structs.get(ref.name)
+        ty = NAMED_TYPES.get(ref.name) or self.structs.get(ref.name) or self.enums.get(ref.name)
         if ty is None:
+            if ref.name in self.variants:
+                raise CompileError(
+                    f"`{ref.name}` is a variant of `{self.variants[ref.name].enum}`, not a type",
+                    ref.pos)
             raise CompileError(f"unknown type `{ref.name}`", ref.pos)
         return ty
 
-    def struct_fields(self, st):
-        seen = set()
-        for f in st.decl.fields:
+    def field_list(self, fields, owner):
+        result, seen = [], set()
+        for f in fields:
             require_snake(f.name, "field", f.pos)
             if f.name in seen:
-                raise CompileError(f"`{st.name}` already has a field `{f.name}`", f.pos)
+                raise CompileError(f"{owner} already has a field `{f.name}`", f.pos)
             seen.add(f.name)
-            st.fields.append((f.name, self.resolve_type(f.type)))
-        if not st.fields:
-            raise CompileError(f"`{st.name}` has no fields", st.decl.pos)
+            result.append((f.name, self.resolve_type(f.type)))
+        return result
 
-    def struct_size(self, st, path):
-        if st.words is not None:
-            return st.words
-        if st in path:
+    def size(self, ty, path):
+        """Size in words. A struct or enum can't contain itself by value."""
+        if not is_aggregate(ty):
+            return 1
+        if ty.words is not None:
+            return ty.words
+        if ty in path:
             raise CompileError(
-                f"`{st.name}` contains itself, so it would have no fixed size", st.decl.pos)
-        total = 0
-        for _, ty in st.fields:
-            total += self.struct_size(ty, path + [st]) if is_struct(ty) else 1
-        st._words = total
+                f"`{ty.name}` contains itself, so it would have no fixed size", ty.decl.pos)
+        if is_struct(ty):
+            total = sum(self.size(fty, path + [ty]) for _, fty in ty.fields)
+        else:
+            total = 1 + max(sum(self.size(fty, path + [ty]) for _, fty in v.fields)
+                            for v in ty.variants.values())
+        ty._words = total
         return total
 
     def signature(self, decl, owner):
@@ -179,15 +220,16 @@ class Checker:
         self.nslots = 0
         self.loops = []          # labels of the enclosing loops, innermost last
         self.receiver = (sig.owner, sig.mutating) if sig.owner else None
+        self.locked = {}
         if sig.owner:
             decl.self_slot = self.alloc(1)
-        if is_struct(sig.ret):
+        if is_aggregate(sig.ret):
             decl.result_slot = self.alloc(1)
         for param, (ty, is_mut) in zip(decl.params, sig.params):
             if param.name in self.scopes[0]:
                 raise CompileError(f"duplicate parameter `{param.name}`", param.pos)
             param.ty = ty
-            kind = "ref" if is_mut or is_struct(ty) else "value"
+            kind = "ref" if is_mut or is_aggregate(ty) else "value"
             param.slot = self.new_local(param.name, ty, is_mut, kind, pos=param.pos)
         returns = self.block(decl.body)
         if sig.ret != UNIT and not returns:
@@ -236,9 +278,9 @@ class Checker:
             require_snake(s.name, "variable", s.pos)
             ty = self.resolve_type(s.type)
             self.expr(s.init, ty)
-            if is_struct(ty):
+            if is_aggregate(ty):
                 self.require_fresh(s.init, f"`{s.name}`")
-            kind = "region" if is_struct(ty) else "value"
+            kind = "region" if is_aggregate(ty) else "value"
             s.slot = self.new_local(s.name, ty, s.mutable, kind, pos=s.pos)
             return False
 
@@ -255,7 +297,7 @@ class Checker:
                 s.value = S.Binary(s.pos, s.op[:-1], copy.deepcopy(s.target), s.value)
                 s.op = "="
             self.expr(s.value, target_ty)
-            if is_struct(target_ty):
+            if is_aggregate(target_ty):
                 self.require_fresh(s.value, describe_place(s.target))
             return False
 
@@ -313,6 +355,20 @@ class Checker:
             self.scopes.pop()
             return False
 
+        if isinstance(s, S.Match):
+            self.match_patterns(s)
+            always_returns = True
+            for arm in s.arms:
+                unlock = self.enter_arm(s, arm)
+                if isinstance(arm.body, S.Block):
+                    returns = self.block(arm.body)
+                else:
+                    returns = self.stmt(arm.body)
+                self.exit_arm(unlock)
+                always_returns = always_returns and returns
+            # Every value is matched by some arm, so if each arm returns, so does the match.
+            return always_returns
+
         if isinstance(s, (S.Break, S.Continue)):
             if s.label not in self.loops:
                 word = "break" if isinstance(s, S.Break) else "continue"
@@ -332,9 +388,9 @@ class Checker:
                         f"`{self.fn.decl.name}` has no return type, so `return` takes no value",
                         s.value.pos)
                 self.expr(s.value, self.fn.ret)
-                if is_struct(self.fn.ret):
-                    owned_local = (isinstance(s.value, S.Name)
-                                   and s.value.local.kind == "region")
+                if is_aggregate(self.fn.ret):
+                    local = getattr(s.value, "local", None) if isinstance(s.value, S.Name) else None
+                    owned_local = local is not None and local.kind == "region"
                     if not owned_local:
                         self.require_fresh(s.value, "the result")
             return True
@@ -374,8 +430,21 @@ class Checker:
                 ty, value = self.consts[e.ident]
                 e.const_value = value
                 return ty
+            if e.ident in self.variants:
+                v = self.variants[e.ident]
+                if v.fields:
+                    raise CompileError(
+                        f"`{v.name}` has fields: write `{v.name}("
+                        f"{', '.join(name + ': ...' for name, _ in v.fields)})`", e.pos)
+                if self.fn is None:
+                    raise CompileError("constants must be numbers or bools", e.pos)
+                e.variant = v
+                e.temp = self.alloc(v.enum.words)
+                return v.enum
             if e.ident in self.fns:
                 raise CompileError(f"`{e.ident}` is a function; call it with `{e.ident}(...)`", e.pos)
+            if e.ident in self.structs or e.ident in self.enums:
+                raise CompileError(f"`{e.ident}` is a type, not a value", e.pos)
             raise CompileError(f"unknown name `{e.ident}`", e.pos)
 
         if isinstance(e, S.Unary):
@@ -424,37 +493,39 @@ class Checker:
             if self.fn is None:
                 raise CompileError("constants can't call functions", e.pos)
             self.check_args(f"`{e.callee}`", sig.params, e.args, e.pos)
-            if is_struct(sig.ret):
+            if is_aggregate(sig.ret):
                 e.temp = self.alloc(sig.ret.words)
             return sig.ret
 
         if isinstance(e, S.StructLit):
-            st = self.structs.get(e.name)
+            v = self.variants.get(e.name)
+            st = v.enum if v is not None else self.structs.get(e.name)
             if st is None:
+                if e.name in self.enums:
+                    first = next(iter(self.enums[e.name].variants))
+                    raise CompileError(
+                        f"`{e.name}` is an enum: build a value with one of its variants, "
+                        f"such as `{first}`", e.pos)
                 raise CompileError(f"unknown type `{e.name}`", e.pos)
             if self.fn is None:
                 raise CompileError("constants must be numbers or bools", e.pos)
-            given = [name for name, _, _ in e.fields]
-            wanted = [name for name, _ in st.fields]
-            for name, _, pos in e.fields:
-                if name not in wanted:
-                    raise CompileError(f"`{st.name}` has no field `{name}`", pos)
-            if given != wanted:
-                missing = [n for n in wanted if n not in given]
-                if missing:
-                    raise CompileError(f"`{st.name}(...)` is missing `{missing[0]}`", e.pos)
-                raise CompileError(
-                    f"write the fields of `{st.name}` once each, in the order they are declared: "
-                    f"{', '.join(wanted)}", e.pos)
-            for (name, value, _), (_, fty) in zip(e.fields, st.fields):
+            fields = v.fields if v is not None else st.fields
+            if v is not None and not fields:
+                raise CompileError(f"`{e.name}` has no fields: write `{e.name}`", e.pos)
+            self.named_fields(e.name, fields, [(n, p) for n, _, p in e.fields], e.pos)
+            for (name, value, _), (_, fty) in zip(e.fields, fields):
                 self.expr(value, fty)
-                if is_struct(fty):
+                if is_aggregate(fty):
                     self.require_fresh(value, f"field `{name}`")
+            e.variant = v
             e.temp = self.alloc(st.words)
             return st
 
         if isinstance(e, S.FieldAccess):
             st = self.struct_of(e)
+            if is_enum(st):
+                raise CompileError(
+                    f"`{st.name}` is an enum: read its fields with `match`", e.pos)
             e.struct = st
             if not any(name == e.field for name, _ in st.fields):
                 hint = " (it's a method: call it with `(...)`)" if e.field in st.methods else ""
@@ -472,24 +543,57 @@ class Checker:
                 if receiver is None:
                     if not self.receiver[1]:
                         raise CompileError(
-                            f"`.{e.name}()` changes the struct, so it can only be called from "
+                            f"`.{e.name}()` changes its value, so it can only be called from "
                             f"a `mut fn`", e.pos)
+                    self.require_unlocked("self", f"call `mut fn {e.name}` on", ".", e.pos)
                 else:
                     self.require_mutable(receiver, e.pos, f"call `mut fn {e.name}` on")
             # `.m()` inside a method acts on the method's own struct ("self").
             receiver = e.obj if e.obj is not None else S.FieldAccess(e.pos, None, "")
             self.check_args(f"`{st.name}.{e.name}`", sig.params, e.args, e.pos,
                             receiver=receiver, receiver_mut=sig.mutating)
-            if is_struct(sig.ret):
+            if is_aggregate(sig.ret):
                 e.temp = self.alloc(sig.ret.words)
             return sig.ret
 
         if isinstance(e, S.Copy):
             ty = self.expr(e.value)
-            if not is_struct(ty):
-                raise CompileError(f"{ty} values are always copied; `copy(...)` is for structs",
-                                   e.value.pos)
+            if not is_aggregate(ty):
+                raise CompileError(
+                    f"{ty} values are always copied; `copy(...)` is for structs and enums",
+                    e.value.pos)
             e.temp = self.alloc(ty.words)
+            return ty
+
+        if isinstance(e, S.SelfValue):
+            if self.receiver is None:
+                raise CompileError(
+                    "`.` on its own is a method's own value, so it only works inside methods",
+                    e.pos)
+            return self.receiver[0]
+
+        if isinstance(e, S.MatchExpr):
+            if self.fn is None:
+                raise CompileError("constants can't use `match`", e.pos)
+            self.match_patterns(e)
+            if not any(isinstance(arm.body, S.Expr) for arm in e.arms):
+                raise CompileError("every arm leaves, so this `match` has no value", e.pos)
+            # Arms that aren't bare literals first, so the literals can take their type.
+            ordered = sorted(e.arms, key=lambda arm: untyped_literal(arm.body))
+            ty = None
+            for arm in ordered:
+                unlock = self.enter_arm(e, arm)
+                if isinstance(arm.body, S.Expr):
+                    aty = self.expr(arm.body, hint=ty if ty is not None else expected)
+                    if ty is None:
+                        ty = aty
+                    elif aty != ty:
+                        raise CompileError(
+                            f"every arm of a `match` must have the same type, found {ty} and {aty}",
+                            arm.body.pos)
+                else:
+                    self.stmt(arm.body)             # return, break or continue
+                self.exit_arm(unlock)
             return ty
 
         if isinstance(e, S.MutArg):
@@ -497,7 +601,169 @@ class Checker:
 
         raise AssertionError(f"unknown expression {e!r}")
 
+    # ---- match ---------------------------------------------------------
+
+    def match_patterns(self, m):
+        """Check the patterns (not the bodies) of a match, and that every value
+        of the subject's type is matched exactly once."""
+        ty = self.expr(m.subject)
+        m.subject_slot = self.alloc(1)
+        if is_enum(ty):
+            self.enum_patterns(m, ty)
+        elif is_int(ty) or ty == BOOL:
+            self.value_patterns(m, ty)
+        else:
+            raise CompileError(
+                f"can't match a {ty}: `match` works on enums, integers and bools", m.subject.pos)
+
+    def enum_patterns(self, m, ty):
+        seen = set()
+        for arm in m.arms:
+            if arm.patterns is None:
+                raise CompileError(
+                    f"a `match` on an enum lists every variant of `{ty}`; `else` isn't allowed",
+                    arm.pos)
+            for p in arm.patterns:
+                if p.value is not None:
+                    if not (p.end is None and isinstance(p.value, S.Name)):
+                        raise CompileError(f"expected a variant of `{ty}`", p.pos)
+                    p.name = p.value.ident
+                v = self.variants.get(p.name)
+                if v is None:
+                    raise CompileError(f"`{ty}` has no variant `{p.name}`", p.pos)
+                if v.enum is not ty:
+                    raise CompileError(f"`{p.name}` is a variant of `{v.enum}`, not `{ty}`", p.pos)
+                if p.name in seen:
+                    raise CompileError(f"`{p.name}` is already matched", p.pos)
+                seen.add(p.name)
+                p.variant = v
+                if p.value is not None:             # written without brackets
+                    if v.fields:
+                        raise CompileError(
+                            f"`{v.name}` has fields: bind each one, as in `{v.name}("
+                            f"{', '.join(name + ': _' for name, _ in v.fields)})`", p.pos)
+                    p.bindings = []
+                elif not v.fields:
+                    raise CompileError(f"`{v.name}` has no fields: write `{v.name}`", p.pos)
+                else:
+                    self.named_fields(v.name, v.fields, [(f, pos) for f, _, pos in p.bindings],
+                                      p.pos)
+            if len(arm.patterns) > 1 and any(name != "_" for p in arm.patterns
+                                             for _, name, _ in p.bindings):
+                raise CompileError(
+                    "an arm with several variants can't bind names: use `_`, "
+                    "or give each variant its own arm", arm.pos)
+        missing = [name for name in ty.variants if name not in seen]
+        if missing:
+            more = f" (and {len(missing) - 1} more)" if len(missing) > 1 else ""
+            raise CompileError(f"this `match` is missing `{missing[0]}`{more}", m.pos)
+
+    def value_patterns(self, m, ty):
+        lowest, highest = (0, 1) if ty == BOOL else (ty.min, ty.max)
+        taken = []                                  # (lo, hi): lo <= value < hi
+        else_arm = None
+        for i, arm in enumerate(m.arms):
+            if arm.patterns is None:
+                if i != len(m.arms) - 1:
+                    raise CompileError("`else` must be the last arm", arm.pos)
+                else_arm = arm
+                continue
+            for p in arm.patterns:
+                if p.value is None:
+                    raise CompileError(
+                        f"`{p.name}` is an enum variant, but this `match` is on {ty}", p.pos)
+                p.lo = self.pattern_value(p.value, ty)
+                if p.end is None:
+                    p.hi = p.lo + 1
+                else:
+                    if ty == BOOL:
+                        raise CompileError("a range needs integers", p.pos)
+                    p.hi = self.pattern_value(p.end, ty)
+                    if p.hi <= p.lo:
+                        raise CompileError(
+                            "this range is empty: its end must be greater than its start", p.pos)
+                for lo, hi in taken:
+                    if p.lo < hi and lo < p.hi:
+                        raise CompileError("this pattern overlaps an earlier one", p.pos)
+                taken.append((p.lo, p.hi))
+        # The first value no arm matches, if any.
+        gap = lowest
+        for lo, hi in sorted(taken):
+            if lo > gap:
+                break
+            gap = max(gap, hi)
+        if gap > highest:
+            if else_arm is not None:
+                raise CompileError(
+                    f"every {ty} value is already matched, so `else` would never run",
+                    else_arm.pos)
+        elif else_arm is None:
+            if ty == BOOL:
+                raise CompileError(f"this `match` is missing `{'true' if gap else 'false'}`",
+                                   m.pos)
+            raise CompileError(
+                f"this `match` doesn't cover every {ty} value (such as {gap}); "
+                f"add `else =>` for the rest", m.pos)
+
+    def pattern_value(self, e, ty):
+        """A pattern's value: a literal or a constant, computed now."""
+        if isinstance(e, S.Name) and self.scopes and self.lookup(e.ident) is not None:
+            raise CompileError(
+                f"a pattern is a literal or a constant, and `{e.ident}` is a variable", e.pos)
+        self.expr(e, ty)
+        return self.const_eval(e)
+
+    def enter_arm(self, m, arm):
+        """Declare an arm's bindings in a new scope. Returns the variable to
+        unlock when the arm ends, if this arm locked one."""
+        self.scopes.append({})
+        lends = []
+        for p in arm.patterns or []:
+            if p.variant is None:
+                continue
+            for field_name, name, pos in p.bindings:
+                if name == "_":
+                    continue
+                require_snake(name, "variable", pos)
+                offset, fty = p.variant.offset(field_name)
+                agg = is_aggregate(fty)
+                slot = self.new_local(name, fty, False, "ref" if agg else "value", pos=pos)
+                p.slots.append((slot, offset, agg))
+                if agg:
+                    lends.append(name)
+        root = root_name(m.subject)
+        if lends and root is not None and root not in self.locked:
+            self.locked[root] = lends[0]
+            return root
+        return None
+
+    def exit_arm(self, unlock):
+        self.scopes.pop()
+        if unlock is not None:
+            del self.locked[unlock]
+
     # ---- structs, places and lending ----------------------------------
+
+    def named_fields(self, owner, fields, given, pos):
+        """`given` [(name, pos)] must name every field once, in declared order."""
+        wanted = [name for name, _ in fields]
+        for name, at in given:
+            if name not in wanted:
+                raise CompileError(f"`{owner}` has no field `{name}`", at)
+        names = [name for name, _ in given]
+        if names != wanted:
+            missing = [n for n in wanted if n not in names]
+            if missing:
+                raise CompileError(f"`{owner}(...)` is missing `{missing[0]}`", pos)
+            raise CompileError(
+                f"write the fields of `{owner}` once each, in the order they are declared: "
+                f"{', '.join(wanted)}", pos)
+
+    def require_unlocked(self, root, action, text, pos):
+        if root in self.locked:
+            raise CompileError(
+                f"can't {action} `{text}` while `{self.locked[root]}` is lent from it "
+                f"by this `match`", pos)
 
     def struct_of(self, e):
         """The struct type that `e.field` or `e.method()` acts on."""
@@ -507,7 +773,7 @@ class Checker:
                 raise CompileError(f"`.{what}` only works inside a struct's methods", e.pos)
             return self.receiver[0]
         ty = self.expr(e.obj)
-        if not is_struct(ty):
+        if not is_aggregate(ty):
             what = e.field if isinstance(e, S.FieldAccess) else e.name
             raise CompileError(f"{ty} has no field or method `{what}`", e.pos)
         return ty
@@ -533,7 +799,7 @@ class Checker:
                     raise CompileError(
                         f"{callee} doesn't change this argument, so it isn't marked `mut`", arg.pos)
                 self.expr(arg, pty)
-                if is_struct(pty) and root_name(arg) is not None:
+                if is_aggregate(pty) and root_name(arg) is not None:
                     lent.append((root_name(arg), False, arg.pos))
         # A value lent as `mut` can't be lent again in the same call. Numbers
         # are copied when passed, so they can't alias.
@@ -545,6 +811,14 @@ class Checker:
                         at)
 
     def require_mutable(self, place, pos, action="assign to"):
+        root = root_name(place)
+        if root is not None:
+            self.require_unlocked(root, action, source_text(place), pos)
+        if isinstance(place, S.SelfValue):
+            if not self.receiver[1]:
+                raise CompileError(
+                    f"can't {action} `.`: only a `mut fn` can change its own value", pos)
+            return
         if isinstance(place, S.Name):
             local = place.local if hasattr(place, "local") else None
             if local is None:
@@ -628,7 +902,10 @@ class Checker:
                 raise CompileError(f"`{op}` needs bools or integers, found {lty}", e.pos)
             return lty
         if op in EQUALITY:
-            if is_struct(lty):
+            if is_enum(lty):
+                raise CompileError(f"`{op}` doesn't compare enums; use `match`, or write a "
+                                   f"method such as `equals` in `{lty}`", e.pos)
+            if is_aggregate(lty):
                 # Decision 74: a struct can only do what its declaration shows.
                 raise CompileError(f"`{op}` doesn't compare structs; write a method such as "
                                    f"`equals` in `{lty}`", e.pos)
@@ -718,21 +995,27 @@ def untyped_literal(e):
 
 
 def is_fresh(e):
-    """Is `e` a new struct value that nothing else holds?"""
+    """Is `e` a new struct or enum value that nothing else holds?"""
     if isinstance(e, (S.StructLit, S.Call, S.MethodCall, S.Copy)):
         return True
+    if isinstance(e, S.Name):
+        return e.variant is not None                # `Idle`
     if isinstance(e, S.IfExpr):
         return is_fresh(e.then) and is_fresh(e.else_)
+    if isinstance(e, S.MatchExpr):
+        return all(is_fresh(arm.body) for arm in e.arms if isinstance(arm.body, S.Expr))
     return False
 
 
 def root_name(e):
-    """The variable a place starts from (`p` in `p.a.b`), or "self" for `.x`."""
+    """The variable a place starts from (`p` in `p.a.b`), or "self" for `.x` and `.`."""
     while isinstance(e, S.FieldAccess):
         if e.obj is None:
             return "self"
         e = e.obj
-    return e.ident if isinstance(e, S.Name) else None
+    if isinstance(e, S.SelfValue):
+        return "self"
+    return e.ident if isinstance(e, S.Name) and e.variant is None else None
 
 
 def source_text(e):
@@ -740,28 +1023,26 @@ def source_text(e):
         return e.ident
     if isinstance(e, S.FieldAccess):
         return f"{source_text(e.obj) if e.obj is not None else ''}.{e.field}"
+    if isinstance(e, S.SelfValue):
+        return "."
     return "value"
 
 
 def describe_place(e):
-    if isinstance(e, (S.Name, S.FieldAccess)):
+    if isinstance(e, (S.Name, S.FieldAccess, S.SelfValue)):
         return f"`{source_text(e)}`"
     return "this value"
 
 
-def breaks_to(block, label):
-    """Does anything inside `block`, at any depth, `break label`?"""
-    for s in block.stmts:
-        if isinstance(s, S.Break) and s.label == label:
-            return True
-        if isinstance(s, (S.Loop, S.ForRange)) and breaks_to(s.body, label):
-            return True
-        if isinstance(s, S.If):
-            branch = s
-            while isinstance(branch, S.If):
-                if breaks_to(branch.then, label):
-                    return True
-                branch = branch.else_
-            if isinstance(branch, S.Block) and breaks_to(branch, label):
-                return True
+def breaks_to(node, label):
+    """Does anything inside `node`, at any depth (including a `match` used as
+    a value), `break label`?"""
+    if isinstance(node, S.Break):
+        return node.label == label
+    if isinstance(node, list):
+        return any(breaks_to(item, label) for item in node)
+    if isinstance(node, tuple):
+        return any(breaks_to(item, label) for item in node)
+    if hasattr(node, "__dataclass_fields__"):
+        return any(breaks_to(getattr(node, f), label) for f in node.__dataclass_fields__)
     return False

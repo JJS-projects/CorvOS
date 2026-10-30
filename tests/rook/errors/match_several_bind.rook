@@ -1,0 +1,15 @@
+// An arm with several variants can't bind names: which variant would they come from?
+// error: 13:9: an arm with several variants can't bind names: use `_`, or give each variant its own arm
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(s: State) -> u64 {
+    return match s {
+        Idle => 0
+        Busy(job: j, since: _), Failed(code: _) => 1
+    }
+}

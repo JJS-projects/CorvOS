@@ -1,0 +1,16 @@
+// Every field is bound; `_` ignores one.
+// error: 13:9: `Busy(...)` is missing `since`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(s: State) -> u64 {
+    return match s {
+        Idle => 0
+        Busy(job: j) => j
+        Failed(code: _) => 3
+    }
+}

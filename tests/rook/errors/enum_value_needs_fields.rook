@@ -1,0 +1,12 @@
+// Building a variant gives every field a value.
+// error: 11:12: `Busy` has fields: write `Busy(job: ..., since: ...)`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f() -> State {
+    return Busy
+}

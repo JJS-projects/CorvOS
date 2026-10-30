@@ -1,0 +1,9 @@
+// A match on a number covers every value, usually with else.
+// error: 5:12: this `match` doesn't cover every u8 value (such as 10); add `else =>` for the rest
+
+fn f(b: u8) -> u64 {
+    return match b {
+        0 => 1
+        1..10 => 2
+    }
+}

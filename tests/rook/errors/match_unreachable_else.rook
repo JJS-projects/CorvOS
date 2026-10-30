@@ -1,0 +1,10 @@
+// An else that can never run is an error, not a warning.
+// error: 8:9: every bool value is already matched, so `else` would never run
+
+fn f(b: bool) -> u64 {
+    return match b {
+        true => 1
+        false => 0
+        else => 2
+    }
+}

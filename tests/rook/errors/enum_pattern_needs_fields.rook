@@ -1,0 +1,16 @@
+// A variant with fields lists them in a pattern, even if all are ignored.
+// error: 13:9: `Busy` has fields: bind each one, as in `Busy(job: _, since: _)`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(s: State) -> u64 {
+    return match s {
+        Idle => 0
+        Busy => 1
+        Failed(code: _) => 3
+    }
+}
