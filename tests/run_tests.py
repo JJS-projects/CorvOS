@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """CorvOS test suite.
 
-Three kinds of test:
+Four kinds of test:
 
   boot/...   Kernel boot tests, defined in BOOT_TESTS below. Boot an image in
              QEMU and check that expected UART lines appear in order, and
@@ -15,12 +15,26 @@ Three kinds of test:
                  // expect: 42                  one per `out:` line, exact, in order
                  // expect-panic: integer overflow at x.rook:7
              Without expect-panic, test_main must return normally.
+                 // expect-fault: FAR_EL1:  0x0000000030000000
+             The program must end in a CPU exception, whose report (see
+             kernel/arch/aarch64/vectors.s) has a line containing this text.
+                 // machines: raspi3b
+             Run only on the listed machines (for tests of the machine itself).
 
   error/...  Programs in tests/rook/errors/*.rook (or errors/trusted/, compiled
              as trusted) that Fledgling must reject:
                  // error: 7:5: can't assign to `x`
              The error must be in that file, at that line:column, and contain
              that message.
+
+  harness/...  Checks of the test harness and build itself, defined in
+             HARNESS_TESTS below: the things a Rook program can't test.
+
+Every boot test and Rook program runs on each machine in MACHINES: raspi3b
+(1 GB) and raspi3ap (512 MB, like the Zero 2 W). QEMU also logs accesses to
+unimplemented or misused devices (-d unimp,guest_errors); any such report fails
+the test, unless the program declares it with a header line:
+                 // expect-qemu-log: pl011_write: Bad offset 0x100
 
 Full QEMU output of every boot is saved to build/test-logs/.
 
@@ -42,6 +56,9 @@ sys.path.insert(0, os.path.join(ROOT, "bootstrap"))
 sys.dont_write_bytecode = True      # never run a stale cached copy of the compiler
 LOG_DIR = os.path.join(ROOT, "build", "test-logs")
 QEMU = os.environ.get("QEMU", "qemu-system-aarch64")
+# The QEMU machines every boot and Rook test runs on: a Pi 3B (1 GB) and a
+# Pi 3A+ (512 MB, the Zero 2 W's amount). Override with MACHINES="raspi3b".
+MACHINES = os.environ.get("MACHINES", "raspi3b raspi3ap").split()
 
 from fledgling import compile_program, CompileError  # noqa: E402
 
@@ -60,14 +77,18 @@ TRUSTED_DIRS = [os.path.join(ROOT, *d.split("/")) for d in
 # ---------------------------------------------------------------------------
 # Booting an image in QEMU
 
-def boot(image, finished, timeout):
-    """Boot `image` until `finished(lines)` is true or `timeout` passes.
+def boot(image, finished, timeout, machine, log_path):
+    """Boot `image` on `machine` until `finished(lines)` is true or `timeout` passes.
 
-    Returns (output, timed_out). `lines` passed to `finished` are complete
-    lines with carriage returns removed.
+    Returns (output, timed_out, qemu_log). `lines` passed to `finished` are
+    complete lines with carriage returns removed. `qemu_log` is the list of
+    lines QEMU reported about unimplemented or misused devices.
     """
-    cmd = [QEMU, "-M", "raspi3b", "-kernel", image,
-           "-display", "none", "-serial", "stdio", "-monitor", "none"]
+    if os.path.exists(log_path):
+        os.remove(log_path)
+    cmd = [QEMU, "-M", machine, "-kernel", image,
+           "-display", "none", "-serial", "stdio", "-monitor", "none",
+           "-d", "unimp,guest_errors", "-D", log_path]
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     sel = selectors.DefaultSelector()
@@ -79,15 +100,26 @@ def boot(image, finished, timeout):
             if finished(complete_lines(output)):
                 # Catch anything printed straight afterwards.
                 output += read_available(sel, 0.2)
-                return output, False
+                return output, False, read_qemu_log(proc, log_path)
             remaining = deadline - time.monotonic()
             if remaining <= 0 or proc.poll() is not None:
                 output += read_available(sel, 0)
-                return output, remaining <= 0
+                return output, remaining <= 0, read_qemu_log(proc, log_path)
             output += read_available(sel, min(remaining, 0.2))
     finally:
         proc.kill()
         proc.wait()
+
+
+def read_qemu_log(proc, log_path):
+    """QEMU's report of device misuse so far, as a list of lines."""
+    proc.kill()
+    proc.wait()
+    try:
+        with open(log_path) as f:
+            return [l.rstrip("\n") for l in f if l.strip()]
+    except FileNotFoundError:
+        return []
 
 
 def read_available(sel, wait):
@@ -108,10 +140,36 @@ def complete_lines(output):
     return output.replace("\r", "").split("\n")[:-1]
 
 
-def save_log(name, output):
-    path = os.path.join(LOG_DIR, name.replace("/", "__") + ".log")
-    with open(path, "w") as f:
+def log_base(name, machine):
+    return os.path.join(LOG_DIR, name.replace("/", "__") + "." + machine)
+
+
+def save_log(name, machine, output, qemu_log):
+    with open(log_base(name, machine) + ".log", "w") as f:
         f.write(output)
+        if qemu_log:
+            f.write("\n--- QEMU device log ---\n" + "\n".join(qemu_log) + "\n")
+
+
+def check_qemu_log(qemu_log, expected):
+    """None if QEMU reported exactly what the test expects, else why not."""
+    for want in expected:
+        if not any(want in line for line in qemu_log):
+            return f"QEMU did not report {want!r}"
+    for line in qemu_log:
+        if not any(want in line for want in expected):
+            return f"QEMU reported a device problem: {line}"
+    return None
+
+
+def on_each_machine(test, run_once, machines=None):
+    """Run `run_once(machine)` on every machine (or just `machines`); the first
+    failure is the result."""
+    for machine in machines or MACHINES:
+        result = run_once(machine)
+        if not result[0]:
+            return (False, f"[{machine}] {result[1]}") + tuple(result[2:])
+    return result
 
 
 def missing_image(image):
@@ -131,6 +189,9 @@ class BootTest:
     timeout: float = 10.0
 
     def run(self):
+        return on_each_machine(self, self.run_on)
+
+    def run_on(self, machine):
         image = os.path.join(ROOT, self.image)
         if not os.path.exists(image):
             return False, missing_image(image)
@@ -142,10 +203,14 @@ class BootTest:
                     n += 1
             return n
 
-        output, timed_out = boot(image, lambda lines: progress(lines) == len(self.expect),
-                                 self.timeout)
-        save_log(self.name, output)
+        output, timed_out, qemu_log = boot(
+            image, lambda lines: progress(lines) == len(self.expect), self.timeout,
+            machine, log_base(self.name, machine) + ".qemu")
+        save_log(self.name, machine, output, qemu_log)
         lines = complete_lines(output)
+        problem = check_qemu_log(qemu_log, [])
+        if problem:
+            return False, problem, output
         for bad in self.forbid:
             if any(bad in line for line in lines):
                 return False, f"forbidden output appeared: {bad!r}", output
@@ -200,13 +265,17 @@ class RookTest:
     image: str
     expect: list
     expect_panic: str = None
+    expect_qemu_log: list = field(default_factory=list)
+    expect_fault: str = None
+    machines: list = None           # None: every machine in MACHINES
     timeout: float = 10.0
 
     @classmethod
     def from_file(cls, path):
         rel = os.path.relpath(path, os.path.join(ROOT, "tests", "rook"))
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
-        description, expect, panic = "", [], None
+        description, expect, panic, qemu_log = "", [], None, []
+        fault, machines = None, None
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -216,11 +285,21 @@ class RookTest:
                 expect.append(text[len("expect:"):].strip())
             elif text.startswith("expect-panic:"):
                 panic = text[len("expect-panic:"):].strip()
+            elif text.startswith("expect-fault:"):
+                fault = text[len("expect-fault:"):].strip()
+            elif text.startswith("machines:"):
+                machines = text[len("machines:"):].split()
+            elif text.startswith("expect-qemu-log:"):
+                qemu_log.append(text[len("expect-qemu-log:"):].strip())
             elif not description:
                 description = text
-        return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic)
+        return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
+                   qemu_log, fault, machines)
 
     def run(self):
+        return on_each_machine(self, self.run_on, self.machines)
+
+    def run_on(self, machine):
         image = os.path.join(ROOT, self.image)
         if not os.path.exists(image):
             return False, missing_image(image)
@@ -229,12 +308,20 @@ class RookTest:
             return any(l.startswith((DONE, PANIC)) or "unhandled exception" in l
                        for l in lines)
 
-        output, timed_out = boot(image, finished, self.timeout)
-        save_log(self.name, output)
+        output, timed_out, qemu_log = boot(image, finished, self.timeout, machine,
+                                           log_base(self.name, machine) + ".qemu")
+        save_log(self.name, machine, output, qemu_log)
         lines = complete_lines(output)
+        problem = check_qemu_log(qemu_log, self.expect_qemu_log)
+        if problem:
+            return False, problem, output
         outs = [l[len("out: "):] for l in lines if l.startswith("out: ")]
         panics = [l[len(PANIC):] for l in lines if l.startswith(PANIC)]
 
+        if self.expect_fault is not None:
+            if not any(self.expect_fault in l for l in lines):
+                return False, f"expected a CPU exception report with {self.expect_fault!r}", output
+            return True, "ok", output
         if any("unhandled exception" in l for l in lines):
             return False, "CPU exception (see output)", output
         for i, (want, got) in enumerate(zip(self.expect, outs)):
@@ -305,9 +392,103 @@ class ErrorTest:
 
 
 # ---------------------------------------------------------------------------
+# harness/...: checks of the harness and the build
+
+@dataclass
+class HarnessTest:
+    name: str
+    description: str
+    check: object           # () -> None if fine, else a reason string
+
+    def run(self):
+        problem = self.check()
+        return (problem is None, problem or "ok")
+
+
+def check_log_cases():
+    """check_qemu_log must reject a missing report and an unexpected one."""
+    cases = [
+        ("nothing reported, nothing expected", [], [], True),
+        ("expected report seen", ["pl011_write: Bad offset 0x100"], ["Bad offset 0x100"], True),
+        ("expected report missing", [], ["Bad offset 0x100"], False),
+        ("unexpected report", ["pl011_write: Bad offset 0x100"], [], False),
+        ("one expected, one extra",
+         ["pl011_write: Bad offset 0x100", "bcm2835: unimplemented"], ["Bad offset 0x100"], False),
+    ]
+    for what, log, expected, ok in cases:
+        if (check_qemu_log(log, expected) is None) != ok:
+            return f"check_qemu_log wrong for: {what}"
+    return None
+
+
+def check_machines():
+    """The suite must cover both the 1 GB and the 512 MB (Zero 2 W sized) machine."""
+    for need in ("raspi3b", "raspi3ap"):
+        if need not in MACHINES:
+            return f"{need} is not in MACHINES ({' '.join(MACHINES)})"
+    return None
+
+
+def check_make_deps():
+    """Changing the Makefile must rebuild everything it builds.
+
+    Compares what make would build if the Makefile were newer (`-W Makefile`)
+    with what it builds from nothing (`-B`).
+    """
+    def outputs(*flags):
+        result = subprocess.run(["make", "-n", *flags, "test"], cwd=ROOT,
+                                capture_output=True, text=True)
+        found = set()
+        for line in result.stdout.splitlines():
+            words = line.split()
+            if "-o" in words:
+                found.add(words[words.index("-o") + 1])
+            elif words and words[0].endswith("objcopy"):
+                found.add(words[-1])
+        return found
+
+    everything = outputs("-B")
+    if not everything:
+        return "make would build nothing"
+    stale = sorted(everything - outputs("-W", "Makefile"))
+    if stale:
+        return f"{len(stale)} file(s) would not be rebuilt, e.g. {stale[0]}"
+    return None
+
+
+def check_wrong_expectations_fail():
+    """A Rook test whose expectation is wrong must fail, not pass."""
+    path = os.path.join(ROOT, "tests", "rook", "trusted", "ram_512mb.rook")
+    wrong = {
+        "expect-fault: the wrong address": dict(expect_fault="FAR_EL1:  0x0000000040000000"),
+        "expect-fault missing": dict(expect_fault=None),
+        "expect-qemu-log: a report that never comes": dict(expect_qemu_log=["no such report"]),
+    }
+    for what, change in wrong.items():
+        test = RookTest.from_file(path)
+        for key, value in change.items():
+            setattr(test, key, value)
+        if test.run()[0]:
+            return f"passed with {what}"
+    return None
+
+
+HARNESS_TESTS = [
+    HarnessTest("harness/qemu_log_check", "QEMU's device log must match what a test expects, "
+                "exactly", check_log_cases),
+    HarnessTest("harness/machines", "Tests run on a 1 GB and a 512 MB Raspberry Pi machine",
+                check_machines),
+    HarnessTest("harness/wrong_expectations", "A Rook test with a wrong fault or QEMU-log "
+                "expectation fails", check_wrong_expectations_fail),
+    HarnessTest("harness/make_deps", "Changing the Makefile rebuilds everything built from it",
+                check_make_deps),
+]
+
+
+# ---------------------------------------------------------------------------
 
 def all_tests():
-    tests = list(BOOT_TESTS)
+    tests = list(BOOT_TESTS) + HARNESS_TESTS
     for pattern in ("*.rook", "trusted/*.rook"):
         for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", pattern))):
             tests.append(RookTest.from_file(path))

@@ -27,7 +27,7 @@ checks that a deliberate fault is reported by the exception vectors.
 
 Milestone 2 has only ever run in QEMU, and Fledgling will build the self-hosted
 compiler at milestone 5. This step makes both more trustworthy without real
-hardware, in one PR.
+hardware, in several small PRs (listed under *Progress*).
 
 - **QEMU closer to the board.** Run the Rook tests on QEMU's `raspi3ap` (512 MB,
   like the Zero 2 W) as well as `raspi3b` (1 GB), and turn on QEMU's logging of
@@ -48,6 +48,15 @@ hardware, in one PR.
 - **The serial test harness, ready for hardware.** Boot tests can read a serial
   port instead of QEMU's output; tested now with QEMU's serial on a
   pseudo-terminal, so the real board is a one-line swap later.
+
+**Progress:**
+
+1. *Test harness* (done): the Makefile rebuilds on change; tests run on `raspi3b`
+   and `raspi3ap` and fail on QEMU device reports; `make coverage` reports the
+   compiler lines no test reaches (93.0% at the start; the gaps are the next PR).
+2. Tests for those gaps.
+3. Differential testing.
+4. Bring-up checklist, activity LED and serial harness.
 
 **Done when:** all of the above is merged and green in CI.
 

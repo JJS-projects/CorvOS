@@ -44,32 +44,35 @@ ROOK_TEST_TRUSTED := $(RAVEN_TRUSTED) --trusted tests/rook/support/trusted \
 ROOK_TESTS     := $(wildcard tests/rook/*.rook tests/rook/trusted/*.rook)
 ROOK_TEST_IMGS := $(ROOK_TESTS:tests/rook/%.rook=$(BUILD)/rook-tests/%.img)
 
-.PHONY: all run test disasm sdcard clean help
+.PHONY: all run test coverage disasm sdcard clean help
 # Keep generated assembly, so it can be read when reviewing or debugging.
 .SECONDARY:
 
 all: $(KERNEL)
 
-$(BUILD)/normal/%.o: %.s
+# Every generated file depends on this Makefile, so changing a flag or a rule
+# (or switching to a branch that has) rebuilds it instead of reusing objects
+# built the old way.
+$(BUILD)/normal/%.o: %.s Makefile
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/fault/%.o: %.s
+$(BUILD)/fault/%.o: %.s Makefile
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) --defsym FAULT_TEST=1 -o $@ $<
 
-$(BUILD)/rooktest/%.o: %.s
+$(BUILD)/rooktest/%.o: %.s Makefile
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) --defsym ROOK_TEST=1 -o $@ $<
 
-$(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS)
+$(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS) Makefile
 	@mkdir -p $(dir $@)
 	$(FLEDGLING) $(RAVEN_TRUSTED) $(RAVEN_ROOK) -o $@
 
 $(BUILD)/raven/raven.o: $(BUILD)/raven/raven.s
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/rook-tests/%.s: tests/rook/%.rook $(FLEDGLING_SRCS) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT)
+$(BUILD)/rook-tests/%.s: tests/rook/%.rook $(FLEDGLING_SRCS) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) Makefile
 	@mkdir -p $(dir $@)
 	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $< -o $@
 
@@ -94,6 +97,9 @@ run: $(KERNEL)
 test: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS)
 	$(PYTHON) tests/run_tests.py
 
+coverage:
+	$(PYTHON) tools/coverage.py
+
 disasm: $(BUILD)/kernel8.elf
 	$(OBJDUMP) -d $< | less
 
@@ -110,6 +116,7 @@ help:
 	@echo "make run      boot it in QEMU (quit with Ctrl-A then X)"
 	@echo "make test     build everything and run the full test suite"
 	@echo "              (python3 tests/run_tests.py NAME... runs only some tests)"
+	@echo "make coverage  list the compiler lines no test reaches"
 	@echo "make disasm   disassemble the kernel"
 	@echo "make sdcard   collect files for a real Pi Zero 2 W SD card"
 	@echo "make clean    remove build output"
