@@ -55,7 +55,7 @@ hardware, in several small PRs (listed under *Progress*).
    and `raspi3ap` and fail on QEMU device reports; `make coverage` reports the
    compiler lines no test reaches (93.0% at the start).
 2. *Tests for those gaps* (done): coverage of the compiler is 99.4%, and `make coverage` now fails on any new gap.
-3. Differential testing.
+3. *Differential testing* (done): `make difftest`, run in CI with a fixed seed.
 4. Bring-up checklist, activity LED and serial harness.
 
 **Done when:** all of the above is merged and green in CI.

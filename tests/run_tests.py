@@ -535,6 +535,11 @@ def main(argv):
     else:
         selected = tests
 
+    return run_all(selected)
+
+
+def run_all(selected):
+    """Run `selected` tests, print one line each, and return the exit status."""
     os.makedirs(LOG_DIR, exist_ok=True)
     failures = 0
     width = max(len(t.name) for t in selected)

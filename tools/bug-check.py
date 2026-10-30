@@ -2,12 +2,16 @@
 """Deliberate-bug check: break one thing, run the suite, say which tests failed.
 
     tools/bug-check.py FILE OLD NEW
+    BUG_CHECK_COMMAND="make difftest" tools/bug-check.py FILE OLD NEW
 
 Replaces the text OLD (which must occur exactly once) with NEW in FILE, runs
-`make test`, then restores FILE whatever happens. Prints the failing tests, or
+`make test` (or the command in BUG_CHECK_COMMAND), then restores FILE whatever
+happens. Prints the failing tests, or
 "none" if nothing noticed the bug. The results go in the PR's table (see
 docs/workflow.md, Practices).
 """
+import os
+import shlex
 import subprocess
 import sys
 
@@ -20,7 +24,8 @@ if original.count(old) != 1:
 try:
     with open(path, "w") as f:
         f.write(original.replace(old, new))
-    run = subprocess.run(["make", "test"], capture_output=True, text=True)
+    run = subprocess.run(shlex.split(os.environ.get("BUG_CHECK_COMMAND", "make test")),
+                         capture_output=True, text=True)
 finally:
     with open(path, "w") as f:
         f.write(original)
