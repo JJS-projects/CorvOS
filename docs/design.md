@@ -206,6 +206,11 @@ fault-tolerance claim will be tested.
   at milestone 7.
 - **Mailbox bounds and backpressure**: bounded or unbounded, and what happens when full.
 - **Scheduling policy** across cores: work stealing, per-core run queues, affinity.
+- **Raven's own structure across cores**: one shared kernel whose run queues and
+  mailboxes need atomics or locks, or one kernel per core that coordinate by
+  messages (as in Barrelfish). Raven's internals are the one place with shared
+  mutable state, outside the language's guarantees, so this decides how much of
+  Raven needs `unsafe`. Decide at the start of milestone 3.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
 - **Visible cost of cross-domain sends** (principle 8): a send to an actor in
   another domain copies the message, while an identical-looking send within a
