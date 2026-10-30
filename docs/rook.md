@@ -33,8 +33,8 @@ pub actor Main {
     new(boot: val Boot) {
         uart: Uart = spawn Uart(boot.uart_regs, boot.uart_irq)
         shell: Shell = spawn Shell(uart)
-        editor: LineEditor = spawn LineEditor(uart, shell as LineSink)
-        uart.subscribe(editor as ByteSink)    // editor can only receive `byte`
+        editor: LineEditor = spawn LineEditor(uart, narrow(shell, LineSink))
+        uart.subscribe(narrow(editor, ByteSink))  // editor can only receive `byte`
 } Main
 
 pub actor Uart {
@@ -80,7 +80,7 @@ actor LineEditor: ByteSink {
     on byte(b: u8) {
         .out.write(b)                          // echo it back
         if b == '\n' {
-            line: val Buffer = consume(.buf)   // freeze: iso -> val
+            line: val Buffer = freeze(.buf)    // iso -> val: shared from now on
             .buf = Buffer.new(LINE_MAX)
             .lines.line(line)
         } else {
@@ -119,6 +119,8 @@ fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
 | Passing structs | `show(p)`, `nudge(mut p)` | Lent, never copied; `mut` marked at the call |
 | Copying | `b: Point = copy(a)` | `b: Point = a` is an error |
 | Capabilities | `iso Buffer`, `val Block`, `mut Buffer`, `read Buffer` | Written before the type; omitted on actor references |
+| Moving and freezing | `consume(.buf)`, `freeze(.buf)` | `freeze` turns `iso` into shared, refcounted `val` |
+| Narrowing | `narrow(editor, ByteSink)` | Hands out a reference that can only send that interface's handlers |
 | Message handlers | `on write(b: u8) { }` | `new(...)` initialises an actor; `spawn Uart(...)` creates one |
 | Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
@@ -281,7 +283,8 @@ fn demo() {
   copy `a`. Write `copy(a)`. Numbers are always copied, so `copy` only takes a struct.
   `copy` is built in rather than a method, so a struct's methods are exactly the
   ones written inside it. Built-ins that produce a value are all written this way,
-  as calls with reserved names (`copy(a)`, and later `consume(x)`); operators and
+  as calls with reserved names (`copy(a)`, and later `consume(x)`, `freeze(x)` and
+  `narrow(x, Interface)`); operators and
   statement words (`as`, `wrap`, `discard`, `spawn`) are keywords.
 - **What can be stored**: a new value (a struct literal, a call's result, a
   `copy(...)`, or an `if` choosing between new values) can be stored in a variable,
@@ -303,7 +306,7 @@ fn demo() {
   without `mut` can be set only there, and only once.
 - `spawn Uart(args)` creates an actor, runs its `new`, and returns a reference.
 - Inside an actor, its own fields are written `.field`; `self` is a reference to
-  the actor itself, for handing out (`counter.read(self as Reply<u64>)`).
+  the actor itself, for handing out (`counter.read(narrow(self, Reply<u64>))`).
 - An actor processes one message at a time, so its fields never need locks.
 
 ## 5. Replies: pass a reference
@@ -318,7 +321,7 @@ pub interface Reply<T> {
 
 actor Client: Reply<u64> {
     on start(counter: Counter) {
-        counter.read(self as Reply<u64>)
+        counter.read(narrow(self, Reply<u64>))
     }
 
     on got(value: u64) {
@@ -333,7 +336,7 @@ actor Client: Reply<u64> {
 
 - An actor reference is the authority to send to that actor. There is no other
   way to reach an actor: no global names, no registry, no casting from integers.
-- **Narrowing**: `self as Reply<u64>` gives out a reference that can only send the
+- **Narrowing**: `narrow(self, Reply<u64>)` gives out a reference that can only send the
   handlers in that interface. There is no downcast back, so the compiler enforces
   it at zero runtime cost.
 - **Revocation** is not a language feature: a proxy actor implementing the same
@@ -356,13 +359,16 @@ the type: `iso Buffer`.
 
 This is Pony's model cut down to fit ownership without a garbage collector. Pony's
 `ref`, `box` and `trn` are not included: borrows cover `ref` and `box`, and
-building an `iso` then consuming it into a `val` covers `trn`.
+building an `iso` then freezing it into a `val` covers `trn`.
 
 ### 7.1 Ownership in practice
 
 - `consume(x)` moves `x`; the compiler forbids using `x` afterwards.
-- `v: val T = consume(x)`, where `x` is `iso T`, **freezes** it. Freezing applies to
-  the whole structure, so frozen data has no cycles and refcounting is enough.
+- `freeze(x)`, where `x` is `iso T`, takes it like `consume` and returns it as
+  `val T`: immutable, shareable, and atomically refcounted from then on. Freezing
+  is always written, because it changes what the value costs; `consume(x)` passed
+  where a `val` is needed is an error. Freezing applies to the whole structure, so
+  frozen data has no cycles and refcounting is enough.
 - Consuming a field leaves it empty; it must be assigned again before the handler
   ends.
 - Borrows are written the same way at the call site and in the parameter:
@@ -440,8 +446,9 @@ with milestone 3. It is being built in three steps:
 - **Integer literals take their type from context**: the declared type, the other
   operand, or the parameter they are passed to. With no context they are `u64`.
   Character literals (`'A'`, `'\n'`, `'\x41'`) are `u8` by default.
-- **Converting integers**: `x as T` compiles only when every value of `x`'s type
-  fits in `T` (widening, or from `bool`), so it can never lose information.
+- **Converting integers**: `as` is only for numbers. `x as T` compiles only when
+  every value of `x`'s type fits in `T` (widening, or from `bool`), so it can
+  never lose information.
   Anything that could, such as narrowing or changing signedness, is written
   `x wrap T`: it keeps the low bits and reinterprets the sign, like Rust's `as`.
   `wrap` is an error where nothing could be lost, so each word always means one
