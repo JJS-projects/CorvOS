@@ -1,0 +1,11 @@
+// Copying is a built-in, not a method, so it reads the same for every struct.
+// error: 10:14: copying is written `copy(value)`, not as a method
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f(a: Point) -> Point {
+    return a.copy()
+}

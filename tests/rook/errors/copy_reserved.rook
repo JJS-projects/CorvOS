@@ -1,0 +1,6 @@
+// `copy` is a keyword, so a program can't define its own.
+// error: 4:4: expected function name, found `copy`
+
+fn copy(x: u64) -> u64 {
+    return x
+}

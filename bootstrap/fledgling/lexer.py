@@ -14,7 +14,7 @@ from .errors import CompileError, Pos
 KEYWORDS = {
     "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
     "continue", "return", "true", "false", "as", "wrap", "discard",
-    "and", "or", "xor", "not", "shl", "shr", "struct",
+    "and", "or", "xor", "not", "shl", "shr", "struct", "copy",
 }
 
 # Reserved for later milestones: using them now is an error, so programs

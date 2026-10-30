@@ -323,6 +323,11 @@ class Gen:
             self.struct_lit(e)
         elif isinstance(e, S.MethodCall):
             self.method_call(e)
+        elif isinstance(e, S.Copy):
+            self.addr(e.value)
+            self.region_addr(e.temp, e.ty.words, "x1")
+            self.copy_words(e.ty.words)
+            self.region_addr(e.temp, e.ty.words)
         elif isinstance(e, S.Unary):
             self.unary(e)
         elif isinstance(e, S.Binary):
@@ -383,12 +388,6 @@ class Gen:
         self.region_addr(e.temp, st.words)
 
     def method_call(self, e):
-        if e.name == "copy":
-            self.addr(e.obj)
-            self.region_addr(e.temp, e.ty.words, "x1")
-            self.copy_words(e.ty.words)
-            self.region_addr(e.temp, e.ty.words)
-            return
         self.call(e.sig.decl.symbol, e.obj if e.obj is not None else "self",
                   e.args, e.ty, e.temp)
 

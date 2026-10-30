@@ -16,7 +16,7 @@ are snake_case, types are CamelCase, top-level constants are SCREAMING_CASE.
 Structs are lent, not copied: a struct parameter receives the caller's value by
 reference, read-only unless the parameter is `mut T` and the caller writes
 `mut x`. A new struct value can only come from a "fresh" expression (a struct
-literal, a call, or `.copy()`), so an existing value is never copied silently.
+literal, a call, or `copy(...)`), so an existing value is never copied silently.
 
 Locals are stored in one of three ways (`Local.kind`):
   value   a number or bool, in one 8-byte slot
@@ -104,9 +104,6 @@ class Checker:
             field_names = {name for name, _ in st.fields}
             for m in st.decl.methods:
                 require_snake(m.name, "method", m.pos)
-                if m.name == "copy":
-                    raise CompileError("`copy` is built in for every struct; choose another name",
-                                       m.pos)
                 if m.name in field_names:
                     raise CompileError(f"`{m.name}` is already a field of `{st.name}`", m.pos)
                 if m.name in st.methods:
@@ -466,11 +463,6 @@ class Checker:
 
         if isinstance(e, S.MethodCall):
             st = self.struct_of(e)
-            if e.name == "copy":
-                if e.args:
-                    raise CompileError("`copy()` takes no arguments", e.pos)
-                e.temp = self.alloc(st.words)
-                return st
             sig = st.methods.get(e.name)
             if sig is None:
                 raise CompileError(f"`{st.name}` has no method `{e.name}`", e.pos)
@@ -492,6 +484,14 @@ class Checker:
                 e.temp = self.alloc(sig.ret.words)
             return sig.ret
 
+        if isinstance(e, S.Copy):
+            ty = self.expr(e.value)
+            if not is_struct(ty):
+                raise CompileError(f"{ty} values are always copied; `copy(...)` is for structs",
+                                   e.value.pos)
+            e.temp = self.alloc(ty.words)
+            return ty
+
         if isinstance(e, S.MutArg):
             raise CompileError("`mut` only marks an argument passed to a `mut` parameter", e.pos)
 
@@ -509,9 +509,6 @@ class Checker:
         ty = self.expr(e.obj)
         if not is_struct(ty):
             what = e.field if isinstance(e, S.FieldAccess) else e.name
-            if isinstance(e, S.MethodCall) and e.name == "copy":
-                raise CompileError(f"{ty} values are always copied; `.copy()` is for structs",
-                                   e.pos)
             raise CompileError(f"{ty} has no field or method `{what}`", e.pos)
         return ty
 
@@ -576,7 +573,7 @@ class Checker:
         """A struct value can be stored only if nothing else holds it."""
         if not is_fresh(e):
             raise CompileError(
-                f"{what} would be a copy of {describe_place(e)}; write `{source_text(e)}.copy()` "
+                f"{what} would be a copy of {describe_place(e)}; write `copy({source_text(e)})` "
                 f"to copy it", e.pos)
 
     def same_type_pair(self, a, b, hint, what):
@@ -718,7 +715,7 @@ def untyped_literal(e):
 
 def is_fresh(e):
     """Is `e` a new struct value that nothing else holds?"""
-    if isinstance(e, (S.StructLit, S.Call, S.MethodCall)):
+    if isinstance(e, (S.StructLit, S.Call, S.MethodCall, S.Copy)):
         return True
     if isinstance(e, S.IfExpr):
         return is_fresh(e.then) and is_fresh(e.else_)

@@ -99,7 +99,7 @@ class FieldAccess(Expr):
 
 @dataclass
 class MethodCall(Expr):
-    """`p.m(args)`, or `.m(args)` inside a method. `copy` is built in."""
+    """`p.m(args)`, or `.m(args)` inside a method."""
     obj: Optional[Expr]
     name: str
     args: list
@@ -108,6 +108,16 @@ class MethodCall(Expr):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot for a struct result
         self.sig = None         # set by checker
+
+
+@dataclass
+class Copy(Expr):
+    """`copy(value)`: a new struct with the same fields."""
+    value: Expr
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.temp = None        # set by checker: frame slot for the copy
 
 
 @dataclass

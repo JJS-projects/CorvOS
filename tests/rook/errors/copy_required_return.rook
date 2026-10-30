@@ -1,5 +1,5 @@
 // A lent parameter can't be handed back as a new value without a copy.
-// error: 10:12: the result would be a copy of `p`; write `p.copy()`
+// error: 10:12: the result would be a copy of `p`; write `copy(p)`
 
 struct Point {
     x: u64

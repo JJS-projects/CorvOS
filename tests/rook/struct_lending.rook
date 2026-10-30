@@ -1,10 +1,11 @@
 // Structs are lent, not copied: a `mut` parameter changes the caller's value,
-// and `.copy()` makes an independent value. Numbers can be lent as `mut` too.
+// and `copy(b)` makes an independent value. Numbers can be lent as `mut` too.
 // expect: 101
 // expect: 1
 // expect: 2
 // expect: 51
 // expect: 7
+// expect: 3
 
 extern fn print_u64(x: u64)
 
@@ -21,6 +22,12 @@ fn total(c: Counter) -> u64 {
     return c.count + c.step
 }
 
+// Reads `original` after changing `target`: only a real copy keeps them apart.
+fn add_twice(target: mut Counter, original: Counter) {
+    target.count += original.count
+    target.count += original.count
+}
+
 fn increment(n: mut u64) {
     n += 1
 }
@@ -30,7 +37,7 @@ fn test_main() {
     advance(mut a)
     print_u64(a.count)
     mut b: Counter = Counter(count: 1, step: 1)
-    c: Counter = b.copy()
+    c: Counter = copy(b)
     advance(mut b)
     print_u64(c.count)
     print_u64(b.count)
@@ -38,4 +45,7 @@ fn test_main() {
     increment(mut n)
     print_u64(n)
     print_u64(total(Counter(count: 3, step: 4)))
+    mut d: Counter = Counter(count: 1, step: 0)
+    add_twice(mut d, copy(d))
+    print_u64(d.count)
 }

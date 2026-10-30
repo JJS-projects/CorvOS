@@ -1,7 +1,7 @@
-// Numbers are always copied; `.copy()` is only for structs.
-// error: 6:16: u64 values are always copied
+// Numbers are always copied; `copy` is only for structs.
+// error: 6:19: u64 values are always copied
 
 fn f() {
     x: u64 = 1
-    y: u64 = x.copy()
+    y: u64 = copy(x)
 }

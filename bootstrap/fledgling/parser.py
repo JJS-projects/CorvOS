@@ -413,6 +413,14 @@ class Parser:
             return S.BoolLit(tok.pos, tok.kind == "true")
         if tok.kind == "if":
             return self.if_expr()
+        if tok.kind == "copy":
+            self.advance()
+            if not self.at("("):
+                raise CompileError("write `copy(value)`", self.peek().pos)
+            self.advance()
+            value = self.expr()
+            self.expect(")")
+            return S.Copy(tok.pos, value)
         if tok.kind == "." and self.peek(1).kind == "ident":
             # `.field` or `.method(...)` inside a method: the method's own struct.
             self.advance()
@@ -437,7 +445,10 @@ class Parser:
 
     def postfix(self, expr):
         """`expr.field` and `expr.method(args)`, chained."""
-        while self.at(".") and self.peek(1).kind == "ident":
+        while self.at(".") and self.peek(1).kind in ("ident", "copy"):
+            if self.peek(1).kind == "copy":
+                raise CompileError(f"copying is written `copy(value)`, not as a method",
+                                   self.peek(1).pos)
             self.advance()
             name = self.advance()
             if self.at("("):

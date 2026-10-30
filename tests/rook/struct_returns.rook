@@ -18,7 +18,7 @@ fn make(w: u64, h: u64) -> Size {
 }
 
 fn grown(s: Size, by: u64) -> Size {
-    mut result: Size = s.copy()
+    mut result: Size = copy(s)
     result.width += by
     result.height += by
     return result
