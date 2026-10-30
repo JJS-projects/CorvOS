@@ -21,11 +21,11 @@ lines are handed to a shell.
 LINE_MAX: u64 = 128
 
 pub interface ByteSink {
-    on byte(b: u8)
+    lossy on byte(b: u8)                // typed bytes may be dropped if the sink falls behind
 }
 
 pub interface LineSink {
-    on line(text: val Buffer)
+    reliable on line(text: val Buffer)  // a dropped line would be a lost command
 }
 
 /// Raven starts Main holding the only authority in the system.
@@ -34,7 +34,10 @@ pub actor Main {
         uart: Uart = spawn Uart(boot.uart_regs, boot.uart_irq)
         shell: Shell = spawn Shell(uart)
         editor: LineEditor = spawn LineEditor(uart, narrow(shell, LineSink))
-        uart.subscribe(narrow(editor, ByteSink))  // editor can only receive `byte`
+        match uart.subscribe(narrow(editor, ByteSink)) {   // editor can only receive `byte`
+            Ok(value: _) => { }
+            Err(error: _) => panic("uart mailbox full at start-up")
+        }
 } Main
 
 pub actor Uart {
@@ -48,21 +51,22 @@ pub actor Uart {
         .listener = None
     }
 
-    pub on subscribe(to: ByteSink) {
+    pub reliable on subscribe(to: ByteSink) {
         .listener = Some(value: to)
     }
 
-    pub on write(b: u8) {
+    pub reliable on write(b: u8) {
         wait_for_space: loop (.regs.read32(FR) and TXFF) != 0 { }
         .regs.write32(DR, b as u32)
     }
 
-    /// Raven delivers the UART interrupt as this message.
-    on interrupt() {
+    /// Raven delivers the UART interrupt as this message; one already queued
+    /// absorbs a new one.
+    lossy on interrupt() {
         drain: loop (.regs.read32(FR) and RXFE) == 0 {
             b: u8 = .regs.read32(DR) wrap u8
             match .listener {
-                Some(value: l) => l.byte(b)
+                Some(value: l) => l.byte(b)       // lossy: nothing to handle
                 None => { }
 } Uart
 
@@ -77,16 +81,19 @@ actor LineEditor: ByteSink {
         .buf = Buffer.new(LINE_MAX)
     }
 
-    on byte(b: u8) {
-        .out.write(b)                          // echo it back
+    lossy on byte(b: u8) {                     // as ByteSink declares it
+        discard .out.write(b)                  // echo it back; a lost echo is fine
         if b == '\n' {
             line: val Buffer = freeze(.buf)    // iso -> val: shared from now on
             .buf = Buffer.new(LINE_MAX)
-            .lines.line(line)
+            match .lines.line(line) {
+                Ok(value: _) => { }
+                Err(error: _) => discard .out.write('!')   // the shell is behind
+            }
         } else {
             match append(mut .buf, b) {
                 Ok(value: _) => { }
-                Err(error: _) => .out.write('!')
+                Err(error: _) => discard .out.write('!')
 } LineEditor
 
 enum AppendError {
@@ -126,7 +133,8 @@ fn append(buf: mut Buffer, b: u8) -> Result<u64, AppendError> {
 | Capabilities | `iso Buffer`, `val Block`, `mut Buffer`, `read Buffer` | Written before the type; omitted on actor references |
 | Moving and freezing | `consume(.buf)`, `freeze(.buf)` | `freeze` turns `iso` into shared, refcounted `val` |
 | Narrowing | `narrow(editor, ByteSink)` | Hands out a reference that can only send that interface's handlers |
-| Message handlers | `on write(b: u8) { }` | `new(...)` initialises an actor; `spawn Uart(...)` creates one |
+| Message handlers | `reliable on write(b: u8) { }`, `lossy on byte(b: u8) { }` | Every handler says which; `new(...)` initialises an actor; `spawn Uart(...)` creates one |
+| Sending | `discard uart.write(b)`, `match uart.write(b) { … }`, `sink.byte(b)` | A send to a `reliable` handler returns a `Result` that must be handled; a send to a `lossy` one returns nothing |
 | Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
 | Enums | `Busy(job: 3, since: now)`, `Idle` | Variant names are unique, so they're written bare |
@@ -235,7 +243,7 @@ by its label. Keywords (`} loop`, `} if`) are not names, so a closer is never am
 The compiler checks that the name matches an open block.
 
 ```rook
-on interrupt() {
+lossy on interrupt() {
     drain: loop (.regs.read32(FR) and RXFE) == 0 {
         b: u8 = .regs.read32(DR) wrap u8
         match .listener {
@@ -364,13 +372,37 @@ fn classify(b: u8) -> u8 {
 - `actor` declares an actor type with private fields, written `name: type`, or
   `mut name: type` for fields that change after creation.
 - `on` declares a **handler**: an asynchronous message handler. Calling one
-  (`uart.write(b)`) sends a message and returns immediately; it has no result.
+  (`uart.write(b)`) sends a message and returns immediately. It never waits for
+  the handler to run and has no reply (section 5), but a send can find the
+  mailbox full (see below).
+- **Every handler is `lossy` or `reliable`**, written before `on` (after `pub`):
+  `pub reliable on write(b: u8)`, `lossy on byte(b: u8)`. There is no default. An
+  interface declares it for each of its handlers, and an actor that implements
+  the interface must declare the same.
 - `new(...)` runs once when the actor is created. It must set every field; fields
   without `mut` can be set only there, and only once.
 - `spawn Uart(args)` creates an actor, runs its `new`, and returns a reference.
 - Inside an actor, its own fields are written `.field`; `self` is a reference to
   the actor itself, for handing out (`counter.read(narrow(self, Reply<u64>))`).
 - An actor processes one message at a time, so its fields never need locks.
+
+### 4.1 When a mailbox is full
+
+Mailboxes hold a fixed number of messages, so a flood can't use up memory, and a
+full mailbox never crashes the sender or the receiver.
+
+- A send to a **`reliable`** handler returns a `Result` whose error is
+  `MailboxFull`. The compiler makes the sender handle it with `match`, or throw it
+  away on purpose with `discard`. The sender knows what the message is worth.
+- A send to a **`lossy`** handler returns nothing. If the mailbox is full the new
+  message is dropped, the messages already queued keep their order, and Raven
+  counts the drop. `lossy` is the receiver's promise that its protocol copes with
+  loss (input bytes, log lines, "data ready" events). The call reads like any
+  other, so the interface is where to look.
+- Messages Raven itself sends, such as interrupts, go to `lossy` handlers, and one
+  already queued absorbs a new one.
+- A request over a `lossy` handler may be dropped, and no reply will come: the
+  requester needs its own way to give up.
 
 ## 5. Replies: pass a reference
 
@@ -379,19 +411,22 @@ the receiver can reply to, usually narrowed to an interface:
 
 ```rook
 pub interface Reply<T> {
-    on got(value: T)
+    reliable on got(value: T)
 }
 
 actor Client: Reply<u64> {
-    on start(counter: Counter) {
-        counter.read(narrow(self, Reply<u64>))
+    reliable on start(counter: Counter) {
+        match counter.read(narrow(self, Reply<u64>)) {
+            Ok(value: _) => { }
+            Err(error: _) => log_busy()
+        }
     }
 
-    on got(value: u64) {
+    reliable on got(value: u64) {
         log(value)
     }
 
-    on shutdown() { }         // not reachable through a Reply<u64> reference
+    reliable on shutdown() { }   // not reachable through a Reply<u64> reference
 }
 ```
 

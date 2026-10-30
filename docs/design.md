@@ -182,6 +182,11 @@ scheduler.
   its whole mailbox before yielding, so the kernel is involved once per wake-up, not
   once per message. Scheduling still lives only in Raven, but the kernel no longer
   sees every message.
+- **Mailboxes are bounded** (decision 112). A full mailbox never crashes the sender
+  or the receiver: a send to a `reliable` handler returns an error the sender must
+  handle, and a send to a `lossy` handler drops the new message. Which a handler is,
+  is written in its declaration. A flood therefore can't use up the receiver's
+  memory, and one slow actor can't make its senders' domains restart.
 - This costs nothing in security: within a domain, the compiler already guarantees
   references can't be forged, so the kernel checking each send adds no protection.
 - Measuring kernel-mediated sends against the fast path is a research result in its
@@ -234,7 +239,11 @@ fault-tolerance claim will be tested.
 - **DMA without an IOMMU**: the approach is settled (a trusted DMA actor in Raven
   checks every address range; section 3.5). The details of its interface are decided
   at milestone 7.
-- **Mailbox bounds and backpressure**: bounded or unbounded, and what happens when full.
+- **Mailbox sizes and fairness**: bounded mailboxes and what a full one means are
+  settled (decision 112). Still open: how big a mailbox is, whether an actor can ask
+  for a different size, whether one sender can fill a mailbox so that every other
+  sender gets `MailboxFull` (per-sender quotas), and whether a receiver is told how
+  many messages it lost.
 - **Scheduling policy** within a core: round robin, priorities, fairness.
   (Run queues are per core and a domain stays on its core: decision 111.)
 - **Details of one Raven per core** (the structure itself is settled, section 6.3):
