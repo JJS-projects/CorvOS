@@ -1,0 +1,6 @@
+// Even in a trusted file, raw memory access is marked with `unsafe { }`.
+// error: 5:12: `load32` touches memory the compiler can't check, so it is only allowed inside `unsafe { }`
+
+fn f() -> u32 {
+    return load32(0x3F201018)
+}

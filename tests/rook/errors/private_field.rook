@@ -1,0 +1,6 @@
+// Without `pub`, a field can only be used in its own file.
+// error: 5:23: `right` is private to visibility.rook; mark the field `pub` to use it in another file
+
+fn f(p: Pair) -> u64 {
+    return p.left + p.right
+}

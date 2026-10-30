@@ -1,0 +1,6 @@
+// Without `pub`, a constant can only be used in its own file.
+// error: 5:12: `HIDDEN_LIMIT` is private to visibility.rook; mark it `pub` to use it in another file
+
+fn f() -> u64 {
+    return HIDDEN_LIMIT
+}

@@ -1,9 +1,6 @@
 // Division by zero panics.
 // expect: 7
-// expect-panic: division by zero at panic_div_zero.rook:12
-
-extern fn print_u64(x: u64)
-extern fn print_i64(x: i64)
+// expect-panic: division by zero at panic_div_zero.rook:9
 
 fn test_main() {
     zero: u32 = 0

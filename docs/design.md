@@ -94,7 +94,15 @@ claim. Only deliberately shared data pays any runtime cost.
   covering exactly its device's registers, plus an `Irq` value that routes the
   interrupt to it as a message. Access is bounds checked.
 - Ordinary drivers therefore contain **no `unsafe` code**. `unsafe` exists only
-  inside Raven.
+  inside Raven, in files under `raven/trusted/` (decision 90).
+- `unsafe` is used to build a few capability types (`Mmio`, `Irq`, page tables,
+  mailboxes) that check their own rules; the rest of Raven uses them safely.
+- Some trusted code runs outside the kernel: `Mmio.read32` is compiled into each
+  driver, and its load runs in the driver's domain on registers Raven mapped
+  there. Two layers make that safe: the compiler (an `Mmio` can't be forged or
+  read out of bounds) and the MMU (a domain reaches only its own pages).
+- A bug in Raven's own code can't be restarted by a supervisor: it stops the
+  machine. That is one more reason to keep the trusted files few and small.
 - **DMA-capable devices** are the exception, because without an IOMMU they can write
   anywhere. Their DMA registers are never handed to drivers; drivers ask a trusted
   DMA actor in Raven, which checks every address range.
@@ -140,8 +148,8 @@ Isolation is enforced in two layers:
 supervisor restarts the whole domain. This keeps failure and protection boundaries
 aligned.
 
-The trusted computing base is therefore: the compiler, Raven, and the `unsafe`
-code inside Raven.
+The trusted computing base is therefore: the compiler, Raven, and the files
+under `raven/trusted/`, which are the only ones allowed `unsafe` and `extern fn`.
 
 ## 6. Raven, the kernel
 

@@ -1,0 +1,6 @@
+// Without `pub`, a method can only be called in its own file.
+// error: 5:14: `sum` is private to visibility.rook; mark the method `pub` to use it in another file
+
+fn f(p: Pair) -> u64 {
+    return p.sum()
+}

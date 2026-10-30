@@ -1,8 +1,8 @@
 // Output functions for Rook test programs (linked into test images only).
 //
 // Every line starts with "out: " so the test harness can tell program output
-// apart from kernel messages. Declare them in a test with, for example:
-//     extern fn print_u64(x: U64)
+// apart from kernel messages. Rook test programs get them from
+// tests/rook/support/trusted/print.rook.
 
     .section .text
 

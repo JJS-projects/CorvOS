@@ -1,0 +1,6 @@
+// Text in quotes ends on the same line.
+// error: 5:12: unterminated string literal
+
+fn f() -> u64 {
+    return "unfinished.len()
+}

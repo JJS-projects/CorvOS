@@ -19,9 +19,6 @@
 // expect: 100000
 // expect: 26
 
-extern fn print_u64(x: u64)
-extern fn print_i64(x: i64)
-
 ESC: u8 = 27
 NEWLINE: u8 = 1
 PRINTABLE: u8 = 2

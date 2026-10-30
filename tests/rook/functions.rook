@@ -8,8 +8,6 @@
 // expect: 4096
 // expect: 300
 
-extern fn print_u64(x: u64)
-
 PAGE_SHIFT: u64 = 12
 PAGE_SIZE: u64 = 1 shl PAGE_SHIFT
 

@@ -139,13 +139,15 @@ class Parser:
                 break
             if self.at("eof"):
                 raise CompileError("unclosed `{`", start.pos)
+            member_public = False
             if self.at("pub"):
                 self.advance()
+                member_public = True
             if self.at("fn") or (self.at("mut") and self.peek(1).kind == "fn"):
                 mutating = self.at("mut")
                 if mutating:
                     self.advance()
-                methods.append(self.fn_decl(extern=False, public=False,
+                methods.append(self.fn_decl(extern=False, public=member_public,
                                             mutating=mutating, owner=name))
             elif self.at("mut"):
                 raise CompileError(
@@ -154,7 +156,7 @@ class Parser:
             elif self.at("ident") and self.peek(1).kind == ":":
                 ftok = self.advance()
                 self.advance()
-                fields.append(S.Field(ftok.text, self.type_ref(), ftok.pos))
+                fields.append(S.Field(ftok.text, self.type_ref(), ftok.pos, member_public))
                 self.end_statement()
             else:
                 tok = self.peek()
@@ -177,11 +179,15 @@ class Parser:
                 break
             if self.at("eof"):
                 raise CompileError("unclosed `{`", start.pos)
+            member_public = False
+            if self.at("pub") and self.peek(1).kind in ("fn", "mut"):
+                self.advance()
+                member_public = True
             if self.at("fn") or (self.at("mut") and self.peek(1).kind == "fn"):
                 mutating = self.at("mut")
                 if mutating:
                     self.advance()
-                methods.append(self.fn_decl(extern=False, public=False,
+                methods.append(self.fn_decl(extern=False, public=member_public,
                                             mutating=mutating, owner=name))
             elif self.at("ident") and self.peek(1).kind == ":":
                 raise CompileError(
@@ -341,6 +347,13 @@ class Parser:
             arms = self.match_arms(False, start, open_)
             self.end_statement()
             return S.Match(start.pos, subject, arms)
+        if tok.kind == "unsafe":
+            self.advance()
+            if not self.at("{"):
+                raise CompileError("`unsafe` marks a block: `unsafe { ... }`", self.peek().pos)
+            body = self.block(set())
+            self.end_statement()
+            return S.Unsafe(tok.pos, body)
         if tok.kind == "loop":
             raise CompileError("every loop is named: write `name: loop ...`", tok.pos)
         if tok.kind in ("break", "continue"):
@@ -562,6 +575,9 @@ class Parser:
         if tok.kind in ("true", "false"):
             self.advance()
             return S.BoolLit(tok.pos, tok.kind == "true")
+        if tok.kind == "str":
+            self.advance()
+            return S.StrLit(tok.pos, tok.value)
         if tok.kind == "if":
             return self.if_expr()
         if tok.kind == "match":
@@ -706,6 +722,6 @@ def describe(kind):
 
 
 def describe_tok(tok):
-    if tok.kind in ("ident", "int", "char"):
+    if tok.kind in ("ident", "int", "char", "str"):
         return f"`{tok.text}`"
     return describe(tok.kind)

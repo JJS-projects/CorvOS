@@ -11,9 +11,6 @@
 // expect: true
 // expect: false
 
-extern fn print_u64(x: u64)
-extern fn print_bool(b: bool)
-
 fn noisy(id: u64, result: bool) -> bool {
     print_u64(id)
     return result

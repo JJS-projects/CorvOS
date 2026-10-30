@@ -1,9 +1,6 @@
 // i64 MIN / -1 panics (the hardware alone would silently give MIN).
 // expect: 0
-// expect-panic: integer overflow at panic_div_i64_min.rook:12
-
-extern fn print_u64(x: u64)
-extern fn print_i64(x: i64)
+// expect-panic: integer overflow at panic_div_i64_min.rook:9
 
 fn test_main() {
     a: i64 = -9223372036854775807 - 1

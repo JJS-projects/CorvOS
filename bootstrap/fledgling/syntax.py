@@ -39,6 +39,12 @@ class BoolLit(Expr):
 
 
 @dataclass
+class StrLit(Expr):
+    """`"text"`: a `Bytes` value whose bytes live in read-only data."""
+    data: bytes
+
+
+@dataclass
 class Name(Expr):
     ident: str
 
@@ -48,6 +54,7 @@ class Name(Expr):
         self.const_value = None  # set by checker: value if this names a const
         self.variant = None     # set by checker: if this is a variant without fields
         self.temp = None        # set by checker: frame slot for that variant's value
+        self.const_str = None   # set by checker: the StrLit, if this names a text constant
 
 
 @dataclass
@@ -261,6 +268,12 @@ class Match(Stmt):
 
 
 @dataclass
+class Unsafe(Stmt):
+    """`unsafe { ... }`: code the compiler can't check. Only in trusted files."""
+    body: "Block"
+
+
+@dataclass
 class Break(Stmt):
     label: str
 
@@ -300,6 +313,8 @@ class FnDecl:
     owner: Optional[str] = None  # the struct or enum a method belongs to
 
     def __post_init__(self):
+        self.file = None        # set by compile_program: the source file
+        self.trusted = False    # set by compile_program: in a trusted directory
         self.nslots = 0         # set by checker: number of 8-byte local slots
         self.self_slot = None   # set by checker: methods' pointer to their struct
         self.result_slot = None  # set by checker: where a struct result goes (x8)
@@ -318,12 +333,17 @@ class ConstDecl:
     pos: Pos
     public: bool = False
 
+    def __post_init__(self):
+        self.file = None
+        self.trusted = False
+
 
 @dataclass
 class Field:
     name: str
     type: TypeRef
     pos: Pos
+    public: bool = False        # `pub`: usable outside the struct's file
 
 
 @dataclass
@@ -333,6 +353,10 @@ class StructDecl:
     methods: list               # [FnDecl]
     pos: Pos
     public: bool = False
+
+    def __post_init__(self):
+        self.file = None
+        self.trusted = False
 
 
 @dataclass
@@ -349,6 +373,10 @@ class EnumDecl:
     methods: list               # [FnDecl]
     pos: Pos
     public: bool = False
+
+    def __post_init__(self):
+        self.file = None
+        self.trusted = False
 
 
 @dataclass

@@ -4,8 +4,6 @@
 // expect: 2
 // expect: 4
 
-extern fn print_u64(x: u64)
-
 NEWLINE: u8 = 1
 PRINTABLE: u8 = 2
 ESCAPE: u8 = 3

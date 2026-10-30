@@ -8,8 +8,6 @@
 // expect: true
 // expect: false
 
-extern fn print_bool(b: bool)
-
 fn test_main() {
     neg: i8 = -1
     pos: i8 = 1

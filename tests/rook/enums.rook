@@ -10,9 +10,6 @@
 // expect: 5
 // expect: 9
 
-extern fn print_u64(x: u64)
-extern fn print_bool(b: bool)
-
 struct Point {
     x: u64
     y: u64

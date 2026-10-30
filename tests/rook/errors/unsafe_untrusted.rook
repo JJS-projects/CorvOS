@@ -1,0 +1,8 @@
+// `unsafe` is only allowed in trusted files, so the trusted base is a list of files.
+// error: 5:5: `unsafe` is only allowed in files under a trusted directory, such as raven/trusted/
+
+fn f() {
+    unsafe {
+        store8(0x1000, 1)
+    }
+}

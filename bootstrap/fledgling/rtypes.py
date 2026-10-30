@@ -72,6 +72,7 @@ class StructType(AggregateType):
     def __init__(self, name, decl):
         super().__init__(name, decl)
         self.fields = []        # [(name, type)], filled in once all types are known
+        self.public_fields = set()
 
     def offset(self, field):
         """Offset of `field` in words, and its type."""

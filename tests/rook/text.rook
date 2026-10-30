@@ -1,0 +1,47 @@
+// Text in quotes is a `Bytes`: its length and bytes can be read, escapes work
+// as in character literals, and other text is stored as UTF-8.
+// expect: 5
+// expect: 72
+// expect: 4
+// expect: 10
+// expect: 3
+// expect: 2
+// expect: 0
+// expect: 3
+// expect: 111
+// expect: 82
+
+GREETING: Bytes = "Hello"
+
+fn count(text: Bytes, wanted: u8) -> u64 {
+    mut n: u64 = 0
+    scanning: loop i: u64 in 0..text.len() {
+        if text.at(i) == wanted {
+            n += 1
+        }
+    }
+    return n
+}
+
+// Ends with `panic`, which never returns, so no `return` is needed after it.
+fn first(text: Bytes) -> u8 {
+    if text.len() > 0 {
+        return text.at(0)
+    }
+    panic("empty text")
+}
+
+fn test_main() {
+    print_u64(GREETING.len())               // 5
+    print_u64(GREETING.at(0) as u64)        // 72: 'H'
+    line: Bytes = "a\tb\n"
+    print_u64(line.len())                   // 4
+    print_u64(line.at(3) as u64)            // 10: '\n'
+    print_u64("\x41\\\"".len())             // 3: A, backslash, quote
+    print_u64("é".len())                    // 2: UTF-8
+    print_u64("".len())                     // 0
+    print_u64(count("banana", 'a'))         // 3
+    kept: Bytes = copy(GREETING)
+    print_u64(kept.at(4) as u64)            // 111: 'o'
+    print_u64(first("Rook") as u64)         // 82: 'R'
+}

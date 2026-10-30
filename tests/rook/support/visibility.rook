@@ -1,0 +1,26 @@
+// Items for the error tests on visibility between files (decision 49):
+// without `pub`, an item can only be used in its own file.
+
+pub fn shared() -> u64 {
+    return 1
+}
+
+fn hidden() -> u64 {
+    return 2
+}
+
+HIDDEN_LIMIT: u64 = 3
+
+enum Secret {
+    Kept
+    Lost
+}
+
+pub struct Pair {
+    pub left: u64
+    right: u64
+
+    fn sum() -> u64 {
+        return .left + .right
+    }
+}

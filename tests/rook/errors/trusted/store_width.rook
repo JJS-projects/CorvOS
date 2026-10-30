@@ -1,0 +1,8 @@
+// A store writes a value of its own width.
+// error: 6:24: literal 300 is out of range for u8 (0 to 255)
+
+fn f() {
+    unsafe {
+        store8(0x1000, 300)
+    }
+}

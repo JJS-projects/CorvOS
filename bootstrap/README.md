@@ -7,8 +7,12 @@ copy can never be used). It compiles the subset of Rook described in
 retired at milestone 5, when the Rook compiler can compile itself.
 
 ```sh
-PYTHONPATH=bootstrap python3 -m fledgling program.rook -o program.s
+PYTHONPATH=bootstrap python3 -m fledgling raven/trusted/bytes.rook program.rook \
+    --trusted raven/trusted -o program.s
 ```
+
+All the files named are compiled as one program. Files under a `--trusted`
+directory may use `unsafe` and `extern fn` (see decision 90).
 
 Errors are reported as `file:line:col: error: message`, with the source line.
 

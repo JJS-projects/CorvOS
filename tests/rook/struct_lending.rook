@@ -7,8 +7,6 @@
 // expect: 7
 // expect: 3
 
-extern fn print_u64(x: u64)
-
 struct Counter {
     count: u64
     step: u64

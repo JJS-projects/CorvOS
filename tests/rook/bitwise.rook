@@ -15,9 +15,6 @@
 // expect: 240
 // expect: 49152
 
-extern fn print_u64(x: u64)
-extern fn print_i64(x: i64)
-
 PINS: u32 = (1 shl 14) or (1 shl 15)
 
 fn test_main() {

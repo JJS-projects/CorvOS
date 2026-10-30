@@ -6,9 +6,6 @@
 // expect: 3
 // expect: true
 
-extern fn print_u64(x: u64)
-extern fn print_bool(b: bool)
-
 fn sign_class(x: i32) -> u64 {
     return if x < 0 { 1 } else if x == 0 { 2 } else { 3 }
 }

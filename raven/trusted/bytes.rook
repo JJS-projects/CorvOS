@@ -1,0 +1,25 @@
+// Bytes: the type of text in quotes.
+
+/// A run of bytes that can't change: the address of the first byte and how
+/// many there are. Text is UTF-8 by convention (decision 93).
+///
+/// The fields are private to this file, so a `Bytes` only comes from text in
+/// quotes or from trusted code here: nothing else can point one at memory.
+pub struct Bytes {
+    address: u64
+    length: u64
+
+    pub fn len() -> u64 {
+        return .length
+    }
+
+    /// The byte at `index`. Panics if `index` is outside.
+    pub fn at(index: u64) -> u8 {
+        if index >= .length {
+            panic("index outside Bytes")
+        }
+        unsafe {
+            return load8(.address + index)
+        }
+    }
+} Bytes
