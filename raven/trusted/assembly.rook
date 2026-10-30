@@ -1,0 +1,11 @@
+// Functions written in assembly that Rook calls. Declaring one is a trusted
+// act (decision 90), so they are all here.
+
+/// The exception level Raven is running at (kernel/arch/aarch64/cpu.s).
+pub extern fn current_el() -> u64
+
+/// Runs the test build's extra steps, chosen when the kernel is assembled
+/// (kernel/test_hooks.s): calls a Rook test program's `test_main`, which is
+/// handed `peripherals`, or triggers a deliberate fault. Does nothing in the
+/// normal kernel.
+pub extern fn run_test_hooks(peripherals: Mmio)

@@ -1,0 +1,6 @@
+// `raven_start` creates the root of device authority, so no Rook code outside devices.rook can call it.
+// error: 5:5: `raven_start` is private to devices.rook; mark it `pub` to use it in another file
+
+fn f() {
+    raven_start(1)
+}

@@ -1,0 +1,84 @@
+// The PL011 UART ("UART0") on GPIO 14 and 15: Raven's console.
+//
+// Written in safe Rook: it reaches the hardware only through the `Mmio`
+// values it is given. On real hardware the PL011 is wired to Bluetooth by
+// default; config.txt must contain dtoverlay=disable-bt
+// (see tools/sdcard/config.txt).
+
+// UART registers, as offsets into its `Mmio`.
+UART_DR: u64 = 0x00                 // data
+UART_FR: u64 = 0x18                 // flags
+UART_IBRD: u64 = 0x24               // integer baud divisor
+UART_FBRD: u64 = 0x28               // fractional baud divisor
+UART_LCRH: u64 = 0x2C               // line control
+UART_CR: u64 = 0x30                 // control
+UART_IMSC: u64 = 0x38               // interrupt mask
+UART_ICR: u64 = 0x44                // interrupt clear
+FR_TXFF: u32 = 0x20                 // flag: transmit FIFO full
+
+// GPIO registers, as offsets into the GPIO `Mmio`.
+GPFSEL1: u64 = 0x04                 // function of pins 10-19, 3 bits each
+GPPUD: u64 = 0x94                   // pull-up/down control
+GPPUDCLK0: u64 = 0x98               // pull-up/down clock for pins 0-31
+
+pub struct Pl011 {
+    pub regs: Mmio
+
+    /// 115200 baud, 8 data bits, no parity, 1 stop bit, FIFOs on, assuming a
+    /// 48 MHz UART clock (init_uart_clock=48000000 in config.txt; QEMU
+    /// ignores the divisor). Routes GPIO 14 and 15 to the UART.
+    pub fn init(gpio: Mmio) {
+        .regs.write32(UART_CR, 0)                       // disabled while configuring
+
+        // GPIO 14 and 15 to function ALT0 (TXD0, RXD0): 3 bits each, from bit 12.
+        functions: u32 = gpio.read32(GPFSEL1)
+        cleared: u32 = functions and not ((7 shl 12) or (7 shl 15))
+        gpio.write32(GPFSEL1, cleared or (4 shl 12) or (4 shl 15))
+
+        // No pull-up or pull-down on 14 and 15: set the control, then clock it
+        // into those pins. Each step needs 150 cycles to settle.
+        gpio.write32(GPPUD, 0)
+        settle(150)
+        gpio.write32(GPPUDCLK0, (1 shl 14) or (1 shl 15))
+        settle(150)
+        gpio.write32(GPPUDCLK0, 0)
+
+        .regs.write32(UART_ICR, 0x7FF)                  // clear pending interrupts
+        .regs.write32(UART_IBRD, 26)                    // 48e6 / (16 * 115200) = 26.04
+        .regs.write32(UART_FBRD, 3)                     // 0.04 * 64 = 3
+        .regs.write32(UART_LCRH, 0x70)                  // 8 bits, FIFOs on
+        .regs.write32(UART_IMSC, 0)                     // no UART interrupts yet
+        .regs.write32(UART_CR, 0x301)                   // enable the UART, TX and RX
+    }
+
+    /// Sends one byte, waiting while the transmit FIFO is full.
+    pub fn put(b: u8) {
+        waiting: loop (.regs.read32(UART_FR) and FR_TXFF) != 0 { }
+        .regs.write32(UART_DR, b as u32)
+    }
+
+    /// Sends text, with each `\n` sent as `\r\n` for terminals.
+    pub fn write(text: Bytes) {
+        sending: loop i: u64 in 0..text.len() {
+            b: u8 = text.at(i)
+            if b == '\n' {
+                .put('\r')
+            }
+            .put(b)
+        }
+    }
+
+    /// Sends `n` in decimal.
+    pub fn write_dec(n: u64) {
+        if n >= 10 {
+            .write_dec(n / 10)
+        }
+        .put(('0' as u64 + n % 10) wrap u8)
+    }
+} Pl011
+
+/// Waits about `cycles` loop iterations. Fledgling compiles the empty loop as
+/// written; an optimising compiler would need to be told to keep it.
+fn settle(cycles: u64) {
+    spinning: loop i: u64 in 0..cycles { }
+}

@@ -476,11 +476,9 @@ later if this becomes painful.
   access of that width, in program order, so they work for device registers.
 
   ```rook
-  // raven/trusted/mmio.rook
+  // raven/trusted/devices.rook
   pub fn read32(offset: u64) -> u32 {
-      if offset + 4 > .size {
-          panic("register outside Mmio")
-      }
+      .check32(offset)                  // panics outside the range or misaligned
       unsafe {
           return load32(.base + offset)
       }
@@ -535,7 +533,7 @@ with milestone 3. It is being built in three steps:
 | Data (2a) | structs, methods, lending, `copy(...)` | done |
 | Data (2b) | enums, `match`, `.` | done |
 | Hardware (2c) | trusted files, `unsafe { }`, `load`/`store`, text, `panic`, programs of several files | done |
-| Kernel (2d) | the console and `kernel_main` rewritten in Rook | next |
+| Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 
 ### 11.1 Rules settled while building the core
 
@@ -629,6 +627,23 @@ with milestone 3. It is being built in three steps:
 - **`rook_panic` takes lengths**: `(message, message_length, file, file_length,
   line)`, because `Bytes` has no terminating zero.
 - **Constants can be text**: `GREETING: Bytes = "Hello"`.
+
+### 11.5 Raven's Rook code
+
+- **Layout**: `raven/` holds Raven's Rook code and `raven/trusted/` the files
+  allowed `unsafe`; `kernel/` keeps the assembly (boot, exception vectors, the
+  emergency console).
+- **Device authority starts in one place.** The boot code calls `raven_start` in
+  `raven/trusted/devices.rook`, the only file that can make an `Mmio` from
+  nothing. It makes one covering every device register and hands it to
+  `kernel_main` (`raven/main.rook`), which gives each device only its own `part`.
+- **The console driver is safe Rook** (`raven/pl011.rook`): it reaches the UART
+  and GPIO only through the `Mmio` parts it is given.
+- **Panics and fault reports use the assembly console** (`kernel/arch/aarch64/uart.s`),
+  so a report never depends on the Rook code that may have failed. It relies on
+  `kernel_main` having set the UART up.
+- **Test programs** are compiled with all of Raven's Rook code. Their `test_main`
+  may take `peripherals: Mmio`, the same root `kernel_main` has.
 
 ## 12. Open questions
 

@@ -1,0 +1,6 @@
+// Only devices.rook can make an `Mmio` from nothing: every other one is a part of one handed in.
+// error: 5:12: `Mmio` has private fields, so it can only be built in devices.rook
+
+fn f() -> Mmio {
+    return Mmio(base: 0x3F000000, size: 0x1000000)
+}

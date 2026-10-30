@@ -4,8 +4,8 @@
 // firmware it may enter at EL3 or EL2 (or EL1), so we handle all three and
 // always end up at EL1, which is where Raven runs.
 //
-// On exit to kernel_main(entry_el), where entry_el is the EL the firmware
-// entered at:
+// On exit to raven_start(entry_el), Raven's first Rook code
+// (raven/trusted/devices.rook), where entry_el is the EL the firmware entered at:
 //   - only core 0 is running; cores 1-3 are parked
 //   - EL1, using SP_EL1, all interrupts masked
 //   - BSS zeroed, stack set up, exception vectors installed
@@ -75,10 +75,10 @@ at_el1:
     msr     vbar_el1, x0
     isb
 
-    mov     x0, x19                     // kernel_main(entry_el)
-    bl      kernel_main
+    mov     x0, x19                     // raven_start(entry_el)
+    bl      raven_start
 
-    // kernel_main returned: nothing left to do.
+    // Raven's Rook code returned: nothing left to do.
 halt:
     wfe
     b       halt

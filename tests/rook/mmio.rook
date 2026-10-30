@@ -1,0 +1,15 @@
+// `Mmio` reaches device registers through `part`s of the peripherals the
+// kernel hands in. The UART's registers read back what kernel_main set up.
+// expect: 769
+// expect: 112
+// expect: 26
+// expect: 769
+
+fn test_main(peripherals: Mmio) {
+    uart: Mmio = peripherals.part(0x201000, 0x1000)
+    print_u64(uart.read32(0x30) as u64)     // control: 0x301, enabled with TX and RX
+    print_u64(uart.read32(0x2C) as u64)     // line control: 0x70, 8 bits and FIFOs
+    print_u64(uart.read32(0x24) as u64)     // integer baud divisor: 26
+    control: Mmio = uart.part(0x30, 4)      // a part of a part: just one register
+    print_u64(control.read32(0) as u64)
+}

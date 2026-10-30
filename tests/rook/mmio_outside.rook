@@ -1,0 +1,9 @@
+// Reading past the end of an `Mmio` panics instead of reaching another device.
+// expect: 1
+// expect-panic: register outside Mmio at devices.rook:45
+
+fn test_main(peripherals: Mmio) {
+    uart: Mmio = peripherals.part(0x201000, 0x1000)
+    print_u64(1)
+    discard uart.read32(0x1000)
+}

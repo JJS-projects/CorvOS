@@ -1,8 +1,9 @@
-// Early console: the PL011 UART ("UART0") on GPIO 14/15.
+// Early console: the PL011 UART ("UART0") on GPIO 14/15, for emergencies.
 //
-// This is Raven's own debug console, used before actors exist. Later the
-// UART is driven by a Rook driver actor holding an Mmio capability, and this
-// stays only as the kernel's panic/debug output.
+// The real console driver is Rook (raven/pl011.rook), which also sets the
+// UART up. These routines are only the kernel's panic and fault output, kept
+// in assembly so that a report never depends on the Rook code that may have
+// failed. They assume kernel_main has already initialised the UART.
 //
 // Calling convention: arguments in x0, all functions may clobber x0-x15,
 // and preserve x19-x28 (standard AAPCS64).
@@ -11,63 +12,13 @@
 // must contain dtoverlay=disable-bt (see tools/sdcard/config.txt).
 
     .equ MMIO_BASE,     0x3F000000
-    .equ GPIO_BASE,     MMIO_BASE + 0x200000
-    .equ GPFSEL1,       0x04
-    .equ GPPUD,         0x94
-    .equ GPPUDCLK0,     0x98
 
     .equ UART0_BASE,    MMIO_BASE + 0x201000
     .equ UART_DR,       0x00
     .equ UART_FR,       0x18
-    .equ UART_IBRD,     0x24
-    .equ UART_FBRD,     0x28
-    .equ UART_LCRH,     0x2C
-    .equ UART_CR,       0x30
-    .equ UART_IMSC,     0x38
-    .equ UART_ICR,      0x44
     .equ FR_TXFF,       5               // transmit FIFO full
 
     .section .text
-
-// void uart_init(void)
-// 115200 baud, 8N1, FIFOs on, assuming a 48 MHz UART clock
-// (init_uart_clock=48000000 in config.txt; QEMU ignores the divisor).
-    .global uart_init
-uart_init:
-    ldr     x1, =UART0_BASE
-    str     wzr, [x1, #UART_CR]         // disable while configuring
-
-    ldr     x2, =GPIO_BASE              // GPIO 14 and 15 -> ALT0 (TXD0, RXD0)
-    ldr     w3, [x2, #GPFSEL1]
-    ldr     w4, =((7 << 12) | (7 << 15))
-    bic     w3, w3, w4
-    ldr     w4, =((4 << 12) | (4 << 15))
-    orr     w3, w3, w4
-    str     w3, [x2, #GPFSEL1]
-
-    str     wzr, [x2, #GPPUD]           // no pull-up/down on 14 and 15
-    mov     x5, #150
-1:  subs    x5, x5, #1
-    b.ne    1b
-    mov     w3, #((1 << 14) | (1 << 15))
-    str     w3, [x2, #GPPUDCLK0]
-    mov     x5, #150
-2:  subs    x5, x5, #1
-    b.ne    2b
-    str     wzr, [x2, #GPPUDCLK0]
-
-    mov     w3, #0x7ff                  // clear all pending interrupts
-    str     w3, [x1, #UART_ICR]
-    mov     w3, #26                     // 48e6 / (16 * 115200) = 26.04
-    str     w3, [x1, #UART_IBRD]
-    mov     w3, #3                      // 0.04 * 64 = 3
-    str     w3, [x1, #UART_FBRD]
-    mov     w3, #0x70                   // 8 bits, FIFOs enabled
-    str     w3, [x1, #UART_LCRH]
-    str     wzr, [x1, #UART_IMSC]       // no UART interrupts yet
-    mov     w3, #0x301                  // enable UART, TX, RX
-    str     w3, [x1, #UART_CR]
-    ret
 
 // void uart_putc(char c)
     .global uart_putc

@@ -45,9 +45,11 @@ QEMU = os.environ.get("QEMU", "qemu-system-aarch64")
 
 from fledgling import compile_program, CompileError  # noqa: E402
 
-# Compiled with every Rook test program, and the directories trusted with `unsafe`.
-ROOK_LIB = [os.path.join(ROOT, "raven", "trusted", "bytes.rook"),
-            os.path.join(ROOT, "tests", "rook", "support", "trusted", "print.rook")]
+# Error tests are compiled with Raven's Rook code and the test output functions
+# (as test programs are), and the directories trusted with `unsafe`.
+ROOK_LIB = (sorted(glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook")))
+            + sorted(glob.glob(os.path.join(ROOT, "raven", "*.rook")))
+            + [os.path.join(ROOT, "tests", "rook", "support", "trusted", "print.rook")])
 # Error tests are also compiled with a file of private items, to test visibility.
 ERROR_LIB = ROOK_LIB + [os.path.join(ROOT, "tests", "rook", "support", "visibility.rook")]
 TRUSTED_DIRS = [os.path.join(ROOT, *d.split("/")) for d in

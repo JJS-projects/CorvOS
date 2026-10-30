@@ -1,0 +1,59 @@
+// Where device authority begins.
+//
+// `Mmio` is the capability for a range of device registers. Its fields are
+// private to this file, so this is the only place one can be created
+// (decision 96). Every other `Mmio` is a `part` of the one made here.
+
+/// Every device register on the BCM2837 (Pi Zero 2 W, QEMU raspi3b), as seen
+/// with the MMU off.
+PERIPHERALS_BASE: u64 = 0x3F000000
+PERIPHERALS_SIZE: u64 = 0x01000000
+
+/// A range of device registers. Reads and writes are checked against the
+/// range, so code holding an `Mmio` can reach exactly those registers.
+pub struct Mmio {
+    base: u64
+    size: u64
+
+    /// The `size` bytes of registers starting `offset` bytes in, as a smaller
+    /// `Mmio`. This is how a driver is given only its own device.
+    pub fn part(offset: u64, size: u64) -> Mmio {
+        if offset > .size or size > .size - offset {
+            panic("part outside Mmio")
+        }
+        return Mmio(base: .base + offset, size: size)
+    }
+
+    /// The 32-bit register `offset` bytes in.
+    pub fn read32(offset: u64) -> u32 {
+        .check32(offset)
+        unsafe {
+            return load32(.base + offset)
+        }
+    }
+
+    /// Writes the 32-bit register `offset` bytes in.
+    pub fn write32(offset: u64, value: u32) {
+        .check32(offset)
+        unsafe {
+            store32(.base + offset, value)
+        }
+    }
+
+    fn check32(offset: u64) {
+        if .size < 4 or offset > .size - 4 {
+            panic("register outside Mmio")
+        }
+        if offset % 4 != 0 {
+            panic("register not 4-byte aligned")
+        }
+    }
+} Mmio
+
+/// Raven's first Rook code, called by the boot code in start.s with the
+/// exception level the firmware entered at. It creates the only `Mmio` made
+/// from nothing and hands it to `kernel_main`. Without `pub`, no Rook code
+/// elsewhere can call it.
+fn raven_start(entry_el: u64) {
+    kernel_main(entry_el, Mmio(base: PERIPHERALS_BASE, size: PERIPHERALS_SIZE))
+}

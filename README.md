@@ -46,7 +46,8 @@ with `git subtree split` if it ever needs a life of its own.
 | `docs/`      | Design documents and decision log                            |
 | `bootstrap/` | Fledgling, the throwaway bootstrap compiler, in Python       |
 | `compiler/`  | The self-hosted Rook compiler, written in Rook               |
-| `kernel/`    | Raven, the microkernel (also the scheduler and message delivery) |
+| `raven/`     | Raven, the microkernel, in Rook. Only `raven/trusted/` may use `unsafe` |
+| `kernel/`    | Raven's assembly: boot, exception vectors, the emergency console |
 | `tests/`     | Compiler tests and QEMU boot tests                           |
 | `tools/`     | QEMU scripts, SD card / flashing helpers                     |
 
@@ -66,7 +67,10 @@ Or open a GitHub Codespace, which sets all of this up for you. See
 
 ## Status
 
-Milestone 1 is done: Raven boots in QEMU, drops to EL1, prints over the UART and
-reports any exception. Milestone 2 is in progress: Fledgling compiles the core of
-Rook (functions, integers, control flow) to AArch64, in the style settled in
-[rook.md](docs/rook.md#2-style-at-a-glance). Not yet tried on real hardware.
+Milestone 2 is done. Raven boots in QEMU, drops to EL1, and hands over to Rook:
+`kernel_main` and the UART driver are Rook, reaching the hardware only through
+`Mmio` capabilities. Fledgling, the bootstrap compiler, handles the subset of
+Rook described in [rook.md](docs/rook.md#11-fledglings-subset): functions,
+integers, structs, enums and `match`, text, and `unsafe` in trusted files.
+Nothing has been tried on real hardware yet. Next is milestone 3: actors and
+messages.
