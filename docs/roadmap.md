@@ -74,8 +74,9 @@ that PC.
 ## 3. Actors and messages
 
 - `actor`, `spawn`, `new`, `on` handlers, mailboxes.
-- Single-core cooperative scheduler in Raven (there is no separate runtime).
-- Every send goes through Raven; mailboxes are lock-free queues laid out so a
+- Cooperative scheduler in Raven (there is no separate runtime), on core 0 only,
+  with Raven's tables written as one core's own (decision 111).
+- Every send goes through Raven; a mailbox belongs to one core and is laid out so a
   same-domain fast path can be added later.
 - Ownership and moves in the compiler; freezing plus refcounted frozen data.
 - Measure the cost of a kernel-mediated send.
@@ -103,7 +104,8 @@ cannot reach the UART.
 ## 6. Protection domains and multicore
 
 - MMU set up per domain; cross-domain messages are copied.
-- Raven's scheduler runs on all four cores.
+- Raven runs on all four cores, one copy per core (decision 111); each domain is
+  given a core, and a send to another core is a cross-domain send.
 - Decide on the same-domain fast path using the milestone 3 measurements.
 
 **Done when:** actors in two domains talk across the boundary on multiple cores,
