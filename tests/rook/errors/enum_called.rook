@@ -1,0 +1,11 @@
+// An enum is built from one of its variants, not by calling its name.
+// error: 10:15: `Mode` is an enum: build a value with one of its variants, such as `Idle`
+
+enum Mode {
+    Idle
+    Done
+}
+
+fn f() {
+    x: Mode = Mode(a: 1)
+}

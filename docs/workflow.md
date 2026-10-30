@@ -37,7 +37,7 @@ to try it yourself, there are three ways, from easiest:
 |---|---|
 | `make` | Build `build/kernel8.img` |
 | `make test` | Build and run every QEMU test |
-| `make coverage` | List the compiler lines no test reaches (Python's `trace`, no extra install) |
+| `make coverage` | Fail if a compiler line is reached by no test, except those listed in `tools/coverage-gaps.txt` (Python's `trace`, no extra install) |
 | `make run` | Boot the kernel in QEMU with the UART on your terminal (quit: Ctrl-A then X) |
 | `make disasm` | Disassemble the kernel |
 | `make sdcard` | Collect files for a real Pi Zero 2 W (see `tools/sdcard/`) |
@@ -60,7 +60,8 @@ of test:
   causes one on purpose says so in its header:
   `// expect-qemu-log: pl011_write: Bad offset 0x100`. Other optional headers:
   `// machines: raspi3b` (run only there) and
-  `// expect-fault: FAR_EL1:  0x0000000030000000` (must end in a reported CPU fault).
+  `// expect-fault: FAR_EL1:  0x0000000030000000` (must end in a reported CPU fault). An error test can have `// alone`: it is compiled
+  without Raven's code.
   `MACHINES=raspi3b make test` runs one machine only.
 - Run a subset with `python3 tests/run_tests.py rook/` (any test name or prefix),
   after `make test` has built the images.

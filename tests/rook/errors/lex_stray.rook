@@ -1,0 +1,6 @@
+// A character Rook doesn't use is rejected.
+// error: 5:16: unexpected character `@`
+
+fn f() {
+    x: u64 = 1 @ 2
+}

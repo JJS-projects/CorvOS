@@ -1,0 +1,7 @@
+// Text in quotes is a `Bytes`, so the program must include one.
+// alone
+// error: 6:14: text in quotes is a `Bytes`, which this program doesn't include (it is declared in raven/trusted/bytes.rook)
+
+fn f() {
+    s: u64 = "hi"
+}

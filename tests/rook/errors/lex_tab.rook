@@ -1,0 +1,6 @@
+// Indentation is spaces, never tabs.
+// error: 5:1: tabs aren't allowed; indent with spaces
+
+fn f() {
+	x: u64 = 1
+}

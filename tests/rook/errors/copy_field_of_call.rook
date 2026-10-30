@@ -1,0 +1,18 @@
+// The same holds for a field of a call's result.
+// error: 17:23: `b` would be a copy of `value.inner`; write `copy(value.inner)` to copy it
+
+struct Inner {
+    v: u64
+}
+
+struct Outer {
+    inner: Inner
+}
+
+fn make() -> Outer {
+    return Outer(inner: Inner(v: 1))
+}
+
+fn f() {
+    b: Inner = make().inner
+}

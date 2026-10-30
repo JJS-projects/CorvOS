@@ -1,0 +1,5 @@
+// A struct has at least one field.
+// error: 4:1: `Empty` has no fields
+
+struct Empty {
+}

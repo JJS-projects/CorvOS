@@ -1,0 +1,7 @@
+// Compound assignment such as `+=` needs an integer.
+// error: 6:7: `+=` needs an integer, found bool
+
+fn f() {
+    mut b: bool = true
+    b += true
+}

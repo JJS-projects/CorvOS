@@ -1,0 +1,7 @@
+// A struct field is declared once.
+// error: 6:5: `Thing` already has a field `x`
+
+struct Thing {
+    x: u64
+    x: u64
+}

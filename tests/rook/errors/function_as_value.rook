@@ -1,0 +1,9 @@
+// A function name used as a value needs its call brackets.
+// error: 8:14: `g` is a function; call it with `g(...)`
+
+fn g() {
+}
+
+fn f() {
+    x: u64 = g
+}

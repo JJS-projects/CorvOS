@@ -1,0 +1,6 @@
+// A variable can't take the name of a built-in.
+// error: 5:5: `panic` is built in; choose another name
+
+fn f() {
+    panic: u64 = 1
+}

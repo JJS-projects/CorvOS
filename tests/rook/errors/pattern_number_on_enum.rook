@@ -1,0 +1,15 @@
+// A number can't be a pattern when matching an enum.
+// error: 11:9: expected a variant of `Mode`
+
+enum Mode {
+    Idle
+    Done
+}
+
+fn f(e: Mode) -> u64 {
+    return match e {
+        1 => 0
+        Idle => 1
+        Done => 2
+    }
+}

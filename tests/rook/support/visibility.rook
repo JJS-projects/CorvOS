@@ -24,3 +24,19 @@ pub struct Pair {
         return .left + .right
     }
 }
+
+pub enum Gate {
+    Latched
+    Released
+
+    pub fn is_open() -> bool {
+        return match . {
+            Latched => false
+            Released => true
+        }
+    }
+
+    fn secret() -> u64 {
+        return 1
+    }
+}

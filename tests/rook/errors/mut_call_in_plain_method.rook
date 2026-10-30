@@ -1,0 +1,14 @@
+// A method that doesn't change its value can't call one that does.
+// error: 12:10: `.reset()` changes its value, so it can only be called from a `mut fn`
+
+struct Thing {
+    x: u64
+
+    mut fn reset() {
+        .x = 0
+    }
+
+    fn clear() {
+        .reset()
+    }
+}

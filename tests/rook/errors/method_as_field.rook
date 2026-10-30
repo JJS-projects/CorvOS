@@ -1,0 +1,14 @@
+// A method is called with brackets, not read like a field.
+// error: 13:14: `Thing` has no field `double` (it's a method: call it with `(...)`)
+
+struct Thing {
+    x: u64
+
+    fn double() -> u64 {
+        return .x * 2
+    }
+}
+
+fn f(p: Thing) -> u64 {
+    return p.double
+}

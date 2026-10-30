@@ -1,0 +1,10 @@
+// `and` and `or` work on bools or integers, not structs.
+// error: 9:15: `and` needs bools or integers, found Thing
+
+struct Thing {
+    x: u64
+}
+
+fn f(a: Thing, b: Thing) {
+    discard a and b
+}

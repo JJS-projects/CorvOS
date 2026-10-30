@@ -1,0 +1,8 @@
+// A constant is a number or a bool; a struct isn't either.
+// error: 8:17: constants must be numbers or bools
+
+struct Thing {
+    x: u64
+}
+
+ORIGIN: Thing = Thing(x: 1)

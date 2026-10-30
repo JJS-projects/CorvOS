@@ -1,0 +1,6 @@
+// `mut` goes before the variable's name, not its type.
+// error: 5:12: `mut` goes before the name, as in `mut count: u64 = 0`
+
+fn f() {
+    count: mut u64 = 0
+}

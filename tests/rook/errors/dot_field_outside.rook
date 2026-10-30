@@ -1,0 +1,6 @@
+// `.x` is a field of the method's own struct, so it only works inside a method.
+// error: 5:13: `.x` only works inside a struct's methods
+
+fn f() -> u64 {
+    return .x
+}

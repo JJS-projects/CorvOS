@@ -1,0 +1,15 @@
+// A pattern names a variant the enum has.
+// error: 12:9: `Mode` has no variant `Zap`
+
+enum Mode {
+    Idle
+    Done
+}
+
+fn f(e: Mode) -> u64 {
+    return match e {
+        Idle => 0
+        Zap => 1
+        Done => 2
+    }
+}

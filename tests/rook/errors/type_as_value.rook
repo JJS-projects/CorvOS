@@ -1,0 +1,10 @@
+// A type's name isn't a value.
+// error: 9:14: `Thing` is a type, not a value
+
+struct Thing {
+    x: u64
+}
+
+fn f() {
+    x: u64 = Thing
+}

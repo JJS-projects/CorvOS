@@ -1,0 +1,12 @@
+// A number written on the left takes its type from the other side.
+// expect: 201
+// expect: 60
+// expect: 255
+
+fn test_main() {
+    x: u8 = 200
+    print_u64((1 + x) as u64)
+    y: i16 = 40
+    print_i64((100 - y) as i64)
+    print_u64((55 + x) as u64)
+}

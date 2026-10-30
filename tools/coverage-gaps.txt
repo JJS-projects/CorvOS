@@ -1,0 +1,27 @@
+# Compiler statements no test reaches, and why. `make coverage` fails on a gap
+# that is not listed here, and on an entry here that now runs (delete it then).
+# Format: file || the line before the statement || its first line || reason
+# Entries are matched by text, not line number.
+#
+# Guards that the parser makes impossible to reach: a new kind of syntax node
+# would hit them, which is what they are for.
+bootstrap/fledgling/checker.py ||  || raise AssertionError(f"unknown statement {s!r}") || guard: the parser produces no other statement kinds
+bootstrap/fledgling/checker.py ||  || raise AssertionError(f"unknown expression {e!r}") || guard: the parser produces no other expression kinds
+bootstrap/fledgling/checker.py || return BOOL || raise AssertionError(f"unknown operator {op}") || guard: every operator is handled above it
+bootstrap/fledgling/codegen.py || else: || raise AssertionError(f"unknown statement {s!r}") || guard, as in the checker
+bootstrap/fledgling/codegen.py || else: || raise AssertionError(f"unknown operator {op}") || guard, as in the checker
+bootstrap/fledgling/codegen.py || else: || raise AssertionError(f"unknown expression {e!r}") || guard, as in the checker
+#
+# Errors the checker has a message for, but no program can reach.
+bootstrap/fledgling/checker.py ||  || if isinstance(e, S.MutArg): || the parser only makes a `mut` argument inside a call's arguments, which the call handles
+bootstrap/fledgling/checker.py || if isinstance(e, S.MutArg): || raise CompileError("`mut` only marks an argument passed to a `mut` parameter", e.pos) || same
+bootstrap/fledgling/checker.py || if op == ">=": return int(a >= b) || raise CompileError("constants must be computed from literals and other constants", e.pos) || every constant expression kind the parser allows is handled above it
+bootstrap/fledgling/checker.py || if not is_int(lty) and lty != BOOL: || raise CompileError(f"can't compare values of type {lty}", e.pos) || only integers, bools, structs and enums exist, and the earlier branches take the last two
+bootstrap/fledgling/parser.py || if e.op in SHIFT_OPS and unbracketed(child, ARITH_OPS): || raise CompileError( || shifts bind tighter than arithmetic, so a shift never has an unbracketed arithmetic child; `shift_arith` reaches the mirror case
+#
+# Unused or debugging code.
+bootstrap/fledgling/__init__.py || """Compile one untrusted file of Rook source text.""" || return compile_program([(filename, source)]) || compile_source is unused; the command line and tests use compile_program
+bootstrap/fledgling/checker.py || return f"`{source_text(e)}`" || return "this value" || describe_place is only called with a place, since the parser rejects other assignment targets
+bootstrap/fledgling/checker.py || if isinstance(node, tuple): || return any(breaks_to(item, label) for item in node) || the syntax tree holds no tuples
+bootstrap/fledgling/rtypes.py || def __repr__(self): || return f"{type(self).__name__}({self.name})" || only for debugging
+bootstrap/fledgling/rtypes.py || at += words(ty) || raise KeyError(field) || the checker has already checked every field it asks for

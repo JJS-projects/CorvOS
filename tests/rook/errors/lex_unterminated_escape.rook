@@ -1,0 +1,5 @@
+// An escape can't be the last thing in the file.
+// error: 5:16: unterminated escape
+
+fn f() {
+    s: Bytes = "abc\

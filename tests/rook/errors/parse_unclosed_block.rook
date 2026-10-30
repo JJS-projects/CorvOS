@@ -1,0 +1,5 @@
+// A function body that never closes is reported where it opened.
+// error: 4:8: unclosed `{`
+
+fn f() {
+    x: u64 = 1

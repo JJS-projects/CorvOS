@@ -1,0 +1,14 @@
+// A variant's fields are bound by name, not by position.
+// error: 11:14: fields are bound by name, as in `Idle(field: name)`
+
+enum Mode {
+    Idle(x: u64)
+    Done
+}
+
+fn f(e: Mode) -> u64 {
+    return match e {
+        Idle(x) => x
+        Done => 1
+    }
+}

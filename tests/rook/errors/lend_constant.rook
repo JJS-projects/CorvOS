@@ -1,0 +1,12 @@
+// A constant can't be lent as `mut`.
+// error: 11:10: can't lend as `mut` `LIMIT`
+
+LIMIT: u64 = 3
+
+fn bump(n: mut u64) {
+    n += 1
+}
+
+fn f() {
+    bump(mut LIMIT)
+}

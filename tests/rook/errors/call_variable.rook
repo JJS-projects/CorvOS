@@ -1,0 +1,7 @@
+// A variable can't be called like a function.
+// error: 6:13: `x` is a variable, not a function
+
+fn f() {
+    x: u64 = 1
+    discard x(2)
+}

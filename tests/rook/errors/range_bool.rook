@@ -1,0 +1,7 @@
+// A range in a loop needs integers.
+// error: 5:27: a range needs integers, found bool
+
+fn f() {
+    rows: loop i: bool in true..false {
+    }
+}

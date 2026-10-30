@@ -1,0 +1,14 @@
+// A variant without fields is matched without bindings.
+// error: 11:9: `Idle` has no fields: write `Idle`
+
+enum Mode {
+    Idle
+    Done
+}
+
+fn f(m: Mode) -> u64 {
+    return match m {
+        Idle(x: v) => 1
+        Done => 2
+    }
+}

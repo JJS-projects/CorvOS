@@ -1,0 +1,7 @@
+// Only variants and methods go inside an enum.
+// error: 6:5: expected a variant or a method, found `5`
+
+enum Mode {
+    Idle
+    5
+}

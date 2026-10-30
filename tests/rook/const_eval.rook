@@ -1,0 +1,71 @@
+// Constants are worked out by the compiler, with the same rules as running
+// code: division rounds toward zero, `wrap` keeps the low bits, and so on.
+// expect: -5
+// expect: -14
+// expect: -3
+// expect: -3
+// expect: 1
+// expect: -1
+// expect: 5
+// expect: 250
+// expect: false
+// expect: true
+// expect: 125
+// expect: 44
+// expect: -56
+// expect: 200
+// expect: 10
+// expect: true
+// expect: false
+// expect: true
+// expect: false
+// expect: false
+// expect: true
+
+NEG: i32 = -5
+SCALED: i32 = NEG * 3 + 1
+QUOT: i64 = 7 / -2
+QUOT_NEG: i64 = -7 / 2
+REM: i64 = 7 % -2
+REM_NEG: i64 = -7 % 3
+FLIPPED: i32 = -NEG
+INVERTED: u8 = not 5
+NOT_TRUE: bool = not true
+NOT_FALSE: bool = not false
+SHIFTED: u32 = 1000 shr 3
+WIDE: u32 = 300
+LOW_BITS: u8 = WIDE wrap u8
+BYTE: u8 = 200
+SIGNED: i8 = BYTE wrap i8
+WIDENED: u64 = BYTE as u64
+PICKED: u64 = if 3 < 4 { 10 } else { 20 }
+EQ: bool = 5 == 5
+NE: bool = 5 != 5
+LT: bool = 3 < 4
+LE: bool = 4 <= 3
+GT: bool = 2 > 3
+GE: bool = 3 >= 3
+
+fn test_main() {
+    print_i64(NEG as i64)
+    print_i64(SCALED as i64)
+    print_i64(QUOT)
+    print_i64(QUOT_NEG)
+    print_i64(REM)
+    print_i64(REM_NEG)
+    print_i64(FLIPPED as i64)
+    print_u64(INVERTED as u64)
+    print_bool(NOT_TRUE)
+    print_bool(NOT_FALSE)
+    print_u64(SHIFTED as u64)
+    print_u64(LOW_BITS as u64)
+    print_i64(SIGNED as i64)
+    print_u64(WIDENED)
+    print_u64(PICKED)
+    print_bool(EQ)
+    print_bool(NE)
+    print_bool(LT)
+    print_bool(LE)
+    print_bool(GT)
+    print_bool(GE)
+}

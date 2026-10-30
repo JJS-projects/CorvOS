@@ -1,0 +1,6 @@
+// A constant can't use `match`.
+// error: 4:14: constants can't use `match`
+
+LIMIT: u64 = match 1 {
+    else => 2
+}

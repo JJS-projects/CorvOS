@@ -1,0 +1,7 @@
+// A file may end without a final newline; an error on its last line is still reported.
+// error: 6:7: can't assign to `x`: declare it with `mut` to make it mutable
+
+fn f() {
+    x: u64 = 1
+    x = 2
+}

@@ -1,0 +1,14 @@
+// A method is declared once.
+// error: 11:5: `Thing` already has a method `m`
+
+struct Thing {
+    x: u64
+
+    fn m() -> u64 {
+        return 1
+    }
+
+    fn m() -> u64 {
+        return 2
+    }
+}

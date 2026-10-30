@@ -1,0 +1,6 @@
+// Calling a function that doesn't exist.
+// error: 5:5: unknown function `g`
+
+fn f() {
+    g()
+}

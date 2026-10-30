@@ -1,0 +1,4 @@
+// A constant shift by the width of the type or more is caught at compile time.
+// error: 4:13: shift amount 9 is too large for u8
+
+BIG: u8 = 1 shl 9

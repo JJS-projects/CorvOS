@@ -1,0 +1,14 @@
+// A variant pattern can't be used to match a number.
+// error: 11:9: `Idle` is an enum variant, but this `match` is on u64
+
+enum Mode {
+    Idle(x: u64)
+    Done
+}
+
+fn f(n: u64) -> u64 {
+    return match n {
+        Idle(x: v) => v
+        else => 0
+    }
+}

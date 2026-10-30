@@ -1,0 +1,4 @@
+// Raw memory access is a call, so a constant can't use it.
+// error: 4:10: constants can't call functions
+
+X: u64 = load8(0)

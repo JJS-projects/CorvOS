@@ -1,0 +1,6 @@
+// A closing bracket where a value should be.
+// error: 5:14: expected an expression, found `)`
+
+fn f() {
+    x: u64 = )
+}

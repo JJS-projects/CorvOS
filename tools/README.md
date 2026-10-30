@@ -4,4 +4,4 @@
 - `run-qemu`: boot a kernel image with the UART on your terminal
 - `sdcard/`: config and instructions for a real Pi Zero 2 W
 - `bug-check.py`: break one thing on purpose, run `make test`, and print which tests failed
-- `coverage.py`: which lines of the compiler the tests reach (`make coverage`)
+- `coverage.py`: which lines of the compiler the tests reach (`make coverage`); fails on a gap not explained in `coverage-gaps.txt`

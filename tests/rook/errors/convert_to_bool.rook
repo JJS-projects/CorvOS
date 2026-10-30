@@ -1,0 +1,6 @@
+// `as` converts to integer types only.
+// error: 5:20: can only convert to integer types, not bool
+
+fn f() {
+    x: bool = 1 as bool
+}

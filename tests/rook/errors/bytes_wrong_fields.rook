@@ -1,0 +1,11 @@
+// A program's `Bytes` has exactly the fields text relies on.
+// alone
+// error: 5:5: `Bytes` must have exactly the fields `address: u64` and `length: u64`, in that order
+
+pub struct Bytes {
+    address: u64
+}
+
+fn f() {
+    discard "hi"
+}

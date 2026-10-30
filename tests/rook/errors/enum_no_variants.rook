@@ -1,0 +1,5 @@
+// An enum has at least one variant.
+// error: 4:1: `Empty` has no variants
+
+enum Empty {
+}

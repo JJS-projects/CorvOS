@@ -1,0 +1,8 @@
+// `load8` takes one address.
+// error: 6:17: `load8` takes one argument: an address
+
+fn f() {
+    unsafe {
+        discard load8(1, 2)
+    }
+}

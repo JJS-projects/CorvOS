@@ -1,0 +1,12 @@
+// Each branch of an `if` used as a value is a single expression.
+// error: 6:10: each branch of an `if` used as a value must be a single expression
+
+fn f(b: bool) -> u64 {
+    x: u64 = if b {
+        y: u64 = 1
+        y
+    } else {
+        2
+    }
+    return x
+}

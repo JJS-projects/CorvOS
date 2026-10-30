@@ -1,0 +1,9 @@
+// A range pattern needs integers.
+// error: 6:9: a range needs integers
+
+fn f(b: bool) -> u64 {
+    return match b {
+        true..false => 0
+        else => 1
+    }
+}

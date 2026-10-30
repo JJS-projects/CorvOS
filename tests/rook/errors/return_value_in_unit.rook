@@ -1,0 +1,6 @@
+// A function without a return type returns nothing.
+// error: 5:12: `f` has no return type, so `return` takes no value
+
+fn f() {
+    return 1
+}

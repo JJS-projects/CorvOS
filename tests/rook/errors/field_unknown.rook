@@ -1,0 +1,10 @@
+// Reading a field the struct doesn't have.
+// error: 9:14: `Thing` has no field `z`
+
+struct Thing {
+    x: u64
+}
+
+fn f(p: Thing) -> u64 {
+    return p.z
+}

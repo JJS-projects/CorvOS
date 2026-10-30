@@ -1,0 +1,10 @@
+// Only a variable or a field can be assigned to.
+// error: 9:5: can only assign to a variable or a field
+
+fn g() -> u64 {
+    return 1
+}
+
+fn f() {
+    g() = 3
+}

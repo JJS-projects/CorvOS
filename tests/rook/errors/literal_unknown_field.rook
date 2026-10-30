@@ -1,0 +1,10 @@
+// A struct value can only set fields the struct has.
+// error: 9:22: `Thing` has no field `y`
+
+struct Thing {
+    x: u64
+}
+
+fn f() {
+    t: Thing = Thing(y: 1)
+}

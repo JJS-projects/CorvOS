@@ -1,0 +1,6 @@
+// Assigning to a name that was never declared is an error, not a new variable.
+// error: 5:5: unknown variable `y`
+
+fn f() {
+    y = 2
+}

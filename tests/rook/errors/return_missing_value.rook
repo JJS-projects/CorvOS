@@ -1,0 +1,6 @@
+// A function with a return type returns a value.
+// error: 5:5: missing return value of type u64
+
+fn f() -> u64 {
+    return
+}
