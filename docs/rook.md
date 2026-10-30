@@ -404,6 +404,70 @@ full mailbox never crashes the sender or the receiver.
 - A request over a `lossy` handler may be dropped, and no reply will come: the
   requester needs its own way to give up.
 
+### 4.2 What a message carries
+
+A message holds a handler's arguments, and each one is one of these:
+
+- **Numbers, bools, chars and actor references** travel by value. Nothing is
+  written, because copying them is free of cost and of risk.
+- **`val` data** (frozen) travels freely: sender and receiver both hold it.
+- **A struct or enum** travels owned, and the receiver's parameter says so with
+  `iso`: `lossy on add(r: iso Reading)`. A parameter with neither `iso` nor `val`
+  is an error, because a function's bare `p: Point` is a read-only lend and the
+  same spelling must not mean "owned" here. The sender gives the value one of
+  three ways:
+  - `consume(x)` gives its own away (the field or variable is empty afterwards);
+  - `copy(x)` keeps its own and sends a copy; or
+  - a fresh value (a literal or a call result) needs no word.
+- **Borrows** (`mut`, `read`) can never be sent.
+
+```rook
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Recorder {
+    mut total: i64
+
+    new() {
+        .total = 0
+    }
+
+    lossy on add(r: iso Reading) {              // the receiver owns it now
+        .total += r.temp as i64
+    }
+} Recorder
+
+actor Sensor {
+    recorder: Recorder
+    mut latest: Reading
+
+    new(recorder: Recorder) {
+        .recorder = recorder
+        .latest = Reading(temp: 0, seq: 0)
+    }
+
+    lossy on tick(temp: i32) {
+        .latest = Reading(temp: temp, seq: .latest.seq + 1)
+        .recorder.add(copy(.latest))            // I keep mine: the copy is written
+    }
+
+    lossy on flush() {
+        .recorder.add(consume(.latest))         // I give mine away
+        .latest = Reading(temp: 0, seq: 0)      // refill before the handler ends
+    }
+
+    lossy on reset(temp: i32) {
+        .recorder.add(Reading(temp: temp, seq: 0))   // a new value needs no word
+    }
+} Sensor
+```
+
+Copying a small record at every send is the price of the rule that a copy is
+always written (decision 70). If small-record sends turn out to be common, copying
+plain data by itself is the first thing to reconsider (decision 114).
+
 ## 5. Replies: pass a reference
 
 There is no hidden request/response machinery. To get an answer, send a reference
@@ -450,7 +514,7 @@ the type: `iso Buffer`.
 | Cap | Meaning | Sendable? | Freed by |
 |---|---|---|---|
 | `iso` | Owned, mutable, the only reference | Yes, by `consume` (move) | Owner, at end of scope |
-| `val` | Frozen, immutable, may be shared | Yes, freely | Atomic refcount |
+| `val` | Frozen, immutable, may be shared | Yes, freely | Refcount |
 | `tag` | Identity only: send to it, never read it (actor references) | Yes | Not data |
 | `mut` | Temporary mutable borrow inside one actor | No | Not owned |
 | `read` | Temporary read-only borrow inside one actor | No | Not owned |
@@ -463,7 +527,7 @@ building an `iso` then freezing it into a `val` covers `trn`.
 
 - `consume(x)` moves `x`; the compiler forbids using `x` afterwards.
 - `freeze(x)`, where `x` is `iso T`, takes it like `consume` and returns it as
-  `val T`: immutable, shareable, and atomically refcounted from then on. Freezing
+  `val T`: immutable, shareable, and reference counted from then on. Freezing
   is always written, because it changes what the value costs; `consume(x)` passed
   where a `val` is needed is an error. Freezing applies to the whole structure, so
   frozen data has no cycles and refcounting is enough.

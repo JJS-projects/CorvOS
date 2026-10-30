@@ -80,8 +80,10 @@ interface such as `Reply<T>`) that the receiver sends its answer to.
 - Borrows never cross an actor boundary, because nothing mutable is shared. Borrow
   checking is therefore local to one actor's code, which keeps the checker far simpler
   than Rust's general case.
-- Data that is **frozen** for sharing becomes **atomically reference counted**
-  (like Rust's `Arc`, but built into the language). Atomic because there are four cores.
+- Data that is **frozen** for sharing becomes **reference counted**, built into the
+  language. The count is a plain integer, not an atomic one, while frozen data stays
+  inside one domain, which lives on one core (section 6.3); a send between domains
+  copies the data instead of sharing it (decision 115).
 - Freezing applies to a whole structure at once, so frozen data cannot contain cycles
   and refcounting is enough to free it.
 
@@ -207,9 +209,10 @@ ordinary single-threaded Rook, written the way the programs on top of it are.
   for that pair of cores, and the receiving core is woken. It is the same operation
   as a cross-domain send on one core, so its cost is the same (see the open question
   on showing that cost).
-- **Only two things are shared between cores:** the rings, and the atomic reference
-  counts of frozen data. These, and the setup of each core, are where Raven needs
-  `unsafe` for concurrency; none of its run queues, mailboxes or tables do.
+- **Only the rings are shared between cores.** Frozen data never is: a send to
+  another core is a send across domains, which copies (decision 115). The rings, and
+  the setup of each core, are where Raven needs `unsafe` for concurrency; none of its
+  run queues, mailboxes, tables or reference counts do.
 - **Accepted costs:** actors in one domain can't run in parallel with each other,
   and moving a domain to another core is not free (open below).
 
