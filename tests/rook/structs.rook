@@ -1,0 +1,35 @@
+// Struct values: built with named fields, read and changed field by field,
+// nested inline, and compared with `==` field by field.
+// expect: 3
+// expect: 4
+// expect: 9
+// expect: 7
+// expect: true
+// expect: false
+// expect: true
+
+extern fn print_u64(x: u64)
+extern fn print_bool(b: bool)
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+struct Line {
+    start: Point
+    end: Point
+}
+
+fn test_main() {
+    a: Point = Point(x: 3, y: 4)
+    print_u64(a.x)
+    print_u64(a.y)
+    mut line: Line = Line(start: Point(x: 1, y: 2), end: Point(x: 9, y: 9))
+    print_u64(line.end.x)
+    line.end.y = 7
+    print_u64(line.end.y)
+    print_bool(a == Point(x: 3, y: 4))
+    print_bool(a == Point(x: 3, y: 5))
+    print_bool(line.start != line.end)
+}

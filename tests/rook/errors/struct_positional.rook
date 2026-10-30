@@ -1,0 +1,11 @@
+// Struct fields are always named.
+// error: 10:22: fields of `Point` are named
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f() {
+    a: Point = Point(1, 2)
+}

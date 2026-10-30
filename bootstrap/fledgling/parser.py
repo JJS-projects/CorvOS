@@ -21,8 +21,11 @@ are required instead of a precedence rule (principle 4):
 
 Blocks are closed by `}`. A named closer, `} name`, closes every open block
 back to and including the one called `name`. Only names written in the code can
-be used: a function's name, or a loop's label. Every loop is labelled
+be used: a function's or struct's name, or a loop's label. Every loop is labelled
 (`rows: loop ...`), and `break` and `continue` name the loop they act on.
+
+A capitalised name is always a type (the compiler enforces naming), so
+`Point(x: 1, y: 2)` is a struct value and `point(1, 2)` a function call.
 """
 
 from .errors import CompileError
@@ -95,7 +98,9 @@ class Parser:
             if self.at("pub"):
                 self.advance()
                 public = True
-            if self.at("fn"):
+            if self.at("struct"):
+                prog.items.append(self.struct_decl(public))
+            elif self.at("fn"):
                 prog.items.append(self.fn_decl(extern=False, public=public))
             elif self.at("extern"):
                 self.advance()
@@ -109,12 +114,50 @@ class Parser:
             else:
                 tok = self.peek()
                 raise CompileError(
-                    f"expected `fn`, `extern fn` or a constant at top level, found {describe_tok(tok)}",
-                    tok.pos)
+                    f"expected `fn`, `extern fn`, `struct` or a constant at top level, "
+                    f"found {describe_tok(tok)}", tok.pos)
             self.skip_newlines()
         return prog
 
-    def fn_decl(self, extern, public):
+    def struct_decl(self, public):
+        start = self.expect("struct")
+        name = self.expect("ident", "struct name").text
+        self.expect("{")
+        self.open_blocks.append({name})
+        fields, methods = [], []
+        while True:
+            self.skip_newlines()
+            if self.at("}"):
+                self.close_block({name}, start)
+                break
+            if self.at("eof"):
+                raise CompileError("unclosed `{`", start.pos)
+            if self.at("pub"):
+                self.advance()
+            if self.at("fn") or (self.at("mut") and self.peek(1).kind == "fn"):
+                mutating = self.at("mut")
+                if mutating:
+                    self.advance()
+                methods.append(self.fn_decl(extern=False, public=False,
+                                            mutating=mutating, owner=name))
+            elif self.at("mut"):
+                raise CompileError(
+                    "struct fields aren't marked `mut`: a field can change when the variable "
+                    "holding the struct is `mut`", self.peek().pos)
+            elif self.at("ident") and self.peek(1).kind == ":":
+                ftok = self.advance()
+                self.advance()
+                fields.append(S.Field(ftok.text, self.type_ref(), ftok.pos))
+                self.end_statement()
+            else:
+                tok = self.peek()
+                raise CompileError(f"expected a field or a method, found {describe_tok(tok)}",
+                                   tok.pos)
+        self.open_blocks.pop()
+        self.end_statement()
+        return S.StructDecl(name, fields, methods, start.pos, public)
+
+    def fn_decl(self, extern, public, mutating=False, owner=None):
         start = self.expect("fn")
         name = self.expect("ident", "function name").text
         self.expect("(")
@@ -122,7 +165,7 @@ class Parser:
         while not self.at(")"):
             ptok = self.expect("ident", "parameter name")
             self.expect(":")
-            params.append(S.Param(ptok.text, self.type_ref(), ptok.pos))
+            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True), ptok.pos))
             if not self.at(")"):
                 self.expect(",", "`,` or `)`")
         self.expect(")")
@@ -142,7 +185,7 @@ class Parser:
         else:
             body = self.block({name})
             self.end_statement()
-        return S.FnDecl(name, params, ret, body, start.pos, public)
+        return S.FnDecl(name, params, ret, body, start.pos, public, mutating, owner)
 
     def const_decl(self, public):
         name = self.expect("ident")
@@ -153,9 +196,16 @@ class Parser:
         self.end_statement()
         return S.ConstDecl(name.text, ty, value, name.pos, public)
 
-    def type_ref(self):
+    def type_ref(self, allow_mut=False):
+        mut = False
+        if self.at("mut"):
+            if not allow_mut:
+                raise CompileError(
+                    "`mut` goes before the name, as in `mut count: u64 = 0`", self.peek().pos)
+            self.advance()
+            mut = True
         tok = self.expect("ident", "a type")
-        return S.TypeRef(tok.text, tok.pos)
+        return S.TypeRef(tok.text, tok.pos, mut)
 
     # ---- blocks and named closers -------------------------------------
 
@@ -169,27 +219,34 @@ class Parser:
         while True:
             self.skip_newlines()
             if self.at("}"):
-                name_tok = self.peek(1)
-                if name_tok.kind in ("loop", "if"):
-                    raise CompileError(
-                        f"a closer names a function or a loop label, not `{name_tok.kind}`",
-                        name_tok.pos)
-                if name_tok.kind not in CLOSER_NAMES:
-                    self.advance()                  # plain `}`
-                    break
-                name = name_tok.text
-                if name in labels:
-                    self.advance()                  # `} name` closing this block
-                    self.advance()
-                    break
-                if any(name in outer for outer in self.open_blocks[:-1]):
-                    break                           # closes an outer block too
-                raise CompileError(f"`}} {name}` doesn't match any open block", name_tok.pos)
+                self.close_block(labels, start)
+                break
             if self.at("eof"):
                 raise CompileError("unclosed `{`", start.pos)
             stmts.append(self.statement())
         self.open_blocks.pop()
         return S.Block(stmts, start.pos)
+
+    def close_block(self, labels, start):
+        """At a `}` that ends the innermost open block. Consume it (and its
+        name) if it closes this block; leave a named closer for an outer
+        block to consume."""
+        name_tok = self.peek(1)
+        if name_tok.kind in ("loop", "if"):
+            raise CompileError(
+                f"a closer names a function, struct or loop label, not `{name_tok.kind}`",
+                name_tok.pos)
+        if name_tok.kind not in CLOSER_NAMES:
+            self.advance()                          # plain `}`
+            return
+        name = name_tok.text
+        if name in labels:
+            self.advance()                          # `} name` closing this block
+            self.advance()
+            return
+        if any(name in outer for outer in self.open_blocks[:-1]):
+            return                                  # closes an outer block too
+        raise CompileError(f"`}} {name}` doesn't match any open block", name_tok.pos)
 
     # ---- statements ----------------------------------------------------
 
@@ -249,8 +306,8 @@ class Parser:
         expr = self.expr()
         if self.peek().kind in ASSIGN_OPS:
             op = self.advance()
-            if not isinstance(expr, S.Name):
-                raise CompileError("can only assign to a variable", expr.pos)
+            if not isinstance(expr, (S.Name, S.FieldAccess)):
+                raise CompileError("can only assign to a variable or a field", expr.pos)
             value = self.expr()
             self.end_statement()
             return S.Assign(op.pos, expr, op.kind, value)
@@ -337,7 +394,7 @@ class Parser:
         return self.cast()
 
     def cast(self):
-        expr = self.primary()
+        expr = self.postfix(self.primary())
         while self.at("as") or self.at("wrap"):
             tok = self.advance()
             expr = S.Cast(tok.pos, expr, self.type_ref(), tok.kind)
@@ -356,17 +413,19 @@ class Parser:
             return S.BoolLit(tok.pos, tok.kind == "true")
         if tok.kind == "if":
             return self.if_expr()
+        if tok.kind == "." and self.peek(1).kind == "ident":
+            # `.field` or `.method(...)` inside a method: the method's own struct.
+            self.advance()
+            name = self.advance()
+            if self.at("("):
+                return S.MethodCall(name.pos, None, name.text, self.positional_args(name.text))
+            return S.FieldAccess(name.pos, None, name.text)
         if tok.kind == "ident":
             self.advance()
             if self.at("("):
-                self.advance()
-                args = []
-                while not self.at(")"):
-                    args.append(self.expr())
-                    if not self.at(")"):
-                        self.expect(",", "`,` or `)`")
-                self.expect(")")
-                return S.Call(tok.pos, tok.text, args)
+                if tok.text[0].isupper():
+                    return S.StructLit(tok.pos, tok.text, self.field_args(tok.text))
+                return S.Call(tok.pos, tok.text, self.positional_args(tok.text))
             return S.Name(tok.pos, tok.text)
         if tok.kind == "(":
             self.advance()
@@ -375,6 +434,52 @@ class Parser:
             inner.parens = True
             return inner
         raise CompileError(f"expected an expression, found {describe_tok(tok)}", tok.pos)
+
+    def postfix(self, expr):
+        """`expr.field` and `expr.method(args)`, chained."""
+        while self.at(".") and self.peek(1).kind == "ident":
+            self.advance()
+            name = self.advance()
+            if self.at("("):
+                expr = S.MethodCall(name.pos, expr, name.text, self.positional_args(name.text))
+            else:
+                expr = S.FieldAccess(name.pos, expr, name.text)
+        return expr
+
+    def positional_args(self, callee):
+        """`(a, mut b, c)` for a function or method call."""
+        self.expect("(")
+        args = []
+        while not self.at(")"):
+            if self.at("ident") and self.peek(1).kind == ":":
+                raise CompileError(
+                    f"`{callee}` is a function: its arguments aren't named", self.peek().pos)
+            if self.at("mut"):
+                tok = self.advance()
+                args.append(S.MutArg(tok.pos, self.expr()))
+            else:
+                args.append(self.expr())
+            if not self.at(")"):
+                self.expect(",", "`,` or `)`")
+        self.expect(")")
+        return args
+
+    def field_args(self, type_name):
+        """`(x: 1, y: 2)` for a struct value: every field named."""
+        self.expect("(")
+        fields = []
+        while not self.at(")"):
+            if not (self.at("ident") and self.peek(1).kind == ":"):
+                raise CompileError(
+                    f"fields of `{type_name}` are named, as in `{type_name}(x: 1, y: 2)`",
+                    self.peek().pos)
+            ftok = self.advance()
+            self.advance()
+            fields.append((ftok.text, self.expr(), ftok.pos))
+            if not self.at(")"):
+                self.expect(",", "`,` or `)`")
+        self.expect(")")
+        return fields
 
     def if_expr(self):
         """`if c { a } else { b }` as a value."""

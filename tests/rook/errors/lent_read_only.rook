@@ -1,0 +1,11 @@
+// A struct parameter is lent read-only unless it is `mut`.
+// error: 10:9: can't assign to `p`: it is lent read-only; take it as `mut Point`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f(p: Point) {
+    p.x = 5
+}

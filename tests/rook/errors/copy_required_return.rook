@@ -1,0 +1,11 @@
+// A lent parameter can't be handed back as a new value without a copy.
+// error: 10:12: the result would be a copy of `p`; write `p.copy()`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f(p: Point) -> Point {
+    return p
+}

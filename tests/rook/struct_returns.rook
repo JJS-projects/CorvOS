@@ -1,0 +1,37 @@
+// Functions return new structs; a function's own local can be returned (it
+// is moved out), and `if` can choose between new values.
+// expect: 10
+// expect: 20
+// expect: 5
+// expect: 6
+// expect: 2
+
+extern fn print_u64(x: u64)
+
+struct Size {
+    width: u64
+    height: u64
+}
+
+fn make(w: u64, h: u64) -> Size {
+    return Size(width: w, height: h)
+}
+
+fn grown(s: Size, by: u64) -> Size {
+    mut result: Size = s.copy()
+    result.width += by
+    result.height += by
+    return result
+}
+
+fn test_main() {
+    a: Size = make(10, 20)
+    print_u64(a.width)
+    print_u64(a.height)
+    b: Size = grown(make(3, 4), 2)
+    print_u64(b.width)
+    print_u64(b.height)
+    small: bool = true
+    c: Size = if small { make(1, 2) } else { make(100, 200) }
+    print_u64(c.height)
+}

@@ -1,0 +1,6 @@
+// Struct fields aren't marked `mut`; the variable holding the struct is.
+// error: 5:5: struct fields aren't marked `mut`
+
+struct Point {
+    mut x: u64
+}

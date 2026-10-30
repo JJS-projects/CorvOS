@@ -114,9 +114,13 @@ fn append(buf: mut Buffer, b: u8) -> Result<(), Full> {
 | Loops | `rows: loop i: u64 in 0..n { }`, `waiting: loop cond { }`, `retry: loop { }` | One keyword; every loop is named; ranges exclude the end |
 | Leaving loops | `break rows`, `continue rows` | Always name the loop, which can be an outer one |
 | Blocks | `{ … }`, with an optional named closer `} name` | `} name` closes everything back to the function or loop with that name |
+| Structs | `Point(x: 1, y: 2)` | Every field named, in declared order |
+| Methods | `fn manhattan() -> u64`, `mut fn scale(by: u64)` inside the struct | Only a `mut fn` changes the struct |
+| Passing structs | `show(p)`, `nudge(mut p)` | Lent, never copied; `mut` marked at the call |
+| Copying | `b: Point = a.copy()` | `b: Point = a` is an error |
 | Capabilities | `iso Buffer`, `val Block`, `mut Buffer`, `read Buffer` | Written before the type; omitted on actor references |
 | Message handlers | `on write(b: u8) { }` | `new(...)` initialises an actor; `spawn Uart(...)` creates one |
-| Own fields | `.regs`, `.listener` | `self` is the actor's own reference |
+| Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
 | `match` arms | `Ok(b) => b` on separate lines | No commas |
 | Naming | `snake_case` values and functions, `CamelCase` types, `SCREAMING_CASE` constants | Enforced by the compiler |
@@ -215,8 +219,8 @@ The loop variable is immutable. A label can't reuse the name of a block it's ins
 
 Blocks use braces. A closer may name the block it closes: `} name` closes every
 open block back to and including the block called `name`. Only names written in
-the code can be used: a function, handler or actor by its name, or a loop by its
-label. Keywords (`} loop`, `} if`) are not names, so a closer is never ambiguous.
+the code can be used: a function, handler, struct or actor by its name, or a loop
+by its label. Keywords (`} loop`, `} if`) are not names, so a closer is never ambiguous.
 The compiler checks that the name matches an open block.
 
 ```rook
@@ -232,6 +236,57 @@ on interrupt() {
 
 Use a bare `}` for short blocks, and a named closer where several blocks end
 together.
+
+### 3.6 Structs and methods
+
+A struct groups named fields. Its methods are written inside it and reach the
+struct's own fields as `.field`, as handlers do in an actor. A `mut fn` may change
+the struct; a plain `fn` may not.
+
+```rook
+struct Point {
+    x: u64
+    y: u64
+
+    fn manhattan() -> u64 {
+        return .x + .y
+    }
+
+    mut fn scale(by: u64) {
+        .x *= by
+        .y *= by
+    }
+} Point
+
+fn nudge(p: mut Point) {
+    p.x += 1
+}
+
+fn demo() {
+    mut a: Point = Point(x: 1, y: 2)  // every field named, in declared order
+    a.scale(3)                        // `mut fn`, so `a` must be `mut`
+    nudge(mut a)                      // lent so it can change: marked at the call
+    b: Point = a.copy()               // copying is always written
+    print_u64(b.manhattan())          // 10
+}
+```
+
+- **Building a struct**: `Point(x: 1, y: 2)` names every field once, in the order
+  they are declared. Function arguments are positional; only struct fields are
+  named.
+- **Passing a struct lends it**: nothing is copied. A plain parameter is lent
+  read-only. A `mut Point` parameter may change the caller's value, and the call
+  says so: `nudge(mut a)`. Numbers can be lent the same way (`n: mut u64`).
+- **Copies are explicit**: `b: Point = a` is an error, because it would silently
+  copy `a`. Write `a.copy()`. Numbers are always copied, so they have no `.copy()`.
+- **What can be stored**: a new value (a struct literal, a call's result, a
+  `.copy()`, or an `if` choosing between new values) can be stored in a variable,
+  a field, or returned. A lent value can't, without `.copy()`. A function may
+  return its own local struct; it is moved out.
+- **Mutability belongs to the variable**, not the fields: a `mut` variable can have
+  any field changed (`a.x = 5`), and fields are never marked `mut`.
+- **`==` and `!=`** compare every field.
+- A struct can't contain itself by value, since it would have no fixed size.
 
 ## 4. Actors and handlers
 
@@ -371,7 +426,8 @@ with milestone 3. It is being built in three steps:
 | Step | Adds | Status |
 |---|---|---|
 | Core | functions, `extern fn`, constants, declarations, integers, `bool`, `if` (also as a value), all three named `loop` forms, `break`/`continue` by name, `return`, casts, named closers, `pub` | done |
-| Data | structs, enums, `match` | next |
+| Data (2a) | structs, methods, lending, `.copy()` | done |
+| Data (2b) | enums, `match` | next |
 | Hardware | Raven's `unsafe`, raw pointers, volatile register access, byte strings | after that |
 
 ### 11.1 Rules settled while building the core
@@ -404,6 +460,23 @@ with milestone 3. It is being built in three steps:
 - **A panic** calls the kernel's `rook_panic`, which prints
   `Raven: panic: <what> at <file>:<line>` and halts. Once actors exist, it will crash
   only the actor's domain instead.
+
+### 11.2 Rules settled while building structs
+
+- **Lending is only partly checked.** Fledgling has no borrow checker yet. It
+  catches the same value lent as `mut` and lent again in one call
+  (`add_into(mut a, a)`), and lent values can't be stored. Full checking arrives
+  with reference capabilities in milestone 3. **Known gap.**
+- **A plain struct parameter is a read-only lend.** Section 7 calls this a `read`
+  borrow. Whether `read` is ever written out is part of the open question on
+  default capabilities (section 12).
+- **`copy` is a reserved method name**, and a method can't share a field's name.
+- **Calling convention for structs**: a struct argument is passed as the address of
+  the caller's value, since it is lent. A struct result is written to an address
+  the caller passes in `x8`. A method gets its struct's address in `x0` and its
+  arguments from `x1`; its symbol is `Struct__method`. This departs from AAPCS64,
+  which copies composite arguments. Numbers passed by value still follow AAPCS64, so
+  assembly can call Rook functions that take only numbers.
 
 ## 12. Open questions
 

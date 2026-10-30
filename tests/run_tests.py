@@ -30,6 +30,7 @@ import selectors
 import subprocess
 import sys
 import time
+import traceback
 from dataclasses import dataclass, field
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -310,7 +311,12 @@ def main(argv):
     width = max(len(t.name) for t in selected)
     for test in selected:
         start = time.monotonic()
-        result = test.run()
+        try:
+            result = test.run()
+        except Exception:
+            # A crash inside the compiler fails this test only; the rest of
+            # the suite still runs.
+            result = (False, "compiler crashed", traceback.format_exc())
         passed, reason = result[0], result[1]
         output = result[2] if len(result) > 2 else ""
         elapsed = time.monotonic() - start

@@ -1,0 +1,45 @@
+// Methods live inside the struct and reach its fields as `.x`. A `mut fn` may
+// change the struct. Methods can return new structs and call each other.
+// expect: 3
+// expect: 6
+// expect: 4
+// expect: 8
+// expect: 15
+// expect: 30
+
+extern fn print_u64(x: u64)
+
+struct Point {
+    x: u64
+    y: u64
+
+    fn manhattan() -> u64 {
+        return .x + .y
+    }
+
+    mut fn scale(by: u64) {
+        .x *= by
+        .y *= by
+    }
+
+    fn plus(other: Point) -> Point {
+        return Point(x: .x + other.x, y: .y + other.y)
+    }
+
+    fn doubled_size() -> u64 {
+        return .manhattan() * 2
+    }
+} Point
+
+fn test_main() {
+    a: Point = Point(x: 1, y: 2)
+    print_u64(a.manhattan())
+    mut b: Point = Point(x: 1, y: 2)
+    b.scale(3)
+    print_u64(b.y + b.x - 3)
+    c: Point = a.plus(b)
+    print_u64(c.x)
+    print_u64(c.y)
+    print_u64(Point(x: 5, y: 10).manhattan())
+    print_u64(Point(x: 5, y: 10).doubled_size())
+}
