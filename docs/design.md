@@ -157,8 +157,8 @@ under `raven/trusted/`, which are the only ones allowed `unsafe` and `extern fn`
   is in `raven/` (only `raven/trusted/` may use `unsafe`); boot, the exception
   vectors and an emergency console for fault reports stay in assembly in `kernel/`.
 - Responsibilities: boot, exception vectors, MMU and domain setup, scheduling actors
-  across four cores, delivering messages (including cross-domain copies), and turning
-  interrupts into messages.
+  across four cores (one copy of Raven per core, section 6.3), delivering messages
+  (including cross-domain copies), and turning interrupts into messages.
 - Everything else (drivers, services) runs as actors in domains above it.
 
 ### 6.1 No separate runtime
@@ -173,9 +173,9 @@ scheduler.
 - **To start with, every send goes through Raven**, including sends between actors
   in the same domain. This is the simplest design, easy to debug, and gives the
   kernel a trace of every message.
-- Mailboxes are **lock-free multi-producer queues** from the start (needed for four
-  cores in any case), laid out so that a fast path can be added later without
-  changing the language.
+- A mailbox belongs to the core its actor's domain is pinned to (section 6.3), so a
+  send within a core needs no atomic instructions. Mailboxes are laid out so that a
+  fast path can be added later without changing the language.
 - **Possible fast path, added only if measurements justify it:** same-domain sends
   write directly into the receiver's mailbox, and call Raven only when the receiver
   is asleep and must be woken (the same trick as Linux futexes). A busy actor drains
@@ -186,6 +186,34 @@ scheduler.
   references can't be forged, so the kernel checking each send adds no protection.
 - Measuring kernel-mediated sends against the fast path is a research result in its
   own right (milestone 3).
+
+### 6.3 Raven across cores
+
+**There is one Raven per core** (decision 111). Each of the four cores runs its own
+copy of Raven with its own run queue, mailboxes, tables, memory pool and timer. The
+code running on a core never touches another core's data, so almost all of Raven is
+ordinary single-threaded Rook, written the way the programs on top of it are.
+
+- **A protection domain, and so every actor in it, belongs to one core.** Actors in
+  different domains can run in parallel on different cores; actors in one domain
+  share a core. A program that wants parallelism splits into domains.
+- **A send to another core is a send across domains**: the message is copied and
+  passed through a ring (a queue with exactly one writer core and one reader core)
+  for that pair of cores, and the receiving core is woken. It is the same operation
+  as a cross-domain send on one core, so its cost is the same (see the open question
+  on showing that cost).
+- **Only two things are shared between cores:** the rings, and the atomic reference
+  counts of frozen data. These, and the setup of each core, are where Raven needs
+  `unsafe` for concurrency; none of its run queues, mailboxes or tables do.
+- **Accepted costs:** actors in one domain can't run in parallel with each other,
+  and moving a domain to another core is not free (open below).
+
+Chosen over one shared kernel (with lock-free queues, or with one big lock) for
+fewer places where `unsafe` and memory-ordering bugs can hide (principle 1), one
+kind of send instead of two (principle 6) and a smaller part of Raven to audit
+(principle 7). Milestone 3 still runs on core 0 only; the point is that Raven's
+tables are written as one core's own from the start, which is cheap now and costly
+to retrofit.
 
 ## 7. Supervision
 
@@ -207,13 +235,15 @@ fault-tolerance claim will be tested.
   checks every address range; section 3.5). The details of its interface are decided
   at milestone 7.
 - **Mailbox bounds and backpressure**: bounded or unbounded, and what happens when full.
-- **Scheduling policy** across cores: work stealing, per-core run queues, affinity.
-- **Raven's own structure across cores**: one shared kernel whose run queues and
-  mailboxes need atomics or locks, or one kernel per core that coordinate by
-  messages (as in Barrelfish). Raven's internals are the one place with shared
-  mutable state, outside the language's guarantees, so this decides how much of
-  Raven needs `unsafe`. Decide at the start of milestone 3.
+- **Scheduling policy** within a core: round robin, priorities, fairness.
+  (Run queues are per core and a domain stays on its core: decision 111.)
+- **Details of one Raven per core** (the structure itself is settled, section 6.3):
+  how a domain is given a core; whether a domain can ever move to another core, and
+  how; per-core memory pools and how memory moves between them; which core takes
+  each interrupt; how a ring wakes its reader (an inter-core interrupt or `sev`);
+  how supervision works across cores. Each is decided when milestone 6 needs it.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
 - **Visible cost of cross-domain sends** (principle 8): a send to an actor in
   another domain copies the message, while an identical-looking send within a
-  domain doesn't. Should the difference show in the code? Decide by milestone 6.
+  domain doesn't. Should the difference show in the code? A send to another core is a
+  cross-domain send, so it has the same cost (section 6.3). Decide by milestone 6.
