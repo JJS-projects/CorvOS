@@ -153,7 +153,9 @@ under `raven/trusted/`, which are the only ones allowed `unsafe` and `extern fn`
 
 ## 6. Raven, the kernel
 
-- A microkernel, **written in Rook**, using `unsafe` where it must.
+- A microkernel, **written in Rook**, using `unsafe` where it must. Its Rook code
+  is in `raven/` (only `raven/trusted/` may use `unsafe`); boot, the exception
+  vectors and an emergency console for fault reports stay in assembly in `kernel/`.
 - Responsibilities: boot, exception vectors, MMU and domain setup, scheduling actors
   across four cores, delivering messages (including cross-domain copies), and turning
   interrupts into messages.

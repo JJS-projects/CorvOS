@@ -14,25 +14,30 @@ LDFLAGS := -T kernel/link.ld --no-warn-rwx-segments
 FLEDGLING_SRCS := $(wildcard bootstrap/fledgling/*.py)
 FLEDGLING      := PYTHONPATH=bootstrap PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m fledgling
 
-SRCS := $(wildcard kernel/arch/aarch64/*.s) kernel/main.s kernel/panic.s
+SRCS := $(wildcard kernel/arch/aarch64/*.s) kernel/panic.s kernel/test_hooks.s
+
+# Raven's Rook code: everything under raven/, compiled as one program.
+# Only raven/trusted/ may use `unsafe` and `extern fn` (decision 90).
+RAVEN_ROOK    := $(wildcard raven/trusted/*.rook raven/*.rook)
+RAVEN_TRUSTED := --trusted raven/trusted
+RAVEN_OBJ     := $(BUILD)/raven/raven.o
 
 # Builds of the same kernel sources:
 #   normal   the real kernel
 #   fault    test build with a deliberate fault, to test the exception vectors
 #   rooktest test build that runs a compiled Rook program's test_main()
-NORMAL_OBJS := $(SRCS:%.s=$(BUILD)/normal/%.o)
-FAULT_OBJS  := $(SRCS:%.s=$(BUILD)/fault/%.o)
+NORMAL_OBJS := $(SRCS:%.s=$(BUILD)/normal/%.o) $(RAVEN_OBJ)
+FAULT_OBJS  := $(SRCS:%.s=$(BUILD)/fault/%.o) $(RAVEN_OBJ)
 ROOKTEST_KERNEL_OBJS := $(SRCS:%.s=$(BUILD)/rooktest/%.o) $(BUILD)/rooktest/kernel/test/print.o
 
 KERNEL       := $(BUILD)/kernel8.img
 FAULT_KERNEL := $(BUILD)/fault/kernel8.img
 
-# Rook files every program is compiled with, and the directories whose files
-# may use `unsafe` and `extern fn` (decision 90). Test programs that need
-# trust live in tests/rook/trusted/.
-ROOK_LIB          := raven/trusted/bytes.rook
+# A test image's Rook code is Raven's plus the test output functions plus the
+# test program, compiled as one program. Test programs that need trust live in
+# tests/rook/trusted/.
 ROOK_TEST_SUPPORT := tests/rook/support/trusted/print.rook
-ROOK_TEST_TRUSTED := --trusted raven/trusted --trusted tests/rook/support/trusted \
+ROOK_TEST_TRUSTED := $(RAVEN_TRUSTED) --trusted tests/rook/support/trusted \
                      --trusted tests/rook/trusted
 
 # One kernel image per Rook test program in tests/rook/ and tests/rook/trusted/.
@@ -57,9 +62,16 @@ $(BUILD)/rooktest/%.o: %.s
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) --defsym ROOK_TEST=1 -o $@ $<
 
-$(BUILD)/rook-tests/%.s: tests/rook/%.rook $(FLEDGLING_SRCS) $(ROOK_LIB) $(ROOK_TEST_SUPPORT)
+$(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS)
 	@mkdir -p $(dir $@)
-	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(ROOK_LIB) $(ROOK_TEST_SUPPORT) $< -o $@
+	$(FLEDGLING) $(RAVEN_TRUSTED) $(RAVEN_ROOK) -o $@
+
+$(BUILD)/raven/raven.o: $(BUILD)/raven/raven.s
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/rook-tests/%.s: tests/rook/%.rook $(FLEDGLING_SRCS) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT)
+	@mkdir -p $(dir $@)
+	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $< -o $@
 
 $(BUILD)/rook-tests/%.o: $(BUILD)/rook-tests/%.s
 	$(AS) $(ASFLAGS) -o $@ $<

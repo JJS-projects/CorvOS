@@ -1,0 +1,23 @@
+// Raven's kernel_main, in Rook.
+
+// Where the devices Raven uses sit within the peripherals.
+UART0_OFFSET: u64 = 0x201000
+GPIO_OFFSET: u64 = 0x200000
+REGISTER_PAGE: u64 = 0x1000
+
+/// Brings up the console and reports how the kernel started. `peripherals`
+/// covers every device register: it is the root of all device authority, and
+/// each device is handed only its own part.
+pub fn kernel_main(entry_el: u64, peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(UART0_OFFSET, REGISTER_PAGE))
+    console.init(peripherals.part(GPIO_OFFSET, REGISTER_PAGE))
+    console.write("Raven: hello from CorvOS\n")
+    console.write("Raven: firmware entered at EL")
+    console.write_dec(entry_el)
+    console.write("\n")
+    console.write("Raven: running at EL")
+    console.write_dec(current_el())
+    console.write("\n")
+    run_test_hooks(peripherals)
+    console.write("Raven: boot complete, idling\n")
+}
