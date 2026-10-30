@@ -5,12 +5,30 @@ UART0_OFFSET: u64 = 0x201000
 GPIO_OFFSET: u64 = 0x200000
 REGISTER_PAGE: u64 = 0x1000
 
+// Signs of life on the activity LED, for a first boot without a serial adapter:
+// one flash = Raven's Rook code is running, two = the console is set up,
+// solid on = boot complete.
+FLASH_MS: u64 = 150
+PAUSE_MS: u64 = 600
+
 /// Brings up the console and reports how the kernel started. `peripherals`
 /// covers every device register: it is the root of all device authority, and
 /// each device is handed only its own part.
 pub fn kernel_main(entry_el: u64, peripherals: Mmio) {
+    // The test builds don't wait: nobody is watching their LED.
+    watched: bool = not quiet_build()
+    led: Led = Led(gpio: peripherals.part(GPIO_OFFSET, REGISTER_PAGE))
+    led.init()
+    if watched {
+        led.blink(1, FLASH_MS)
+        wait_ms(PAUSE_MS)
+    }
     console: Pl011 = Pl011(regs: peripherals.part(UART0_OFFSET, REGISTER_PAGE))
     console.init(peripherals.part(GPIO_OFFSET, REGISTER_PAGE))
+    if watched {
+        led.blink(2, FLASH_MS)
+        wait_ms(PAUSE_MS)
+    }
     console.write("Raven: hello from CorvOS\n")
     console.write("Raven: firmware entered at EL")
     console.write_dec(entry_el)
@@ -20,4 +38,5 @@ pub fn kernel_main(entry_el: u64, peripherals: Mmio) {
     console.write("\n")
     run_test_hooks(peripherals)
     console.write("Raven: boot complete, idling\n")
+    led.turn_on()
 }

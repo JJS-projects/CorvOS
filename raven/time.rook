@@ -1,0 +1,17 @@
+// Waiting for a length of real time, from the ARM generic timer.
+
+// The rate the firmware is believed to set on the Pi Zero 2 W, used if
+// counter_frequency() reads 0 (docs/hardware.md; unverified on hardware).
+DEFAULT_FREQUENCY: u64 = 19200000
+
+/// Waits at least `ms` milliseconds. (Loop counts can't do this: with the MMU
+/// off the speed of a loop isn't known.)
+pub fn wait_ms(ms: u64) {
+    mut ticks_per_second: u64 = counter_frequency()
+    if ticks_per_second == 0 {
+        ticks_per_second = DEFAULT_FREQUENCY
+    }
+    began_at: u64 = read_counter()
+    ticks_to_wait: u64 = ms * (ticks_per_second / 1000)
+    waiting: loop read_counter() - began_at < ticks_to_wait { }
+}

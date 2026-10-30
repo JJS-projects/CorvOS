@@ -1,0 +1,11 @@
+// `wait_ms` waits at least as long as asked, measured by the timer itself.
+// expect: true
+// expect: true
+
+fn test_main() {
+    began_at: u64 = read_counter()
+    wait_ms(5)
+    waited: u64 = read_counter() - began_at
+    print_bool(waited >= 5 * (counter_frequency() / 1000))
+    print_bool(counter_frequency() != 0)    // QEMU sets the frequency, as the firmware should
+}

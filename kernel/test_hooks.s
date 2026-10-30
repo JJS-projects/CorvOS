@@ -3,7 +3,7 @@
 // Which hook runs is chosen when this file is assembled (see Makefile):
 //   --defsym FAULT_TEST=1  a deliberate breakpoint, to test the vectors
 //   --defsym ROOK_TEST=1   calls test_main(peripherals), a compiled Rook test
-// In the normal kernel it does nothing. Output uses the early console
+// In the normal kernel it does nothing (and quiet_build says to wait for real). Output uses the early console
 // (uart.s), which kernel_main has already initialised.
 
     .section .text
@@ -31,6 +31,19 @@ run_test_hooks:
 
     ldp     x19, x20, [sp], #16
     ldp     x29, x30, [sp], #16
+    ret
+
+// bool quiet_build(void): true in the test builds, where nobody watches the
+// activity LED and waiting for it would only slow the tests down.
+    .global quiet_build
+quiet_build:
+    mov     x0, #0
+.ifdef ROOK_TEST
+    mov     x0, #1
+.endif
+.ifdef FAULT_TEST
+    mov     x0, #1
+.endif
     ret
 
     .section .rodata
