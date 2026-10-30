@@ -44,7 +44,7 @@ ROOK_TEST_TRUSTED := $(RAVEN_TRUSTED) --trusted tests/rook/support/trusted \
 ROOK_TESTS     := $(wildcard tests/rook/*.rook tests/rook/trusted/*.rook)
 ROOK_TEST_IMGS := $(ROOK_TESTS:tests/rook/%.rook=$(BUILD)/rook-tests/%.img)
 
-.PHONY: all run test coverage disasm sdcard clean help
+.PHONY: all run test difftest coverage disasm sdcard clean help
 # Keep generated assembly, so it can be read when reviewing or debugging.
 .SECONDARY:
 
@@ -65,6 +65,23 @@ $(BUILD)/rooktest/%.o: %.s Makefile
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) --defsym ROOK_TEST=1 -o $@ $<
 
+# Test images: a Rook program (from $(2)) built into a test kernel under
+# $(BUILD)/$(1). Used for the tests in tests/rook and the generated programs
+# of `make difftest`.
+define ROOK_IMAGE_RULES
+$(BUILD)/$(1)/%.s: $(2) $(FLEDGLING_SRCS) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) Makefile
+	@mkdir -p $$(dir $$@)
+	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $$< -o $$@
+
+$(BUILD)/$(1)/%.o: $(BUILD)/$(1)/%.s
+	$(AS) $(ASFLAGS) -o $$@ $$<
+
+$(BUILD)/$(1)/%.elf: $(BUILD)/$(1)/%.o $(ROOKTEST_KERNEL_OBJS) kernel/link.ld
+	$(LD) $(LDFLAGS) -o $$@ $(ROOKTEST_KERNEL_OBJS) $$<
+endef
+$(eval $(call ROOK_IMAGE_RULES,rook-tests,tests/rook/%.rook))
+$(eval $(call ROOK_IMAGE_RULES,difftest,$(BUILD)/difftest/%.rook))
+
 $(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS) Makefile
 	@mkdir -p $(dir $@)
 	$(FLEDGLING) $(RAVEN_TRUSTED) $(RAVEN_ROOK) -o $@
@@ -72,15 +89,7 @@ $(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS) Makefile
 $(BUILD)/raven/raven.o: $(BUILD)/raven/raven.s
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/rook-tests/%.s: tests/rook/%.rook $(FLEDGLING_SRCS) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) Makefile
-	@mkdir -p $(dir $@)
-	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $< -o $@
 
-$(BUILD)/rook-tests/%.o: $(BUILD)/rook-tests/%.s
-	$(AS) $(ASFLAGS) -o $@ $<
-
-$(BUILD)/rook-tests/%.elf: $(BUILD)/rook-tests/%.o $(ROOKTEST_KERNEL_OBJS) kernel/link.ld
-	$(LD) $(LDFLAGS) -o $@ $(ROOKTEST_KERNEL_OBJS) $<
 
 $(BUILD)/kernel8.elf: $(NORMAL_OBJS) kernel/link.ld
 	$(LD) $(LDFLAGS) -o $@ $(NORMAL_OBJS)
@@ -96,6 +105,13 @@ run: $(KERNEL)
 
 test: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS)
 	$(PYTHON) tests/run_tests.py
+
+# Differential testing: random integer arithmetic, checked against a model
+# written in Python. SEED picks the programs; the same seed gives the same ones.
+SEED     ?= 1
+PROGRAMS ?= 12
+difftest: $(KERNEL)
+	$(PYTHON) tools/difftest.py --seed $(SEED) --programs $(PROGRAMS)
 
 coverage:
 	$(PYTHON) tools/coverage.py
@@ -116,6 +132,7 @@ help:
 	@echo "make run      boot it in QEMU (quit with Ctrl-A then X)"
 	@echo "make test     build everything and run the full test suite"
 	@echo "              (python3 tests/run_tests.py NAME... runs only some tests)"
+	@echo "make difftest random arithmetic checked against a Python model (SEED=n PROGRAMS=n)"
 	@echo "make coverage  list the compiler lines no test reaches"
 	@echo "make disasm   disassemble the kernel"
 	@echo "make sdcard   collect files for a real Pi Zero 2 W SD card"

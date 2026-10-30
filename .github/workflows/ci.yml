@@ -20,6 +20,9 @@ jobs:
       - name: Test in QEMU
         run: make test
 
+      - name: Differential testing of arithmetic (fixed seed)
+        run: make difftest
+
       - name: Compiler coverage (report only)
         run: make coverage
 

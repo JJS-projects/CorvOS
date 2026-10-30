@@ -37,6 +37,7 @@ to try it yourself, there are three ways, from easiest:
 |---|---|
 | `make` | Build `build/kernel8.img` |
 | `make test` | Build and run every QEMU test |
+| `make difftest` | Random integer arithmetic, checked against a Python model (`SEED=n PROGRAMS=n`; see decision 106) |
 | `make coverage` | Fail if a compiler line is reached by no test, except those listed in `tools/coverage-gaps.txt` (Python's `trace`, no extra install) |
 | `make run` | Boot the kernel in QEMU with the UART on your terminal (quit: Ctrl-A then X) |
 | `make disasm` | Disassemble the kernel |
