@@ -1,0 +1,28 @@
+// Inside a method, a binding lent from `.` stops `.` changing too.
+// error: 22:18: can't call `mut fn clear` on `.` while `at` is lent from it by this `match`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+enum Slot {
+    Empty
+    Full(at: Point)
+
+    mut fn clear() {
+        . = Empty
+    }
+
+    mut fn take() -> u64 {
+        mut result: u64 = 0
+        match . {
+            Empty => { }
+            Full(at: at) => {
+                .clear()
+                result = at.x
+            }
+        }
+        return result
+    }
+}

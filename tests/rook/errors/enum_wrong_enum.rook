@@ -1,0 +1,20 @@
+// A pattern names a variant of the enum being matched.
+// error: 18:9: `On` is a variant of `Light`, not `State`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+enum Light {
+    Off
+    On
+}
+
+fn f(s: State) -> u64 {
+    return match s {
+        Idle => 0
+        On => 1
+    }
+}

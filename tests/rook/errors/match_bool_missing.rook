@@ -1,0 +1,8 @@
+// A match on a bool lists true and false.
+// error: 5:12: this `match` is missing `false`
+
+fn f(b: bool) -> u64 {
+    return match b {
+        true => 1
+    }
+}

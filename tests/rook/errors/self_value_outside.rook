@@ -1,0 +1,8 @@
+// `.` alone is a method's own value.
+// error: 5:18: `.` on its own is a method's own value, so it only works inside methods
+
+fn f() -> u64 {
+    return match . {
+        else => 1
+    }
+}

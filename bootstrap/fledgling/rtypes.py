@@ -46,13 +46,13 @@ U64 = INT_TYPES["u64"]
 NAMED_TYPES = dict(INT_TYPES, bool=BOOL)
 
 
-class StructType:
-    """A struct: compared by identity, so two structs are never the same type."""
+class AggregateType:
+    """A struct or enum: lives in memory, is lent when passed, and is compared
+    by identity, so two declarations are never the same type."""
 
     def __init__(self, name, decl):
         self.name = name
         self.decl = decl
-        self.fields = []        # [(name, type)], filled in once all structs are known
         self.methods = {}       # name -> method signature
         self._words = None
 
@@ -61,28 +61,67 @@ class StructType:
         """Size in 8-byte words. Every scalar field takes one word."""
         return self._words
 
-    def offset(self, field):
-        """Offset of `field` in words, and its type."""
-        at = 0
-        for name, ty in self.fields:
-            if name == field:
-                return at, ty
-            at += words(ty)
-        raise KeyError(field)
-
     def __str__(self):
         return self.name
 
     def __repr__(self):
-        return f"StructType({self.name})"
+        return f"{type(self).__name__}({self.name})"
+
+
+class StructType(AggregateType):
+    def __init__(self, name, decl):
+        super().__init__(name, decl)
+        self.fields = []        # [(name, type)], filled in once all types are known
+
+    def offset(self, field):
+        """Offset of `field` in words, and its type."""
+        return field_offset(self.fields, field)
+
+
+class Variant:
+    def __init__(self, name, tag, enum, pos):
+        self.name, self.tag, self.enum, self.pos = name, tag, enum, pos
+        self.fields = []        # [(name, type)]
+
+    def offset(self, field):
+        """Offset of `field` in words from the start of the enum value: the
+        tag comes first."""
+        at, ty = field_offset(self.fields, field)
+        return at + 1, ty
+
+
+class EnumType(AggregateType):
+    """An enum value is one tag word (the variant's index) followed by the
+    variant's fields, padded to the size of the largest variant."""
+
+    def __init__(self, name, decl):
+        super().__init__(name, decl)
+        self.variants = {}      # name -> Variant, in declaration order
+
+
+def field_offset(fields, field):
+    at = 0
+    for name, ty in fields:
+        if name == field:
+            return at, ty
+        at += words(ty)
+    raise KeyError(field)
 
 
 def words(ty):
-    return ty.words if isinstance(ty, StructType) else 1
+    return ty.words if isinstance(ty, AggregateType) else 1
+
+
+def is_aggregate(ty):
+    return isinstance(ty, AggregateType)
 
 
 def is_struct(ty):
     return isinstance(ty, StructType)
+
+
+def is_enum(ty):
+    return isinstance(ty, EnumType)
 
 
 def is_int(ty):

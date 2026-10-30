@@ -21,11 +21,16 @@ are required instead of a precedence rule (principle 4):
 
 Blocks are closed by `}`. A named closer, `} name`, closes every open block
 back to and including the one called `name`. Only names written in the code can
-be used: a function's or struct's name, or a loop's label. Every loop is labelled
+be used: a function's, struct's or enum's name, or a loop's label. Every loop is labelled
 (`rows: loop ...`), and `break` and `continue` name the loop they act on.
 
-A capitalised name is always a type (the compiler enforces naming), so
-`Point(x: 1, y: 2)` is a struct value and `point(1, 2)` a function call.
+A capitalised name is always a type, a variant or a constant (the compiler
+enforces naming), so `Point(x: 1, y: 2)` is a struct value, `Busy(job: 3)` an
+enum value, and `point(1, 2)` a function call.
+
+`match` arms are one per line: `pattern => body`. In a match used as a value,
+each body is one expression, or `return`, `break` or `continue` to leave
+instead. In a match statement, each body is one statement or a `{ block }`.
 """
 
 from .errors import CompileError
@@ -100,6 +105,8 @@ class Parser:
                 public = True
             if self.at("struct"):
                 prog.items.append(self.struct_decl(public))
+            elif self.at("enum"):
+                prog.items.append(self.enum_decl(public))
             elif self.at("fn"):
                 prog.items.append(self.fn_decl(extern=False, public=public))
             elif self.at("extern"):
@@ -114,7 +121,7 @@ class Parser:
             else:
                 tok = self.peek()
                 raise CompileError(
-                    f"expected `fn`, `extern fn`, `struct` or a constant at top level, "
+                    f"expected `fn`, `extern fn`, `struct`, `enum` or a constant at top level, "
                     f"found {describe_tok(tok)}", tok.pos)
             self.skip_newlines()
         return prog
@@ -156,6 +163,56 @@ class Parser:
         self.open_blocks.pop()
         self.end_statement()
         return S.StructDecl(name, fields, methods, start.pos, public)
+
+    def enum_decl(self, public):
+        start = self.expect("enum")
+        name = self.expect("ident", "enum name").text
+        self.expect("{")
+        self.open_blocks.append({name})
+        variants, methods = [], []
+        while True:
+            self.skip_newlines()
+            if self.at("}"):
+                self.close_block({name}, start)
+                break
+            if self.at("eof"):
+                raise CompileError("unclosed `{`", start.pos)
+            if self.at("fn") or (self.at("mut") and self.peek(1).kind == "fn"):
+                mutating = self.at("mut")
+                if mutating:
+                    self.advance()
+                methods.append(self.fn_decl(extern=False, public=False,
+                                            mutating=mutating, owner=name))
+            elif self.at("ident") and self.peek(1).kind == ":":
+                raise CompileError(
+                    "an enum has variants, not fields: write `Name` or `Name(field: type)`",
+                    self.peek().pos)
+            elif self.at("ident"):
+                vtok = self.advance()
+                fields = None
+                if self.at("("):
+                    ptok = self.advance()
+                    if self.at(")"):
+                        raise CompileError(
+                            f"a variant with no fields is written without brackets: `{vtok.text}`",
+                            ptok.pos)
+                    fields = []
+                    while not self.at(")"):
+                        ftok = self.expect("ident", "a field name")
+                        self.expect(":", "`:` and the field's type")
+                        fields.append(S.Field(ftok.text, self.type_ref(), ftok.pos))
+                        if not self.at(")"):
+                            self.expect(",", "`,` or `)`")
+                    self.expect(")")
+                variants.append(S.VariantDecl(vtok.text, fields, vtok.pos))
+                self.end_statement()
+            else:
+                tok = self.peek()
+                raise CompileError(f"expected a variant or a method, found {describe_tok(tok)}",
+                                   tok.pos)
+        self.open_blocks.pop()
+        self.end_statement()
+        return S.EnumDecl(name, variants, methods, start.pos, public)
 
     def fn_decl(self, extern, public, mutating=False, owner=None):
         start = self.expect("fn")
@@ -279,6 +336,11 @@ class Parser:
             stmt = self.if_stmt()
             self.end_statement()
             return stmt
+        if tok.kind == "match":
+            start, subject, open_ = self.match_head()
+            arms = self.match_arms(False, start, open_)
+            self.end_statement()
+            return S.Match(start.pos, subject, arms)
         if tok.kind == "loop":
             raise CompileError("every loop is named: write `name: loop ...`", tok.pos)
         if tok.kind in ("break", "continue"):
@@ -306,7 +368,7 @@ class Parser:
         expr = self.expr()
         if self.peek().kind in ASSIGN_OPS:
             op = self.advance()
-            if not isinstance(expr, (S.Name, S.FieldAccess)):
+            if not isinstance(expr, (S.Name, S.FieldAccess, S.SelfValue)):
                 raise CompileError("can only assign to a variable or a field", expr.pos)
             value = self.expr()
             self.end_statement()
@@ -328,6 +390,95 @@ class Parser:
         else:
             self.i = save
         return S.If(start.pos, cond, then, else_)
+
+    # ---- match ---------------------------------------------------------
+
+    def match_head(self):
+        start = self.expect("match")
+        subject = self.expr()
+        open_ = self.expect("{", "`{` to start the arms")
+        return start, subject, open_
+
+    def match_arms(self, as_value, start, open_):
+        self.open_blocks.append(set())
+        arms = []
+        while True:
+            self.skip_newlines()
+            if self.at("}"):
+                self.close_block(set(), open_)
+                break
+            if self.at("eof"):
+                raise CompileError("unclosed `{`", open_.pos)
+            arms.append(self.arm(as_value))
+        self.open_blocks.pop()
+        if not arms:
+            raise CompileError("a `match` needs at least one arm", start.pos)
+        return arms
+
+    def arm(self, as_value):
+        pos = self.peek().pos
+        if self.at("else"):
+            self.advance()
+            patterns = None
+        else:
+            patterns = [self.pattern()]
+            while self.at(","):
+                self.advance()
+                patterns.append(self.pattern())
+        self.expect("=>", "`=>` after the pattern")
+        if as_value:
+            if self.peek().kind in ("return", "break", "continue"):
+                body = self.statement()             # leaves the match instead
+            elif self.at("{"):
+                raise CompileError(
+                    "each arm of a `match` used as a value is a single expression, without `{ }`",
+                    self.peek().pos)
+            else:
+                body = self.expr()
+                self.end_statement()
+        elif self.at("{"):
+            body = self.block(set())
+            self.end_statement()
+        else:
+            tok = self.peek()
+            if tok.kind == "mut" or (tok.kind == "ident" and self.peek(1).kind == ":"):
+                raise CompileError("a declaration in an arm needs a block: `=> { ... }`", tok.pos)
+            body = self.statement()
+        return S.Arm(pos, patterns, body)
+
+    def pattern(self):
+        tok = self.peek()
+        if tok.kind == "ident" and tok.text[0].isupper() and self.peek(1).kind == "(":
+            self.advance()
+            ptok = self.advance()
+            if self.at(")"):
+                raise CompileError(
+                    f"a variant with no fields is written without brackets: `{tok.text}`", ptok.pos)
+            bindings = []
+            while not self.at(")"):
+                if not (self.at("ident") and self.peek(1).kind == ":"):
+                    raise CompileError(
+                        f"fields are bound by name, as in `{tok.text}(field: name)`",
+                        self.peek().pos)
+                ftok = self.advance()
+                self.advance()
+                btok = self.peek()
+                if btok.kind != "ident" or btok.text[0].isupper():
+                    raise CompileError(
+                        "a field binds a new name, or `_` to ignore it; patterns can't be nested",
+                        btok.pos)
+                self.advance()
+                bindings.append((ftok.text, btok.text, btok.pos))
+                if not self.at(")"):
+                    self.expect(",", "`,` or `)`")
+            self.expect(")")
+            return S.Pattern(tok.pos, name=tok.text, bindings=bindings)
+        value = self.unary()
+        end = None
+        if self.at(".."):
+            self.advance()
+            end = self.unary()
+        return S.Pattern(tok.pos, value=value, end=end)
 
     def loop_stmt(self, label, pos):
         self.expect("loop")
@@ -413,6 +564,9 @@ class Parser:
             return S.BoolLit(tok.pos, tok.kind == "true")
         if tok.kind == "if":
             return self.if_expr()
+        if tok.kind == "match":
+            start, subject, open_ = self.match_head()
+            return S.MatchExpr(start.pos, subject, self.match_arms(True, start, open_))
         if tok.kind == "copy":
             self.advance()
             if not self.at("("):
@@ -428,6 +582,12 @@ class Parser:
             if self.at("("):
                 return S.MethodCall(name.pos, None, name.text, self.positional_args(name.text))
             return S.FieldAccess(name.pos, None, name.text)
+        if tok.kind == ".":
+            if self.peek(1).kind == "copy":
+                raise CompileError("copying is written `copy(value)`, not as a method",
+                                   self.peek(1).pos)
+            self.advance()
+            return S.SelfValue(tok.pos)         # `.` alone: the method's whole value
         if tok.kind == "ident":
             self.advance()
             if self.at("("):

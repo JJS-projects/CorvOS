@@ -1,0 +1,15 @@
+// An enum match has no catch-all, so adding a variant makes every match that misses it an error.
+// error: 13:9: a `match` on an enum lists every variant of `State`; `else` isn't allowed
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(s: State) -> u64 {
+    return match s {
+        Idle => 0
+        else => 1
+    }
+}

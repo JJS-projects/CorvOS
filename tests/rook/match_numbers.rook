@@ -1,0 +1,124 @@
+// Matching numbers and bools: single values, lists, ranges (the end is
+// excluded), constants and negative values; `else` covers the rest. A match
+// can also be left with `return`, `break` or `continue`.
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 4
+// expect: 2
+// expect: 1
+// expect: -1
+// expect: 0
+// expect: 1
+// expect: -1
+// expect: 1
+// expect: 20
+// expect: 100
+// expect: 8
+// expect: 0
+// expect: 100000
+// expect: 26
+
+extern fn print_u64(x: u64)
+extern fn print_i64(x: i64)
+
+ESC: u8 = 27
+NEWLINE: u8 = 1
+PRINTABLE: u8 = 2
+ESCAPE: u8 = 3
+OTHER: u8 = 4
+
+fn classify(b: u8) -> u8 {
+    return match b {
+        '\n', '\r' => NEWLINE
+        0x20..0x7F => PRINTABLE
+        ESC => ESCAPE
+        else => OTHER
+    }
+}
+
+// Covers every i32 without `else`.
+fn sign(x: i32) -> i32 {
+    return match x {
+        -2147483648..0 => -1
+        0 => 0
+        1..2147483647, 2147483647 => 1
+    }
+}
+
+fn flag(b: bool) -> u64 {
+    return match b {
+        true => 1
+        false => 0
+    }
+}
+
+// Every arm returns, so nothing is needed after the match.
+fn pick(b: bool) -> u64 {
+    match b {
+        true => return 10
+        false => return 20
+    }
+}
+
+fn describe(n: u8) -> u64 {
+    mut result: u64 = 0
+    match n {
+        0 => result = 100
+        1..10 => {
+            result = n as u64
+            result *= 2
+        }
+        else => { }
+    }
+    return result
+}
+
+fn plus(a: u64, b: u64) -> u64 {
+    return a + b
+}
+
+// `continue` inside a call's argument: the argument already pushed must be
+// popped each time, or 100,000 iterations would overflow the stack.
+fn count_odd(n: u64) -> u64 {
+    mut odd: u64 = 0
+    scan: loop i: u64 in 0..n {
+        odd = plus(odd, match i % 2 {
+            0 => continue scan
+            else => 1
+        })
+    }
+    return odd
+}
+
+// `break` out of the middle of an expression.
+fn grow() -> u64 {
+    mut total: u64 = 0
+    steps: loop i: u64 in 1..10 {
+        total += plus(total, match i {
+            5 => break steps
+            else => i
+        })
+    }
+    return total
+}
+
+fn test_main() {
+    print_u64(classify('\n') as u64)        // 1
+    print_u64(classify('A') as u64)         // 2
+    print_u64(classify(27) as u64)          // 3
+    print_u64(classify(0x7F) as u64)        // 4: the range excludes its end
+    print_u64(classify(0x20) as u64)        // 2
+    print_u64(classify('\r') as u64)        // 1
+    print_i64(sign(-5) as i64)              // -1
+    print_i64(sign(0) as i64)               // 0
+    print_i64(sign(2147483647) as i64)      // 1
+    print_i64(sign(-2147483648) as i64)     // -1
+    print_u64(flag(true))                   // 1
+    print_u64(pick(false))                  // 20
+    print_u64(describe(0))                  // 100
+    print_u64(describe(4))                  // 8
+    print_u64(describe(50))                 // 0
+    print_u64(count_odd(200000))            // 100000
+    print_u64(grow())                       // 1, 4, 11, 26, then break at 5
+}

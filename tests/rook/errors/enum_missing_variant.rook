@@ -1,0 +1,15 @@
+// A match on an enum lists every variant.
+// error: 11:12: this `match` is missing `Failed`
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+}
+
+fn f(s: State) -> u64 {
+    return match s {
+        Idle => 0
+        Busy(job: j, since: _) => j
+    }
+}

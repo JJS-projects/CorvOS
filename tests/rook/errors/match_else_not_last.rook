@@ -1,0 +1,9 @@
+// `else` comes last.
+// error: 6:9: `else` must be the last arm
+
+fn f(b: u8) -> u64 {
+    return match b {
+        else => 2
+        0 => 1
+    }
+}

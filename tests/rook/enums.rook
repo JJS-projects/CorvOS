@@ -1,0 +1,83 @@
+// Enums: values built from variants, read with `match`, and methods that use
+// `.` for the enum's own value. A variant can hold structs.
+// expect: 0
+// expect: 7
+// expect: 3
+// expect: true
+// expect: false
+// expect: 0
+// expect: 12
+// expect: 5
+// expect: 9
+
+extern fn print_u64(x: u64)
+extern fn print_bool(b: bool)
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+enum State {
+    Idle
+    Busy(job: u64, since: u64)
+    Failed(code: u32)
+
+    fn job() -> u64 {
+        return match . {
+            Idle => 0
+            Busy(job: job, since: _) => job
+            Failed(code: code) => code as u64
+        }
+    }
+
+    fn is_busy() -> bool {
+        return match . {
+            Busy(job: _, since: _) => true
+            Idle, Failed(code: _) => false
+        }
+    }
+
+    mut fn finish() {
+        . = Idle
+    }
+} State
+
+enum Shape {
+    Dot(at: Point)
+    Rect(corner: Point, size: Point)
+
+    fn width() -> u64 {
+        return match . {
+            Dot(at: _) => 0
+            Rect(corner: _, size: size) => size.x
+        }
+    }
+} Shape
+
+fn start(job: u64) -> State {
+    return Busy(job: job, since: 100)
+}
+
+fn test_main() {
+    idle: State = Idle
+    print_u64(idle.job())                   // 0
+    mut s: State = start(7)
+    print_u64(s.job())                      // 7
+    f: State = Failed(code: 3)
+    print_u64(f.job())                      // 3
+    print_bool(s.is_busy())                 // true
+    s.finish()
+    print_bool(s.is_busy())                 // false
+    print_u64(s.job())                      // 0
+    r: Shape = Rect(corner: Point(x: 1, y: 1), size: Point(x: 12, y: 5))
+    print_u64(r.width())                    // 12
+    match r {
+        Dot(at: at) => print_u64(at.x)
+        Rect(corner: _, size: size) => print_u64(size.y)   // 5
+    }
+    mut t: State = start(9)
+    u: State = copy(t)
+    t.finish()
+    print_u64(u.job())                      // 9: the copy is independent
+}
