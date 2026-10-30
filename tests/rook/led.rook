@@ -1,0 +1,23 @@
+// The activity LED is GPIO 29: an output pin, lit by driving it low.
+// expect: 1
+// expect: 1
+// expect: 0
+// expect: 1
+// expect: 1
+
+LEVEL_REGISTER: u64 = 0x34       // GPLEV0: the level of pins 0-31
+FUNCTION_REGISTER: u64 = 0x08   // GPFSEL2: the function of pins 20-29
+
+fn test_main(peripherals: Mmio) {
+    gpio: Mmio = peripherals.part(0x200000, 0x1000)
+    lamp: Led = Led(gpio: peripherals.part(0x200000, 0x1000))
+    lamp.init()
+    print_u64(((gpio.read32(FUNCTION_REGISTER) shr 27) and 7) as u64)     // pin 29 is an output (001)
+    print_u64(((gpio.read32(LEVEL_REGISTER) shr 29) and 1) as u64)      // off: the pin is high
+    lamp.turn_on()
+    print_u64(((gpio.read32(LEVEL_REGISTER) shr 29) and 1) as u64)      // on: the pin is low
+    lamp.turn_off()
+    print_u64(((gpio.read32(LEVEL_REGISTER) shr 29) and 1) as u64)
+    lamp.blink(2, 1)
+    print_u64(((gpio.read32(LEVEL_REGISTER) shr 29) and 1) as u64)      // a blink ends with it off
+}

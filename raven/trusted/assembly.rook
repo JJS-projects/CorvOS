@@ -9,3 +9,12 @@ pub extern fn current_el() -> u64
 /// handed `peripherals`, or triggers a deliberate fault. Does nothing in the
 /// normal kernel.
 pub extern fn run_test_hooks(peripherals: Mmio)
+
+/// The ARM generic timer's count, and how many ticks it makes a second
+/// (kernel/arch/aarch64/cpu.s). The frequency is 0 if the firmware didn't set it.
+pub extern fn read_counter() -> u64
+pub extern fn counter_frequency() -> u64
+
+/// True in the test builds, where nobody watches the activity LED, so
+/// kernel_main skips the waits of its LED signals (kernel/test_hooks.s).
+pub extern fn quiet_build() -> bool

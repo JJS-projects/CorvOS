@@ -63,7 +63,9 @@ of test:
   `// machines: raspi3b` (run only there) and
   `// expect-fault: FAR_EL1:  0x0000000030000000` (must end in a reported CPU fault). An error test can have `// alone`: it is compiled
   without Raven's code.
-  `MACHINES=raspi3b make test` runs one machine only.
+  `MACHINES=raspi3b make test` runs one machine only. `CORVOS_SERIAL=pty` reads
+  QEMU's serial port through a pseudo-terminal, as a board's will be read;
+  `CORVOS_SERIAL=/dev/ttyUSB0` reads a real board (only `boot/hello` runs).
 - Run a subset with `python3 tests/run_tests.py rook/` (any test name or prefix),
   after `make test` has built the images.
 - Full QEMU output of each run is saved in `build/test-logs/`.
@@ -108,6 +110,9 @@ These are how the work is done, as opposed to the design
   makes the rules above enforced rather than just agreed.
 
 ## Real hardware
+
+Before a first boot read [hardware.md](hardware.md): what Raven assumes about the
+board, with the evidence and how sure each is.
 
 QEMU is the reference for testing. Real Pi Zero 2 W runs are manual and
 recorded in the PR when done; see `tools/sdcard/README.md`. The plan for

@@ -1,0 +1,42 @@
+// The activity LED ("ACT"): GPIO 29 on the Pi Zero 2 W, wired so that driving
+// the pin LOW lights it. docs/hardware.md has the sources. It is how a first
+// boot shows how far Raven got when no serial adapter is connected.
+
+LED_PIN: u32 = 29
+
+// GPIO registers, as offsets into the GPIO `Mmio`.
+GPFSEL2: u64 = 0x08                 // function of pins 20-29, 3 bits each
+GPSET0: u64 = 0x1C                  // drive the pins in a mask high
+GPCLR0: u64 = 0x28                  // drive the pins in a mask low
+FUNCTION_OUTPUT: u32 = 1
+
+pub struct Led {
+    pub gpio: Mmio
+
+    /// Makes the pin an output and turns the LED off.
+    pub fn init() {
+        .turn_off()
+        // Pin 29's function is the 3 bits starting at bit (29 - 20) * 3 = 27.
+        functions: u32 = .gpio.read32(GPFSEL2)
+        cleared: u32 = functions and not (7 shl 27)
+        .gpio.write32(GPFSEL2, cleared or (FUNCTION_OUTPUT shl 27))
+    }
+
+    pub fn turn_on() {
+        .gpio.write32(GPCLR0, 1 shl LED_PIN)
+    }
+
+    pub fn turn_off() {
+        .gpio.write32(GPSET0, 1 shl LED_PIN)
+    }
+
+    /// Flashes `times` times, `ms` milliseconds on and `ms` off.
+    pub fn blink(times: u64, ms: u64) {
+        flashing: loop i: u64 in 0..times {
+            .turn_on()
+            wait_ms(ms)
+            .turn_off()
+            wait_ms(ms)
+        }
+    }
+} Led

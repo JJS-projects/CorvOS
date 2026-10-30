@@ -39,16 +39,24 @@ the test, unless the program declares it with a header line:
 
 Full QEMU output of every boot is saved to build/test-logs/.
 
+CORVOS_SERIAL chooses where boot output is read from: unset (QEMU's own output),
+`pty` (QEMU's serial port on a pseudo-terminal, read the way a real port is) or a
+device such as /dev/ttyUSB0 for a real board. With a device only boot/hello runs:
+the kernel on the board's SD card is whatever is there.
+
 Usage: python3 tests/run_tests.py [name-or-prefix ...]
        e.g. `rook/` runs only the Rook program tests.
 """
 
 import glob
 import os
+import re
 import selectors
 import subprocess
 import sys
+import termios
 import time
+import tty
 import traceback
 from dataclasses import dataclass, field
 
@@ -60,6 +68,20 @@ QEMU = os.environ.get("QEMU", "qemu-system-aarch64")
 # The QEMU machines every boot and Rook test runs on: a Pi 3B (1 GB) and a
 # Pi 3A+ (512 MB, the Zero 2 W's amount). Override with MACHINES="raspi3b".
 MACHINES = os.environ.get("MACHINES", "raspi3b raspi3ap").split()
+# Where boot output is read from: "stdio" (QEMU's own output), "pty" (QEMU's
+# serial port on a pseudo-terminal), or a serial device such as /dev/ttyUSB0
+# connected to a real board. See docs/hardware.md.
+SERIAL = os.environ.get("CORVOS_SERIAL", "stdio")
+# A board is slower to start than QEMU: its timeouts are this many times longer.
+BOARD_PATIENCE = 6
+
+
+def board_mode():
+    return SERIAL not in ("stdio", "pty")
+
+
+if board_mode():
+    MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError  # noqa: E402
 
@@ -78,38 +100,107 @@ TRUSTED_DIRS = [os.path.join(ROOT, *d.split("/")) for d in
 # ---------------------------------------------------------------------------
 # Booting an image in QEMU
 
+def open_serial(path):
+    """Open a serial port (or a pseudo-terminal) for reading: raw, so that no
+    byte is changed on its way in, at 115200 baud, 8N1."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    attrs = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    attrs = termios.tcgetattr(fd)
+    attrs[2] |= termios.CLOCAL | termios.CREAD      # no modem lines; receive
+    attrs[4] = attrs[5] = termios.B115200
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+    termios.tcflush(fd, termios.TCIFLUSH)
+    return fd
+
+
+def pty_path(proc, timeout=10):
+    """The pseudo-terminal QEMU announces for `-serial pty`."""
+    sel = selectors.DefaultSelector()
+    sel.register(proc.stdout, selectors.EVENT_READ)
+    seen = ""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        seen += read_available(sel, 0.1)
+        match = re.search(r"char device redirected to (/dev/pts/\d+)", seen)
+        if match:
+            return match.group(1)
+        if proc.poll() is not None:
+            break
+    raise RuntimeError(f"QEMU did not announce a serial pty: {seen!r}")
+
+
 def boot(image, finished, timeout, machine, log_path):
     """Boot `image` on `machine` until `finished(lines)` is true or `timeout` passes.
 
     Returns (output, timed_out, qemu_log). `lines` passed to `finished` are
     complete lines with carriage returns removed. `qemu_log` is the list of
     lines QEMU reported about unimplemented or misused devices.
+
+    Where the output comes from depends on CORVOS_SERIAL: QEMU's own output
+    (the default), QEMU's serial port on a pseudo-terminal read like a real
+    port ("pty"), or a real serial port on a board (a device path).
     """
+    if SERIAL not in ("stdio", "pty"):
+        return read_board(finished, timeout)
     if os.path.exists(log_path):
         os.remove(log_path)
     cmd = [QEMU, "-M", machine, "-kernel", image,
-           "-display", "none", "-serial", "stdio", "-monitor", "none",
+           "-display", "none", "-serial", SERIAL,
            "-d", "unimp,guest_errors", "-D", log_path]
-    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+    if SERIAL == "pty":
+        # Output written before the port is opened would be lost, so QEMU
+        # starts paused and is told to go once the port is open.
+        cmd += ["-S", "-monitor", "stdio"]
+    else:
+        cmd += ["-monitor", "none"]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if SERIAL == "pty" else subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     sel = selectors.DefaultSelector()
-    sel.register(proc.stdout, selectors.EVENT_READ)
-    output = ""
-    deadline = time.monotonic() + timeout
+    port = None
     try:
-        while True:
-            if finished(complete_lines(output)):
-                # Catch anything printed straight afterwards.
-                output += read_available(sel, 0.2)
-                return output, False, read_qemu_log(proc, log_path)
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or proc.poll() is not None:
-                output += read_available(sel, 0)
-                return output, remaining <= 0, read_qemu_log(proc, log_path)
-            output += read_available(sel, min(remaining, 0.2))
+        if SERIAL == "pty":
+            port = open_serial(pty_path(proc))
+            sel.register(port, selectors.EVENT_READ)
+            proc.stdin.write(b"cont\n")
+            proc.stdin.flush()
+        else:
+            sel.register(proc.stdout, selectors.EVENT_READ)
+        output, timed_out = read_until(sel, finished, timeout, proc)
+        return output, timed_out, read_qemu_log(proc, log_path)
     finally:
         proc.kill()
         proc.wait()
+        if port is not None:
+            os.close(port)
+
+
+def read_board(finished, timeout):
+    """Read a real board's serial port. The board must be started (powered on or
+    reset) by something else while this waits; nothing here can do that yet."""
+    port = open_serial(SERIAL)
+    sel = selectors.DefaultSelector()
+    sel.register(port, selectors.EVENT_READ)
+    try:
+        output, timed_out = read_until(sel, finished, timeout * BOARD_PATIENCE, None)
+        return output, timed_out, []
+    finally:
+        os.close(port)
+
+
+def read_until(sel, finished, timeout, proc):
+    """Collect output from `sel` until `finished(lines)`, the timeout, or the
+    process (if any) ends. Returns (output, timed_out)."""
+    output = ""
+    deadline = time.monotonic() + timeout
+    while True:
+        if finished(complete_lines(output)):
+            # Catch anything printed straight afterwards.
+            return output + read_available(sel, 0.2), False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or (proc is not None and proc.poll() is not None):
+            return output + read_available(sel, 0), remaining <= 0
+        output += read_available(sel, min(remaining, 0.2))
 
 
 def read_qemu_log(proc, log_path):
@@ -194,7 +285,7 @@ class BootTest:
 
     def run_on(self, machine):
         image = os.path.join(ROOT, self.image)
-        if not os.path.exists(image):
+        if not board_mode() and not os.path.exists(image):
             return False, missing_image(image)
 
         def progress(lines):
@@ -302,7 +393,7 @@ class RookTest:
 
     def run_on(self, machine):
         image = os.path.join(ROOT, self.image)
-        if not os.path.exists(image):
+        if not board_mode() and not os.path.exists(image):
             return False, missing_image(image)
 
         def finished(lines):
@@ -435,6 +526,67 @@ def check_machines():
     return None
 
 
+def with_serial(mode, run):
+    """Run `run()` with boot output read the way `mode` says (see SERIAL)."""
+    global SERIAL, MACHINES
+    saved = SERIAL, MACHINES
+    SERIAL = mode
+    MACHINES = ["board"] if board_mode() else saved[1]
+    try:
+        return run()
+    finally:
+        SERIAL, MACHINES = saved
+
+
+def check_serial_pty():
+    """A Rook test passes with its output read from QEMU's serial port on a
+    pseudo-terminal, as it will be from a real board's."""
+    test = RookTest.from_file(os.path.join(ROOT, "tests", "rook", "text.rook"))
+    result = with_serial("pty", lambda: test.run_on("raspi3b"))
+    return None if result[0] else f"through a pty: {result[1]}"
+
+
+def check_serial_raw():
+    """A serial port is opened raw: no byte changes on its way in. (A terminal
+    left in its default mode turns CR into LF and acts on Ctrl-U and DEL.)"""
+    master, slave = os.openpty()
+    try:
+        port = open_serial(os.ttyname(slave))
+        sent = b"a\x15b\x7fc\x03d\r\ne\x04f\n"
+        os.write(master, sent)
+        time.sleep(0.1)
+        got = os.read(port, 100)
+        os.close(port)
+    finally:
+        os.close(master)
+        os.close(slave)
+    return None if got == sent else f"sent {sent!r}, read {got!r}"
+
+
+def check_serial_board():
+    """The path a real board will use: a serial device with no QEMU behind it.
+    A pseudo-terminal plays the board and sends boot/hello's lines."""
+    import threading
+    hello = [t for t in BOOT_TESTS if t.name == "boot/hello"][0]
+    master, slave = os.openpty()
+    name = os.ttyname(slave)
+
+    def board():
+        time.sleep(0.3)
+        for line in hello.expect:
+            os.write(master, (line + "\r\n").encode())
+
+    thread = threading.Thread(target=board)
+    thread.start()
+    try:
+        result = with_serial(name, lambda: hello.run_on("board"))
+    finally:
+        thread.join()
+        os.close(master)
+        os.close(slave)
+    return None if result[0] else f"from a board: {result[1]}"
+
+
 def check_error_display():
     """The compiler command shows the source line with a caret under the error."""
     test = ErrorTest.from_file(os.path.join(ROOT, "tests", "rook", "errors", "assign_to_immutable.rook"))
@@ -505,6 +657,12 @@ HARNESS_TESTS = [
                 check_machines),
     HarnessTest("harness/wrong_expectations", "A Rook test with a wrong fault or QEMU-log "
                 "expectation fails", check_wrong_expectations_fail),
+    HarnessTest("harness/serial_pty", "Output is read from QEMU's serial port on a pty, as a "
+                "board's will be", check_serial_pty),
+    HarnessTest("harness/serial_raw", "A serial port is read raw: no byte is changed",
+                check_serial_raw),
+    HarnessTest("harness/serial_board", "A board on a serial device is read without QEMU",
+                check_serial_board),
     HarnessTest("harness/error_display", "The compiler shows the source line with a caret under "
                 "the error", check_error_display),
     HarnessTest("harness/make_deps", "Changing the Makefile rebuilds everything built from it",
@@ -534,6 +692,12 @@ def main(argv):
             return 2
     else:
         selected = tests
+    if board_mode():
+        selected = [t for t in selected if t.name == "boot/hello"]
+        if not selected:
+            print("with a board, only boot/hello can run: it is the kernel on the SD card")
+            return 2
+        print(f"reading the board on {SERIAL}: start (or reset) it now")
 
     return run_all(selected)
 

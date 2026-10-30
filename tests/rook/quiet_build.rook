@@ -1,0 +1,6 @@
+// Test builds skip the waits of kernel_main's LED signals: nobody watches their LED.
+// expect: true
+
+fn test_main() {
+    print_bool(quiet_build())
+}
