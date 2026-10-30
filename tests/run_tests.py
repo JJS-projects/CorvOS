@@ -48,6 +48,7 @@ Usage: python3 tests/run_tests.py [name-or-prefix ...]
        e.g. `rook/` runs only the Rook program tests.
 """
 
+import dataclasses
 import glob
 import os
 import re
@@ -568,6 +569,8 @@ def check_serial_board():
     A pseudo-terminal plays the board and sends boot/hello's lines."""
     import threading
     hello = [t for t in BOOT_TESTS if t.name == "boot/hello"][0]
+    # With a board there is no local image to find: this one doesn't exist.
+    hello = dataclasses.replace(hello, image="build/no-such-kernel.img")
     master, slave = os.openpty()
     name = os.ttyname(slave)
 
@@ -584,7 +587,10 @@ def check_serial_board():
         thread.join()
         os.close(master)
         os.close(slave)
-    return None if result[0] else f"from a board: {result[1]}"
+    if not result[0]:
+        return f"from a board: {result[1]}"
+    chosen = [t.name for t in runnable_on_board(all_tests())]
+    return None if chosen == ["boot/hello"] else f"with a board, these would run: {chosen}"
 
 
 def check_error_display():
@@ -693,13 +699,19 @@ def main(argv):
     else:
         selected = tests
     if board_mode():
-        selected = [t for t in selected if t.name == "boot/hello"]
+        selected = runnable_on_board(selected)
         if not selected:
             print("with a board, only boot/hello can run: it is the kernel on the SD card")
             return 2
         print(f"reading the board on {SERIAL}: start (or reset) it now")
 
     return run_all(selected)
+
+
+def runnable_on_board(tests):
+    """Of `tests`, those that make sense with a board: it runs whatever kernel is
+    on its SD card, so only the normal kernel's boot test."""
+    return [t for t in tests if t.name == "boot/hello"]
 
 
 def run_all(selected):
