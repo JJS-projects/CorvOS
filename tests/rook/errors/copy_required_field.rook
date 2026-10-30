@@ -1,0 +1,16 @@
+// Putting an existing struct into another struct copies it, so it must be explicit.
+// error: 15:24: field `start` would be a copy of `a`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+struct Line {
+    start: Point
+    end: Point
+}
+
+fn f(a: Point) -> Line {
+    return Line(start: a, end: Point(x: 0, y: 0))
+}

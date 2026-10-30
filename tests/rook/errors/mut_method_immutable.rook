@@ -1,0 +1,16 @@
+// A `mut fn` can only be called on a value that may change.
+// error: 15:7: can't call `mut fn reset` on `a`: declare it with `mut`
+
+struct Point {
+    x: u64
+    y: u64
+
+    mut fn reset() {
+        .x = 0
+    }
+}
+
+fn f() {
+    a: Point = Point(x: 1, y: 2)
+    a.reset()
+}

@@ -13,6 +13,7 @@ from .errors import Pos
 class TypeRef:
     name: str
     pos: Pos
+    mut: bool = False           # `mut T` on a parameter: lent so it can be changed
 
 
 # ---- expressions -------------------------------------------------------
@@ -65,6 +66,10 @@ class Call(Expr):
     callee: str
     args: list
 
+    def __post_init__(self):
+        super().__post_init__()
+        self.temp = None        # set by checker: frame slot for a struct result
+
 
 @dataclass
 class Cast(Expr):
@@ -72,6 +77,53 @@ class Cast(Expr):
     expr: Expr
     target: TypeRef
     kind: str = "as"
+
+
+@dataclass
+class StructLit(Expr):
+    """`Point(x: 1, y: 2)`: every field named, in declaration order."""
+    name: str
+    fields: list                # [(field name, Expr, Pos)]
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.temp = None        # set by checker: frame slot of the new value
+
+
+@dataclass
+class FieldAccess(Expr):
+    """`p.x`, or `.x` inside a method (obj is None: the method's own struct)."""
+    obj: Optional[Expr]
+    field: str
+
+
+@dataclass
+class MethodCall(Expr):
+    """`p.m(args)`, or `.m(args)` inside a method."""
+    obj: Optional[Expr]
+    name: str
+    args: list
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.temp = None        # set by checker: frame slot for a struct result
+        self.sig = None         # set by checker
+
+
+@dataclass
+class Copy(Expr):
+    """`copy(value)`: a new struct with the same fields."""
+    value: Expr
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.temp = None        # set by checker: frame slot for the copy
+
+
+@dataclass
+class MutArg(Expr):
+    """`mut place` passed to a `mut` parameter."""
+    place: Expr
 
 
 @dataclass
@@ -103,7 +155,7 @@ class Decl(Stmt):
 
 @dataclass
 class Assign(Stmt):
-    target: Name
+    target: Expr                # a place: Name or FieldAccess
     op: str                     # "=", "+=", ...
     value: Expr                 # checker rewrites `x += e` to `x = x + e`
 
@@ -187,9 +239,17 @@ class FnDecl:
     body: Optional[Block]       # None for `extern fn`
     pos: Pos
     public: bool = False
+    mutating: bool = False      # `mut fn`: a method that may change its struct
+    owner: Optional[str] = None  # the struct a method belongs to
 
     def __post_init__(self):
         self.nslots = 0         # set by checker: number of 8-byte local slots
+        self.self_slot = None   # set by checker: methods' pointer to their struct
+        self.result_slot = None  # set by checker: where a struct result goes (x8)
+
+    @property
+    def symbol(self):
+        return f"{self.owner}__{self.name}" if self.owner else self.name
 
 
 @dataclass
@@ -198,6 +258,22 @@ class ConstDecl:
     name: str
     type: TypeRef
     value: Expr
+    pos: Pos
+    public: bool = False
+
+
+@dataclass
+class Field:
+    name: str
+    type: TypeRef
+    pos: Pos
+
+
+@dataclass
+class StructDecl:
+    name: str
+    fields: list                # [Field]
+    methods: list               # [FnDecl]
     pos: Pos
     public: bool = False
 

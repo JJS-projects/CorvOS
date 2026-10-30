@@ -1,0 +1,6 @@
+// Type names are CamelCase.
+// error: 4:1: type names are CamelCase
+
+struct point {
+    x: u64
+}

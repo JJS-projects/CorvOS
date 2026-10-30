@@ -14,12 +14,19 @@ that calls the kernel's `rook_panic(message, file, line)`, which never returns.
 
 Functions follow AAPCS64 (arguments in x0-x7, result in x0), so Rook and
 assembly can call each other.
+
+Structs live in memory, never in registers. A struct expression evaluates to
+the *address* of its value. Each struct value takes one 8-byte word per scalar
+field, nested structs inline. Struct arguments are passed as addresses (they are
+lent), a struct result is written to the address the caller passes in x8
+(AAPCS64's indirect result register), and a method receives the address of its
+struct in x0, ahead of its other arguments.
 """
 
 import os
 
 from . import syntax as S
-from .rtypes import BOOL, UNIT, is_int
+from .rtypes import BOOL, UNIT, is_int, is_struct
 
 PANIC_MESSAGES = {
     "overflow": "integer overflow",
@@ -63,6 +70,9 @@ class Gen:
         for item in prog.items:
             if isinstance(item, S.FnDecl) and item.body is not None:
                 self.function(item)
+            elif isinstance(item, S.StructDecl):
+                for method in item.methods:
+                    self.function(method)
         self.lines.append("")
         self.lines.append("    .section .rodata")
         for key, text in PANIC_MESSAGES.items():
@@ -77,10 +87,11 @@ class Gen:
         self.loops = {}         # loop label -> (continue_label, break_label)
 
         self.lines.append("")
-        self.lines.append(f"// fn {fn.name} (line {fn.pos.line})")
-        self.emit(f".global {fn.name}")
+        kind = f"method {fn.owner}.{fn.name}" if fn.owner else f"fn {fn.name}"
+        self.lines.append(f"// {kind} (line {fn.pos.line})")
+        self.emit(f".global {fn.symbol}")
         self.emit(".balign 4")
-        self.label(fn.name)
+        self.label(fn.symbol)
         self.emit("stp x29, x30, [sp, #-16]!")
         self.emit("mov x29, sp")
         frame = (8 * fn.nslots + 15) // 16 * 16
@@ -90,10 +101,19 @@ class Gen:
             else:
                 self.emit(f"ldr x16, ={frame}")
                 self.emit("sub sp, sp, x16")
-        # Parameters: normalise (the caller may be assembly) and store.
+        if fn.result_slot is not None:
+            # Where to write the struct result. Stored straight from x8: x0
+            # still holds the first argument.
+            self.emit(f"str x8, {self.slot_operand(fn.result_slot)}")
+        first = 0
+        if fn.self_slot is not None:
+            self.store_slot(fn.self_slot)       # x0: the method's struct
+            first = 1
+        # Parameters: normalise numbers (the caller may be assembly) and store.
         for i, param in enumerate(fn.params):
-            self.emit(f"mov x0, x{i}")
-            self.normalize(param.ty)
+            self.emit(f"mov x0, x{first + i}")
+            if not (param.type.mut or is_struct(param.ty)):
+                self.normalize(param.ty)
             self.store_slot(param.slot)
 
         self.block(fn.body)
@@ -125,6 +145,21 @@ class Gen:
 
     def store_slot(self, slot):
         self.emit(f"str x0, {self.slot_operand(slot)}")
+
+    def region_addr(self, slot, nwords, reg="x0"):
+        """Address of the `nwords` slots starting at `slot` (the lowest address)."""
+        offset = 8 * (slot + nwords)
+        if offset <= 4095:
+            self.emit(f"sub {reg}, x29, #{offset}")
+        else:
+            self.emit(f"ldr x17, ={offset}")
+            self.emit(f"sub {reg}, x29, x17")
+
+    def copy_words(self, n, src="x0", dst="x1"):
+        """Copy an `n`-word struct from [src] to [dst]."""
+        for i in range(n):
+            self.emit(f"ldr x16, [{src}, #{8 * i}]")
+            self.emit(f"str x16, [{dst}, #{8 * i}]")
 
     def push(self):
         self.emit("str x0, [sp, #-16]!")
@@ -179,10 +214,26 @@ class Gen:
         self.lines.append(f"    // line {s.pos.line}")
         if isinstance(s, S.Decl):
             self.expr(s.init)
-            self.store_slot(s.slot)
+            if is_struct(s.init.ty):
+                self.region_addr(s.slot, s.init.ty.words, "x1")
+                self.copy_words(s.init.ty.words)
+            else:
+                self.store_slot(s.slot)
         elif isinstance(s, S.Assign):
-            self.expr(s.value)
-            self.store_slot(s.target.slot)
+            target = s.target
+            if isinstance(target, S.Name) and target.local.kind == "value":
+                self.expr(s.value)
+                self.store_slot(target.slot)
+            else:
+                self.expr(s.value)
+                self.push()
+                self.addr(target)
+                self.emit("mov x1, x0")
+                self.pop("x0")
+                if is_struct(target.ty):
+                    self.copy_words(target.ty.words)
+                else:
+                    self.emit("str x0, [x1]")
         elif isinstance(s, S.ExprStmt):
             self.expr(s.expr)
         elif isinstance(s, S.If):
@@ -241,6 +292,9 @@ class Gen:
         elif isinstance(s, S.Return):
             if s.value is not None:
                 self.expr(s.value)
+                if is_struct(s.value.ty):
+                    self.load_slot(self.fn.result_slot, "x1")
+                    self.copy_words(s.value.ty.words)
             self.emit(f"b {self.ret_label}")
         else:
             raise AssertionError(f"unknown statement {s!r}")
@@ -255,8 +309,25 @@ class Gen:
         elif isinstance(e, S.Name):
             if e.const_value is not None:
                 self.load_imm(e.const_value)
-            else:
+            elif e.local.kind == "value":
                 self.load_slot(e.slot)
+            else:
+                self.addr(e)                    # a struct: its address
+                if not is_struct(e.ty):
+                    self.emit("ldr x0, [x0]")   # a `mut` number parameter
+        elif isinstance(e, S.FieldAccess):
+            self.addr(e)
+            if not is_struct(e.ty):
+                self.emit("ldr x0, [x0]")
+        elif isinstance(e, S.StructLit):
+            self.struct_lit(e)
+        elif isinstance(e, S.MethodCall):
+            self.method_call(e)
+        elif isinstance(e, S.Copy):
+            self.addr(e.value)
+            self.region_addr(e.temp, e.ty.words, "x1")
+            self.copy_words(e.ty.words)
+            self.region_addr(e.temp, e.ty.words)
         elif isinstance(e, S.Unary):
             self.unary(e)
         elif isinstance(e, S.Binary):
@@ -275,16 +346,77 @@ class Gen:
             self.expr(e.else_)
             self.label(end_label)
         elif isinstance(e, S.Call):
-            for arg in e.args:
-                self.expr(arg)
-                self.push()
-            for i in reversed(range(len(e.args))):
-                self.pop(f"x{i}")
-            self.emit(f"bl {e.callee}")
-            if e.ty != UNIT:
-                self.normalize(e.ty)
+            self.call(e.callee, None, e.args, e.ty, e.temp)
         else:
             raise AssertionError(f"unknown expression {e!r}")
+
+    # ---- structs -------------------------------------------------------
+
+    def addr(self, e):
+        """Put the address of a place (or of a struct value) in x0."""
+        if isinstance(e, S.Name):
+            local = e.local
+            if local.kind == "region":
+                self.region_addr(local.slot, local.ty.words)
+            elif local.kind == "ref":
+                self.load_slot(local.slot)
+            else:
+                self.region_addr(local.slot, 1)     # a number lent as `mut`
+        elif isinstance(e, S.FieldAccess):
+            if e.obj is None:
+                self.load_slot(self.fn.self_slot)
+            else:
+                self.addr(e.obj)
+            offset, _ = e.struct.offset(e.field)
+            if offset:
+                self.emit(f"add x0, x0, #{8 * offset}")
+        else:
+            self.expr(e)                            # a fresh struct: already an address
+
+    def struct_lit(self, e):
+        st = e.ty
+        for (name, value, _), (_, fty) in zip(e.fields, st.fields):
+            offset, _ = st.offset(name)
+            self.expr(value)
+            self.region_addr(e.temp, st.words, "x1")
+            if offset:
+                self.emit(f"add x1, x1, #{8 * offset}")
+            if is_struct(fty):
+                self.copy_words(fty.words)
+            else:
+                self.emit("str x0, [x1]")
+        self.region_addr(e.temp, st.words)
+
+    def method_call(self, e):
+        self.call(e.sig.decl.symbol, e.obj if e.obj is not None else "self",
+                  e.args, e.ty, e.temp)
+
+    def call(self, symbol, receiver, args, ret, temp):
+        """Call a function or method. Struct arguments are passed by address."""
+        n = 0
+        if receiver is not None:
+            if receiver == "self":
+                self.load_slot(self.fn.self_slot)
+            else:
+                self.addr(receiver)
+            self.push()
+            n = 1
+        for arg in args:
+            if isinstance(arg, S.MutArg):
+                self.addr(arg.place)
+            else:
+                self.expr(arg)                      # a struct gives its address
+            self.push()
+            n += 1
+        for i in reversed(range(n)):
+            self.pop(f"x{i}")
+        if is_struct(ret):
+            self.region_addr(temp, ret.words, "x8")
+        self.emit(f"bl {symbol}")
+        if is_struct(ret):
+            self.region_addr(temp, ret.words)
+        elif ret != UNIT:
+            self.normalize(ret)
 
     def unary(self, e):
         self.expr(e.operand)

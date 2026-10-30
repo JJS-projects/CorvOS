@@ -1,0 +1,11 @@
+// Only a `mut fn` can change its struct.
+// error: 9:12: can't assign to `.x`: only a `mut fn` can change its struct
+
+struct Point {
+    x: u64
+    y: u64
+
+    fn reset() {
+        .x = 0
+    }
+}

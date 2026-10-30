@@ -1,0 +1,11 @@
+// Every field must be given a value.
+// error: 10:16: `Point(...)` is missing `y`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f() {
+    a: Point = Point(x: 1)
+}

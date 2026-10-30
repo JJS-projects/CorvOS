@@ -108,7 +108,8 @@ Allocation, copying, messaging and blocking show up in the code. Nothing expensi
 happens behind a line that looks cheap.
 
 *Gives up:* some elegance.
-*Seen in:* replies are explicit references, `consume` marks a move, messaging goes
+*Seen in:* replies are explicit references, `consume` marks a move, `freeze` marks
+the switch to refcounting, messaging goes
 through the kernel and is measured before it is optimised.
 
 ## 9. Predictable before fast

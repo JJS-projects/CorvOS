@@ -1,0 +1,16 @@
+// Lending something as `mut` is marked at the call, so changes are never a surprise.
+// error: 15:10: `bump` can change this argument, so write `mut` before it
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn bump(p: mut Point) {
+    p.x += 1
+}
+
+fn f() {
+    mut a: Point = Point(x: 1, y: 2)
+    bump(a)
+}

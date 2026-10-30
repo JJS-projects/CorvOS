@@ -46,6 +46,45 @@ U64 = INT_TYPES["u64"]
 NAMED_TYPES = dict(INT_TYPES, bool=BOOL)
 
 
+class StructType:
+    """A struct: compared by identity, so two structs are never the same type."""
+
+    def __init__(self, name, decl):
+        self.name = name
+        self.decl = decl
+        self.fields = []        # [(name, type)], filled in once all structs are known
+        self.methods = {}       # name -> method signature
+        self._words = None
+
+    @property
+    def words(self):
+        """Size in 8-byte words. Every scalar field takes one word."""
+        return self._words
+
+    def offset(self, field):
+        """Offset of `field` in words, and its type."""
+        at = 0
+        for name, ty in self.fields:
+            if name == field:
+                return at, ty
+            at += words(ty)
+        raise KeyError(field)
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return f"StructType({self.name})"
+
+
+def words(ty):
+    return ty.words if isinstance(ty, StructType) else 1
+
+
+def is_struct(ty):
+    return isinstance(ty, StructType)
+
+
 def is_int(ty):
     return isinstance(ty, IntType)
 

@@ -1,0 +1,16 @@
+// `mut` at a call only appears where the parameter is `mut`.
+// error: 15:18: `show` doesn't change this argument, so it isn't marked `mut`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn show(p: Point) -> u64 {
+    return p.x
+}
+
+fn f() {
+    mut a: Point = Point(x: 1, y: 2)
+    discard show(mut a)
+}

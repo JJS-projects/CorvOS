@@ -1,0 +1,39 @@
+// Struct values: built with named fields, read and changed field by field,
+// nested inline. Equality is a method the struct writes itself.
+// expect: 3
+// expect: 4
+// expect: 9
+// expect: 7
+// expect: true
+// expect: false
+// expect: true
+
+extern fn print_u64(x: u64)
+extern fn print_bool(b: bool)
+
+struct Point {
+    x: u64
+    y: u64
+
+    fn equals(other: Point) -> bool {
+        return .x == other.x and .y == other.y
+    }
+}
+
+struct Line {
+    start: Point
+    end: Point
+}
+
+fn test_main() {
+    a: Point = Point(x: 3, y: 4)
+    print_u64(a.x)
+    print_u64(a.y)
+    mut line: Line = Line(start: Point(x: 1, y: 2), end: Point(x: 9, y: 9))
+    print_u64(line.end.x)
+    line.end.y = 7
+    print_u64(line.end.y)
+    print_bool(a.equals(Point(x: 3, y: 4)))
+    print_bool(a.equals(Point(x: 3, y: 5)))
+    print_bool(not line.start.equals(line.end))
+}

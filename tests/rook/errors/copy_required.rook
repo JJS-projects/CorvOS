@@ -1,0 +1,12 @@
+// Assigning one struct variable to another would copy it silently.
+// error: 11:16: `b` would be a copy of `a`; write `copy(a)`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f() {
+    a: Point = Point(x: 1, y: 2)
+    b: Point = a
+}

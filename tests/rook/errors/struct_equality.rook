@@ -1,0 +1,11 @@
+// Structs have no built-in `==`: equality is a method the struct writes.
+// error: 10:14: `==` doesn't compare structs; write a method such as `equals` in `Point`
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f(a: Point, b: Point) -> bool {
+    return a == b
+}

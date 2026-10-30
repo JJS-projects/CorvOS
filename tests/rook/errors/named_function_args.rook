@@ -1,0 +1,10 @@
+// Function arguments are positional; only struct fields are named.
+// error: 9:17: `area` is a function: its arguments aren't named
+
+fn area(w: u64, h: u64) -> u64 {
+    return w * h
+}
+
+fn f() -> u64 {
+    return area(w: 2, h: 3)
+}

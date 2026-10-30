@@ -1,0 +1,30 @@
+// The structs example from rook.md 3.6.
+// expect: 10
+
+extern fn print_u64(x: u64)
+
+struct Point {
+    x: u64
+    y: u64
+
+    fn manhattan() -> u64 {
+        return .x + .y
+    }
+
+    mut fn scale(by: u64) {
+        .x *= by
+        .y *= by
+    }
+} Point
+
+fn nudge(p: mut Point) {
+    p.x += 1
+}
+
+fn test_main() {
+    mut a: Point = Point(x: 1, y: 2)  // every field named, in declared order
+    a.scale(3)                        // `mut fn`, so `a` must be `mut`
+    nudge(mut a)                      // lent so it can change: marked at the call
+    b: Point = copy(a)                // copying is always written
+    print_u64(b.manhattan())          // 10
+}

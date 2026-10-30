@@ -1,0 +1,11 @@
+// Struct fields are written once each, in declaration order.
+// error: 10:16: write the fields of `Point` once each, in the order they are declared: x, y
+
+struct Point {
+    x: u64
+    y: u64
+}
+
+fn f() {
+    a: Point = Point(y: 2, x: 1)
+}

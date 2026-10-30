@@ -14,14 +14,14 @@ from .errors import CompileError, Pos
 KEYWORDS = {
     "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
     "continue", "return", "true", "false", "as", "wrap", "discard",
-    "and", "or", "xor", "not", "shl", "shr",
+    "and", "or", "xor", "not", "shl", "shr", "struct", "copy",
 }
 
 # Reserved for later milestones: using them now is an error, so programs
 # written today keep working when the features arrive.
 RESERVED = {
     "actor", "interface", "on", "new", "spawn", "match", "consume", "self",
-    "struct", "enum", "unsafe", "import",
+    "enum", "unsafe", "import",
 }
 
 # Words from other languages that Rook deliberately doesn't use, with a hint.

@@ -1,0 +1,7 @@
+// A struct can't contain itself by value: it would have no fixed size.
+// error: 4:1: `Node` contains itself
+
+struct Node {
+    value: u64
+    next: Node
+}
