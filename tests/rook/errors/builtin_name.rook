@@ -1,0 +1,5 @@
+// Built-in names are reserved.
+// error: 4:1: `panic` is built in; choose another name
+
+fn panic() {
+}

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class Pos:
     line: int
     col: int
+    file: str = None            # the source file's path, when compiling several files
 
 
 class CompileError(Exception):
@@ -16,7 +17,9 @@ class CompileError(Exception):
         self.pos = pos
 
     def format(self, filename, source=None):
-        """Render as `file:line:col: error: message`, plus the source line."""
+        """Render as `file:line:col: error: message`, plus the source line.
+        The position's own file, if it has one, wins over `filename`."""
+        filename = self.pos.file or filename
         text = f"{filename}:{self.pos.line}:{self.pos.col}: error: {self.message}"
         if source is not None:
             lines = source.splitlines()

@@ -11,8 +11,6 @@
 // expect: 6
 // expect: 4000000000
 
-extern fn print_u64(x: u64)
-
 fn test_main() {
     print_u64(3 + 4)
     a: u8 = 200

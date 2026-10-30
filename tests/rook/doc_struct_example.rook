@@ -1,8 +1,6 @@
 // The structs example from rook.md 3.6.
 // expect: 10
 
-extern fn print_u64(x: u64)
-
 struct Point {
     x: u64
     y: u64

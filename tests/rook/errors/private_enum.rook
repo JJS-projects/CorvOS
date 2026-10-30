@@ -1,0 +1,9 @@
+// Without `pub`, an enum and its variants can only be used in its own file.
+// error: 5:18: `Secret` is private to visibility.rook; mark it `pub` to use it in another file
+
+fn f() -> u64 {
+    return match Kept {
+        Kept => 1
+        Lost => 2
+    }
+}

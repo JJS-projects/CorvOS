@@ -1,0 +1,5 @@
+// A constant of type `Bytes` is text in quotes.
+// error: 5:17: constants must be numbers, bools or text
+
+FIRST: Bytes = "a"
+SECOND: Bytes = FIRST

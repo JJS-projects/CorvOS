@@ -6,8 +6,6 @@
 // expect: 6
 // expect: 2
 
-extern fn print_u64(x: u64)
-
 struct Size {
     width: u64
     height: u64

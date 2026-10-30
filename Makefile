@@ -27,8 +27,16 @@ ROOKTEST_KERNEL_OBJS := $(SRCS:%.s=$(BUILD)/rooktest/%.o) $(BUILD)/rooktest/kern
 KERNEL       := $(BUILD)/kernel8.img
 FAULT_KERNEL := $(BUILD)/fault/kernel8.img
 
-# One kernel image per Rook test program in tests/rook/.
-ROOK_TESTS     := $(wildcard tests/rook/*.rook)
+# Rook files every program is compiled with, and the directories whose files
+# may use `unsafe` and `extern fn` (decision 90). Test programs that need
+# trust live in tests/rook/trusted/.
+ROOK_LIB          := raven/trusted/bytes.rook
+ROOK_TEST_SUPPORT := tests/rook/support/trusted/print.rook
+ROOK_TEST_TRUSTED := --trusted raven/trusted --trusted tests/rook/support/trusted \
+                     --trusted tests/rook/trusted
+
+# One kernel image per Rook test program in tests/rook/ and tests/rook/trusted/.
+ROOK_TESTS     := $(wildcard tests/rook/*.rook tests/rook/trusted/*.rook)
 ROOK_TEST_IMGS := $(ROOK_TESTS:tests/rook/%.rook=$(BUILD)/rook-tests/%.img)
 
 .PHONY: all run test disasm sdcard clean help
@@ -49,9 +57,9 @@ $(BUILD)/rooktest/%.o: %.s
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) --defsym ROOK_TEST=1 -o $@ $<
 
-$(BUILD)/rook-tests/%.s: tests/rook/%.rook $(FLEDGLING_SRCS)
+$(BUILD)/rook-tests/%.s: tests/rook/%.rook $(FLEDGLING_SRCS) $(ROOK_LIB) $(ROOK_TEST_SUPPORT)
 	@mkdir -p $(dir $@)
-	$(FLEDGLING) $< -o $@
+	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(ROOK_LIB) $(ROOK_TEST_SUPPORT) $< -o $@
 
 $(BUILD)/rook-tests/%.o: $(BUILD)/rook-tests/%.s
 	$(AS) $(ASFLAGS) -o $@ $<

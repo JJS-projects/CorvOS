@@ -1,0 +1,6 @@
+// Escapes in text are the same as in characters.
+// error: 5:12: unknown escape `\q`
+
+fn f() -> u64 {
+    return "tab\q".len()
+}

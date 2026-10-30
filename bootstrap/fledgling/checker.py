@@ -30,13 +30,21 @@ Locals are stored in one of three ways (`Local.kind`):
 """
 
 import copy
+import os
 import re
 
 
 from .errors import CompileError
 from . import syntax as S
-from .rtypes import (BOOL, UNIT, U8, U64, NAMED_TYPES, EnumType, IntType, StructType, Variant,
-                     is_aggregate, is_enum, is_int, is_struct, lossless, words)
+from .rtypes import (BOOL, UNIT, U8, U64, INT_TYPES, NAMED_TYPES, EnumType, IntType, StructType,
+                     Variant, is_aggregate, is_enum, is_int, is_struct, lossless, words)
+
+# Built-in functions (decision 77: built-ins that produce a value are calls with
+# reserved names). Loads and stores touch raw memory, so they are only allowed
+# inside `unsafe { }`; each is exactly one access of that width, in program order.
+LOADS = {f"load{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
+STORES = {f"store{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
+BUILTINS = set(LOADS) | set(STORES) | {"panic"}
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -91,6 +99,10 @@ class Checker:
         self.variants = {}       # variant name -> Variant (names are unique across enums)
         self.receiver = None     # (AggregateType, mutating) inside a method
         self.locked = {}         # variable -> a `match` binding lent from it
+        self.const_decls = {}    # name -> ConstDecl
+        self.file = None         # the file of the code being checked
+        self.trusted = False     # ... and whether it is in a trusted directory
+        self.unsafe_depth = 0    # inside `unsafe { }`
 
     # ---- top level -----------------------------------------------------
 
@@ -112,10 +124,13 @@ class Checker:
                         self.variants[vd.name] = en.variants[vd.name] = Variant(
                             vd.name, tag, en, vd.pos)
         for st in self.structs.values():
+            self.enter_file(st.decl)
             st.fields = self.field_list(st.decl.fields, f"`{st.name}`")
+            st.public_fields = {f.name for f in st.decl.fields if f.public}
             if not st.fields:
                 raise CompileError(f"`{st.name}` has no fields", st.decl.pos)
         for en in self.enums.values():
+            self.enter_file(en.decl)
             for vd in en.decl.variants:
                 en.variants[vd.name].fields = self.field_list(vd.fields or [], f"`{vd.name}`")
         for ty in self.aggregates():
@@ -123,12 +138,19 @@ class Checker:
         # Signatures next, so functions and methods can call each other in any order.
         for item in prog.items:
             if isinstance(item, S.FnDecl):
+                self.enter_file(item)
                 require_snake(item.name, "function", item.pos)
+                if item.body is None and not item.trusted:
+                    raise CompileError(
+                        "`extern fn` can call any code, so it is only allowed in files under a "
+                        "trusted directory, such as raven/trusted/", item.pos)
                 self.declare_unique(item.name, item.pos)
                 self.fns[item.name] = self.signature(item, None)
         for st in self.aggregates():
+            self.enter_file(st.decl)
             field_names = {name for name, _ in st.fields} if is_struct(st) else set()
             for m in st.decl.methods:
+                m.file, m.trusted = st.decl.file, st.decl.trusted
                 require_snake(m.name, "method", m.pos)
                 if m.name in field_names:
                     raise CompileError(f"`{m.name}` is already a field of `{st.name}`", m.pos)
@@ -142,11 +164,19 @@ class Checker:
                     raise CompileError(
                         f"top-level constants are SCREAMING_CASE, like `{to_snake(item.name).upper()}`: "
                         f"`{item.name}`", item.pos)
+                self.enter_file(item)
                 self.declare_unique(item.name, item.pos)
                 ty = self.resolve_type(item.type)
                 self.scopes, self.fn = [], None
                 self.expr(item.value, ty)
-                self.consts[item.name] = (ty, self.const_eval(item.value))
+                if is_aggregate(ty):
+                    if not isinstance(item.value, S.StrLit):
+                        raise CompileError("constants must be numbers, bools or text", item.value.pos)
+                    value = item.value
+                else:
+                    value = self.const_eval(item.value)
+                self.consts[item.name] = (ty, value)
+                self.const_decls[item.name] = item
         for item in prog.items:
             if isinstance(item, S.FnDecl) and item.body is not None:
                 self.function(self.fns[item.name])
@@ -157,7 +187,19 @@ class Checker:
     def aggregates(self):
         return list(self.structs.values()) + list(self.enums.values())
 
+    def enter_file(self, decl):
+        self.file, self.trusted = decl.file, decl.trusted
+
+    def require_visible(self, decl, name, pos):
+        """Without `pub`, an item can only be used in its own file (decision 49)."""
+        if decl.file != self.file and not decl.public:
+            raise CompileError(
+                f"`{name}` is private to {os.path.basename(decl.file)}; "
+                f"mark it `pub` to use it in another file", pos)
+
     def declare_unique(self, name, pos):
+        if name in BUILTINS:
+            raise CompileError(f"`{name}` is built in; choose another name", pos)
         if name in self.variants:
             raise CompileError(
                 f"`{name}` is already a variant of `{self.variants[name].enum}`", pos)
@@ -167,6 +209,8 @@ class Checker:
 
     def resolve_type(self, ref):
         ty = NAMED_TYPES.get(ref.name) or self.structs.get(ref.name) or self.enums.get(ref.name)
+        if is_aggregate(ty):
+            self.require_visible(ty.decl, ty.name, ref.pos)
         if ty is None:
             if ref.name in self.variants:
                 raise CompileError(
@@ -221,6 +265,8 @@ class Checker:
         self.loops = []          # labels of the enclosing loops, innermost last
         self.receiver = (sig.owner, sig.mutating) if sig.owner else None
         self.locked = {}
+        self.unsafe_depth = 0
+        self.enter_file(decl)
         if sig.owner:
             decl.self_slot = self.alloc(1)
         if is_aggregate(sig.ret):
@@ -251,6 +297,8 @@ class Checker:
                     f"`{name}` is already declared here; choose a different name", pos)
             if name in self.fns:
                 raise CompileError(f"`{name}` is already the name of a function", pos)
+            if name in BUILTINS:
+                raise CompileError(f"`{name}` is built in; choose another name", pos)
         slot = self.alloc(words(ty) if kind == "region" else 1)
         self.scopes[-1][name] = Local(name, ty, mutable, slot, kind)
         return slot
@@ -308,6 +356,9 @@ class Checker:
                 return False
             if not isinstance(s.expr, (S.Call, S.MethodCall)):
                 raise CompileError("this expression's value is unused", s.pos)
+            if isinstance(s.expr, S.Call) and s.expr.callee == "panic":
+                self.expr(s.expr)
+                return True                         # a panic never returns
             if self.expr(s.expr) != UNIT:
                 name = s.expr.callee if isinstance(s.expr, S.Call) else s.expr.name
                 raise CompileError(
@@ -369,6 +420,18 @@ class Checker:
             # Every value is matched by some arm, so if each arm returns, so does the match.
             return always_returns
 
+        if isinstance(s, S.Unsafe):
+            if not self.trusted:
+                raise CompileError(
+                    "`unsafe` is only allowed in files under a trusted directory, "
+                    "such as raven/trusted/", s.pos)
+            if self.unsafe_depth:
+                raise CompileError("this is already inside `unsafe { }`", s.pos)
+            self.unsafe_depth += 1
+            returns = self.block(s.body)
+            self.unsafe_depth -= 1
+            return returns
+
         if isinstance(s, (S.Break, S.Continue)):
             if s.label not in self.loops:
                 word = "break" if isinstance(s, S.Break) else "continue"
@@ -420,6 +483,9 @@ class Checker:
         if isinstance(e, S.BoolLit):
             return BOOL
 
+        if isinstance(e, S.StrLit):
+            return self.bytes_type(e.pos)
+
         if isinstance(e, S.Name):
             local = self.lookup(e.ident) if self.scopes else None
             if local is not None:
@@ -427,11 +493,16 @@ class Checker:
                 e.local = local
                 return local.ty
             if e.ident in self.consts:
+                self.require_visible(self.const_decls[e.ident], e.ident, e.pos)
                 ty, value = self.consts[e.ident]
-                e.const_value = value
+                if isinstance(value, S.StrLit):
+                    e.const_str = value
+                else:
+                    e.const_value = value
                 return ty
             if e.ident in self.variants:
                 v = self.variants[e.ident]
+                self.require_visible(v.enum.decl, v.enum.name, e.pos)
                 if v.fields:
                     raise CompileError(
                         f"`{v.name}` has fields: write `{v.name}("
@@ -484,6 +555,9 @@ class Checker:
                     f"`wrap` can't lose anything converting {src} to {target}; use `as`", e.pos)
             return target
 
+        if isinstance(e, S.Call) and e.callee in BUILTINS:
+            return self.builtin(e)
+
         if isinstance(e, S.Call):
             sig = self.fns.get(e.callee)
             if sig is None:
@@ -492,6 +566,7 @@ class Checker:
                 raise CompileError(f"unknown function `{e.callee}`", e.pos)
             if self.fn is None:
                 raise CompileError("constants can't call functions", e.pos)
+            self.require_visible(sig.decl, e.callee, e.pos)
             self.check_args(f"`{e.callee}`", sig.params, e.args, e.pos)
             if is_aggregate(sig.ret):
                 e.temp = self.alloc(sig.ret.words)
@@ -500,6 +575,12 @@ class Checker:
         if isinstance(e, S.StructLit):
             v = self.variants.get(e.name)
             st = v.enum if v is not None else self.structs.get(e.name)
+            if st is not None:
+                self.require_visible(st.decl, st.name, e.pos)
+                if v is None and st.decl.file != self.file and len(st.public_fields) < len(st.fields):
+                    raise CompileError(
+                        f"`{st.name}` has private fields, so it can only be built in "
+                        f"{os.path.basename(st.decl.file)}", e.pos)
             if st is None:
                 if e.name in self.enums:
                     first = next(iter(self.enums[e.name].variants))
@@ -530,6 +611,10 @@ class Checker:
             if not any(name == e.field for name, _ in st.fields):
                 hint = " (it's a method: call it with `(...)`)" if e.field in st.methods else ""
                 raise CompileError(f"`{st.name}` has no field `{e.field}`{hint}", e.pos)
+            if st.decl.file != self.file and e.field not in st.public_fields:
+                raise CompileError(
+                    f"`{e.field}` is private to {os.path.basename(st.decl.file)}; "
+                    f"mark the field `pub` to use it in another file", e.pos)
             return st.offset(e.field)[1]
 
         if isinstance(e, S.MethodCall):
@@ -537,6 +622,10 @@ class Checker:
             sig = st.methods.get(e.name)
             if sig is None:
                 raise CompileError(f"`{st.name}` has no method `{e.name}`", e.pos)
+            if st.decl.file != self.file and not sig.decl.public:
+                raise CompileError(
+                    f"`{e.name}` is private to {os.path.basename(st.decl.file)}; "
+                    f"mark the method `pub` to use it in another file", e.pos)
             e.sig = sig
             if sig.mutating:
                 receiver = e.obj if e.obj is not None else None
@@ -601,6 +690,51 @@ class Checker:
 
         raise AssertionError(f"unknown expression {e!r}")
 
+    # ---- built-ins and text --------------------------------------------
+
+    def builtin(self, e):
+        name = e.callee
+        if self.fn is None:
+            raise CompileError("constants can't call functions", e.pos)
+        for arg in e.args:
+            if isinstance(arg, S.MutArg):
+                raise CompileError(f"`{name}` doesn't change its arguments, so they aren't "
+                                   f"marked `mut`", arg.pos)
+        if name == "panic":
+            if len(e.args) != 1:
+                raise CompileError("`panic` takes one argument: a message", e.pos)
+            self.expr(e.args[0], self.bytes_type(e.pos))
+            return UNIT
+        if self.unsafe_depth == 0:
+            where = "inside `unsafe { }`" if self.trusted else \
+                "in files under a trusted directory, inside `unsafe { }`"
+            raise CompileError(
+                f"`{name}` touches memory the compiler can't check, so it is only allowed {where}",
+                e.pos)
+        if name in LOADS:
+            if len(e.args) != 1:
+                raise CompileError(f"`{name}` takes one argument: an address", e.pos)
+            self.expr(e.args[0], U64)
+            return LOADS[name]
+        if len(e.args) != 2:
+            raise CompileError(f"`{name}` takes two arguments: an address and a value", e.pos)
+        self.expr(e.args[0], U64)
+        self.expr(e.args[1], STORES[name])
+        return UNIT
+
+    def bytes_type(self, pos):
+        """The type of text in quotes: the program's `Bytes` struct."""
+        st = self.structs.get("Bytes")
+        if st is None:
+            raise CompileError(
+                "text in quotes is a `Bytes`, which this program doesn't include "
+                "(it is declared in raven/trusted/bytes.rook)", pos)
+        if st.fields != [("address", U64), ("length", U64)]:
+            raise CompileError(
+                "`Bytes` must have exactly the fields `address: u64` and `length: u64`, "
+                "in that order", st.decl.pos)
+        return st
+
     # ---- match ---------------------------------------------------------
 
     def match_patterns(self, m):
@@ -631,6 +765,7 @@ class Checker:
                 v = self.variants.get(p.name)
                 if v is None:
                     raise CompileError(f"`{ty}` has no variant `{p.name}`", p.pos)
+                self.require_visible(v.enum.decl, v.enum.name, p.pos)
                 if v.enum is not ty:
                     raise CompileError(f"`{p.name}` is a variant of `{v.enum}`, not `{ty}`", p.pos)
                 if p.name in seen:
@@ -996,10 +1131,10 @@ def untyped_literal(e):
 
 def is_fresh(e):
     """Is `e` a new struct or enum value that nothing else holds?"""
-    if isinstance(e, (S.StructLit, S.Call, S.MethodCall, S.Copy)):
+    if isinstance(e, (S.StructLit, S.Call, S.MethodCall, S.Copy, S.StrLit)):
         return True
     if isinstance(e, S.Name):
-        return e.variant is not None                # `Idle`
+        return e.variant is not None or e.const_str is not None     # `Idle`, `HELLO`
     if isinstance(e, S.IfExpr):
         return is_fresh(e.then) and is_fresh(e.else_)
     if isinstance(e, S.MatchExpr):
@@ -1015,7 +1150,9 @@ def root_name(e):
         e = e.obj
     if isinstance(e, S.SelfValue):
         return "self"
-    return e.ident if isinstance(e, S.Name) and e.variant is None else None
+    if isinstance(e, S.Name) and e.variant is None and e.const_str is None:
+        return e.ident
+    return None
 
 
 def source_text(e):

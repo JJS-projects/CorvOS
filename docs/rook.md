@@ -133,7 +133,10 @@ fn append(buf: mut Buffer, b: u8) -> Result<u64, AppendError> {
 | `match` arms | `Busy(job: j, since: _) => j` on separate lines | Every variant listed; numbers need `else` for the rest |
 | Naming | `snake_case` values and functions, `CamelCase` types, `SCREAMING_CASE` constants | Enforced by the compiler |
 | Comments | `// note`, `/// documentation` | No block comments |
-| Visibility | private by default, `pub` to export | |
+| Visibility | private by default, `pub` to export | Fields and methods too |
+| Text | `"Raven: hello\n"` | A `Bytes`: unchangeable bytes, UTF-8 by convention |
+| Unchecked code | `unsafe { store32(address, value) }` | Only in files under `raven/trusted/` |
+| Panicking | `panic("queue corrupted")` | A bug: ends the domain |
 
 ## 3. Declarations, functions and control flow
 
@@ -464,7 +467,34 @@ later if this becomes painful.
   value that routes that interrupt to it as a message.
 - `Mmio` access is bounds checked; touching anything outside the range crashes the
   driver. Ordinary drivers therefore contain **no `unsafe` code**.
-- **`unsafe` exists only inside Raven.**
+- **`unsafe` exists only inside Raven**, in files under `raven/trusted/`. Anywhere
+  else, `unsafe` and `extern fn` are compile errors, so the trusted base is the
+  list of files in that directory.
+- Inside a trusted file, the lines the compiler can't check are wrapped in
+  `unsafe { }`. There, addresses are plain `u64` values, read and written with the
+  built-ins `load8` to `load64` and `store8` to `store64`. Each is exactly one
+  access of that width, in program order, so they work for device registers.
+
+  ```rook
+  // raven/trusted/mmio.rook
+  pub fn read32(offset: u64) -> u32 {
+      if offset + 4 > .size {
+          panic("register outside Mmio")
+      }
+      unsafe {
+          return load32(.base + offset)
+      }
+  }
+  ```
+- `unsafe` builds capability types (`Mmio`, `Irq`, `Bytes`, later page tables
+  and mailboxes) that check their own rules. Everything else, including most of
+  Raven, uses those types safely. A struct whose fields are private can only be
+  built in its own file, which is what makes these types unforgeable.
+- **Trusted code runs in more than the kernel.** `Mmio.read32` is compiled into
+  each driver that uses it, so its load runs in the driver's domain, on registers
+  Raven has mapped there. It is safe for two reasons: the compiler (an `Mmio`
+  can't be forged, and every access is bounds checked) and the MMU (a domain can
+  only reach the pages mapped for it).
 - **DMA-capable devices** (SD card, USB, Wi-Fi) are the exception: with no IOMMU, a
   device that can do DMA can write anywhere. Their DMA registers are never handed
   out. Drivers ask a small trusted DMA actor in Raven, which checks that every
@@ -478,8 +508,13 @@ later if this becomes painful.
   per type.
 - **Interfaces** are the only abstraction mechanism: they narrow actor references
   and constrain generics. There is no separate trait system.
+- **Text**: `"..."` is a `Bytes`, an unchangeable run of bytes, UTF-8 by convention.
+  There is no separate text type; decoding and formatting are library code.
+  `Bytes` is declared in Rook (`raven/trusted/bytes.rook`), with `len()` and a
+  bounds-checked `at(i)`. Escapes are as in character literals: `\n \t \r \0 \\
+  \" \' \x41`.
 - **Modules**: one file per module, explicit imports. Everything is private unless
-  marked `pub`. In an object-capability system this is about code organisation,
+  marked `pub`, including struct fields and methods. In an object-capability system this is about code organisation,
   not security: authority comes only from references.
 - **No global mutable state**: no `static mut`, no singletons. A global would be
   authority nobody was handed.
@@ -499,7 +534,8 @@ with milestone 3. It is being built in three steps:
 | Core | functions, `extern fn`, constants, declarations, integers, `bool`, `if` (also as a value), all three named `loop` forms, `break`/`continue` by name, `return`, casts, named closers, `pub` | done |
 | Data (2a) | structs, methods, lending, `copy(...)` | done |
 | Data (2b) | enums, `match`, `.` | done |
-| Hardware | Raven's `unsafe`, raw pointers, volatile register access, byte strings | next |
+| Hardware (2c) | trusted files, `unsafe { }`, `load`/`store`, text, `panic`, programs of several files | done |
+| Kernel (2d) | the console and `kernel_main` rewritten in Rook | next |
 
 ### 11.1 Rules settled while building the core
 
@@ -570,13 +606,36 @@ with milestone 3. It is being built in three steps:
   report shows it.
 - `freeze` and `narrow` are now reserved words (decisions 78 and 79).
 
+### 11.4 Rules settled while building hardware access
+
+- **A program is several files compiled together**:
+  `fledgling a.rook b.rook --trusted raven/trusted -o out.s`. Until Rook has
+  modules and `import`, every `pub` item is visible in every file. Items, fields
+  and methods without `pub` are private to their file, and top-level names must
+  be unique across the program. **Known gap**: no `import` yet.
+- **Trusted directories are named by the build.** Raven's is `raven/trusted/`.
+  The test suite adds its own trusted directories (`tests/rook/support/trusted/`,
+  `tests/rook/trusted/`, `tests/rook/errors/trusted/`) for the test output
+  functions and for tests of `unsafe`.
+- **`extern fn` is declared only in trusted files.** A `pub extern fn` may be
+  called from anywhere: declaring it is the trusted decision. The test programs
+  get `print_u64` and friends this way.
+- **`unsafe` blocks don't nest**, and there is no `unsafe fn` yet. It will be
+  added for the few operations whose rules the caller must guarantee (switching
+  page tables, contexts).
+- **`panic(...)` is a statement**, usable anywhere, and ends the function's
+  paths like `return`. It reports the file and line of the call. A panic inside
+  `Bytes.at` reports bytes.rook's line, not the caller's.
+- **`rook_panic` takes lengths**: `(message, message_length, file, file_length,
+  line)`, because `Bytes` has no terminating zero.
+- **Constants can be text**: `GREETING: Bytes = "Hello"`.
+
 ## 12. Open questions
 
 - **Default capabilities**: how much can be inferred for locals, and which caps must
   always be written (fields, parameters, handler arguments)?
 - **Message ordering**: guaranteed order between one sender and one receiver (as in
   Pony) is the likely answer.
-- **Strings**: representation and literal types.
 - **Wrapping arithmetic**: overflow panics (section 11.1); do we need explicit
   wrapping operators, and what do they look like?
 - **Formatter**: a mandatory formatter (`rook fmt`) is assumed by several decisions

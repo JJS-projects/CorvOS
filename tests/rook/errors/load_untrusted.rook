@@ -1,0 +1,6 @@
+// Raw memory access is only possible in trusted files.
+// error: 5:12: `load8` touches memory the compiler can't check, so it is only allowed in files under a trusted directory, inside `unsafe { }`
+
+fn f() -> u8 {
+    return load8(0x1000)
+}

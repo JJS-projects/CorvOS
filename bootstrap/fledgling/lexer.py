@@ -16,13 +16,14 @@ KEYWORDS = {
     "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
     "continue", "return", "true", "false", "as", "wrap", "discard",
     "and", "or", "xor", "not", "shl", "shr", "struct", "copy", "enum", "match",
+    "unsafe",
 }
 
 # Reserved for later milestones: using them now is an error, so programs
 # written today keep working when the features arrive.
 RESERVED = {
     "actor", "interface", "on", "new", "spawn", "consume", "self",
-    "unsafe", "import", "freeze", "narrow",
+    "import", "freeze", "narrow",
 }
 
 # Words from other languages that Rook deliberately doesn't use, with a hint.
@@ -59,6 +60,21 @@ SYMBOL_HINTS = {
 ESCAPES = {"n": 10, "t": 9, "r": 13, "0": 0, "\\": 92, "'": 39, '"': 34}
 
 
+def escape(source, j, pos):
+    """Read the escape starting with the backslash at `j`. Returns (byte, next j)."""
+    if j + 1 >= len(source):
+        raise CompileError("unterminated escape", pos)
+    esc = source[j + 1]
+    if esc == "x":
+        try:
+            return int(source[j + 2:j + 4], 16), j + 4
+        except ValueError:
+            raise CompileError("invalid `\\x` escape (needs two hex digits)", pos)
+    if esc in ESCAPES:
+        return ESCAPES[esc], j + 2
+    raise CompileError(f"unknown escape `\\{esc}`", pos)
+
+
 @dataclass
 class Token:
     kind: str      # "ident", "int", "char", "newline", "eof", or the keyword/punct text
@@ -67,7 +83,7 @@ class Token:
     pos: Pos
 
 
-def lex(source):
+def lex(source, file=None):
     tokens = []
     i, line, col = 0, 1, 1
     brackets = []  # open brackets; newlines are ignored when the innermost is ( or [
@@ -77,7 +93,7 @@ def lex(source):
 
     while i < len(source):
         c = source[i]
-        pos = Pos(line, col)
+        pos = Pos(line, col, file)
 
         if c == "\n":
             prev = tokens[-1].kind if tokens else "newline"
@@ -132,24 +148,31 @@ def lex(source):
             i = j
             continue
 
+        if c == '"':
+            # A byte string: UTF-8 bytes, with the same escapes as characters.
+            j = i + 1
+            data = bytearray()
+            while True:
+                if j >= len(source) or source[j] == "\n":
+                    raise CompileError("unterminated string literal", pos)
+                if source[j] == '"':
+                    j += 1
+                    break
+                if source[j] == "\\":
+                    value, j = escape(source, j, pos)
+                    data.append(value)
+                else:
+                    data += source[j].encode("utf-8")
+                    j += 1
+            emit("str", source[i:j], bytes(data), pos)
+            col += j - i
+            i = j
+            continue
+
         if c == "'":
             j = i + 1
             if j < len(source) and source[j] == "\\":
-                if j + 1 >= len(source):
-                    raise CompileError("unterminated character literal", pos)
-                esc = source[j + 1]
-                if esc == "x":
-                    hexdigits = source[j + 2:j + 4]
-                    try:
-                        value = int(hexdigits, 16)
-                    except ValueError:
-                        raise CompileError("invalid `\\x` escape (needs two hex digits)", pos)
-                    j += 4
-                elif esc in ESCAPES:
-                    value = ESCAPES[esc]
-                    j += 2
-                else:
-                    raise CompileError(f"unknown escape `\\{esc}`", pos)
+                value, j = escape(source, j, pos)
             else:
                 if j >= len(source) or source[j] in "'\n":
                     raise CompileError("empty character literal", pos)

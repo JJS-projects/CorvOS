@@ -1,0 +1,6 @@
+// Output for Rook test programs, written in assembly in kernel/test/print.s.
+// Each prints one line starting "out: ", which the test harness reads.
+
+pub extern fn print_u64(x: u64)
+pub extern fn print_i64(x: i64)
+pub extern fn print_bool(b: bool)

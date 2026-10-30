@@ -13,8 +13,6 @@
 // expect: -2147483648
 // expect: 36
 
-extern fn print_i64(x: i64)
-
 fn test_main() {
     a: i64 = -7
     print_i64(a / 2)

@@ -1,0 +1,10 @@
+// One `unsafe` marks a block; another inside it would mark nothing new.
+// error: 6:9: this is already inside `unsafe { }`
+
+fn f() {
+    unsafe {
+        unsafe {
+            store8(0x1000, 1)
+        }
+    }
+}

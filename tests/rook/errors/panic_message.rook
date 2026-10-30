@@ -1,0 +1,6 @@
+// A panic message is text.
+// error: 5:11: expected Bytes, found u64
+
+fn f() {
+    panic(5)
+}

@@ -7,8 +7,6 @@
 // expect: 15
 // expect: 30
 
-extern fn print_u64(x: u64)
-
 struct Point {
     x: u64
     y: u64

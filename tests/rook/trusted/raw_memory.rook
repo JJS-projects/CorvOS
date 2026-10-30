@@ -1,0 +1,23 @@
+// In a trusted file, `unsafe { }` can load and store raw memory. Each access
+// is exactly one load or store of that width, and memory is little-endian.
+// expect: 136
+// expect: 21862
+// expect: 287454020
+// expect: 18384312997463357320
+// expect: 31497519104
+
+SCRATCH: u64 = 0x1000000                    // 16 MiB: unused RAM in the test kernel
+
+fn test_main() {
+    unsafe {
+        store64(SCRATCH, 0x1122334455667788)
+        print_u64(load8(SCRATCH) as u64)            // 0x88
+        print_u64(load16(SCRATCH + 2) as u64)       // 0x5566
+        print_u64(load32(SCRATCH + 4) as u64)       // 0x11223344
+        store8(SCRATCH + 7, 0xFF)
+        print_u64(load64(SCRATCH))                  // 0xFF22334455667788
+        store16(SCRATCH, 0)
+        store32(SCRATCH + 4, 7)
+        print_u64(load64(SCRATCH))                  // 0x0000000755660000
+    }
+}

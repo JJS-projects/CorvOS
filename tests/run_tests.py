@@ -7,16 +7,20 @@ Three kinds of test:
              QEMU and check that expected UART lines appear in order, and
              forbidden ones never do.
 
-  rook/...   Rook programs in tests/rook/*.rook. Each is compiled by Fledgling,
-             linked into a test kernel that calls its `test_main()`, and booted
-             in QEMU. Its header comments say what it must print:
+  rook/...   Rook programs in tests/rook/*.rook. Each is compiled by Fledgling
+             together with raven/trusted/bytes.rook and the test output
+             functions, linked into a test kernel that calls its `test_main()`,
+             and booted in QEMU. Programs that need `unsafe` are in
+             tests/rook/trusted/. Its header comments say what it must print:
                  // expect: 42                  one per `out:` line, exact, in order
                  // expect-panic: integer overflow at x.rook:7
              Without expect-panic, test_main must return normally.
 
-  error/...  Programs in tests/rook/errors/*.rook that Fledgling must reject:
+  error/...  Programs in tests/rook/errors/*.rook (or errors/trusted/, compiled
+             as trusted) that Fledgling must reject:
                  // error: 7:5: can't assign to `x`
-             The error must be at that line:column and contain that message.
+             The error must be in that file, at that line:column, and contain
+             that message.
 
 Full QEMU output of every boot is saved to build/test-logs/.
 
@@ -39,7 +43,16 @@ sys.dont_write_bytecode = True      # never run a stale cached copy of the compi
 LOG_DIR = os.path.join(ROOT, "build", "test-logs")
 QEMU = os.environ.get("QEMU", "qemu-system-aarch64")
 
-from fledgling import compile_source, CompileError  # noqa: E402
+from fledgling import compile_program, CompileError  # noqa: E402
+
+# Compiled with every Rook test program, and the directories trusted with `unsafe`.
+ROOK_LIB = [os.path.join(ROOT, "raven", "trusted", "bytes.rook"),
+            os.path.join(ROOT, "tests", "rook", "support", "trusted", "print.rook")]
+# Error tests are also compiled with a file of private items, to test visibility.
+ERROR_LIB = ROOK_LIB + [os.path.join(ROOT, "tests", "rook", "support", "visibility.rook")]
+TRUSTED_DIRS = [os.path.join(ROOT, *d.split("/")) for d in
+                ("raven/trusted", "tests/rook/support/trusted", "tests/rook/trusted",
+                 "tests/rook/errors/trusted")]
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +202,8 @@ class RookTest:
 
     @classmethod
     def from_file(cls, path):
-        base = os.path.splitext(os.path.basename(path))[0]
+        rel = os.path.relpath(path, os.path.join(ROOT, "tests", "rook"))
+        base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic = "", [], None
         for line in open(path):
             line = line.strip()
@@ -254,7 +268,8 @@ class ErrorTest:
 
     @classmethod
     def from_file(cls, path):
-        base = os.path.splitext(os.path.basename(path))[0]
+        rel = os.path.relpath(path, os.path.join(ROOT, "tests", "rook", "errors"))
+        base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, spec = "", None
         for line in open(path):
             line = line.strip()
@@ -272,11 +287,13 @@ class ErrorTest:
         return cls(f"error/{base}", description, path, int(line_no), int(col), message.strip())
 
     def run(self):
-        source = open(self.path).read()
+        files = [(p, open(p).read()) for p in ERROR_LIB + [self.path]]
         try:
-            compile_source(source, os.path.basename(self.path))
+            compile_program(files, TRUSTED_DIRS)
         except CompileError as err:
             got = err.format(os.path.basename(self.path))
+            if err.pos.file != self.path:
+                return False, f"error in {err.pos.file}, not in the test", got
             if (err.pos.line, err.pos.col) != (self.line, self.col):
                 return False, f"error at {err.pos.line}:{err.pos.col}, expected {self.line}:{self.col}", got
             if self.message not in err.message:
@@ -289,10 +306,12 @@ class ErrorTest:
 
 def all_tests():
     tests = list(BOOT_TESTS)
-    for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))):
-        tests.append(RookTest.from_file(path))
-    for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "errors", "*.rook"))):
-        tests.append(ErrorTest.from_file(path))
+    for pattern in ("*.rook", "trusted/*.rook"):
+        for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", pattern))):
+            tests.append(RookTest.from_file(path))
+    for pattern in ("*.rook", "trusted/*.rook"):
+        for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "errors", pattern))):
+            tests.append(ErrorTest.from_file(path))
     return tests
 
 

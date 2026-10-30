@@ -7,9 +7,6 @@
 // expect: 32
 // expect: 7
 
-extern fn print_u64(x: u64)
-extern fn print_bool(b: bool)
-
 fn test_main() {
     t: bool = true
     f: bool = false

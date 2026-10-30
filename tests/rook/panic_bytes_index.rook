@@ -1,0 +1,10 @@
+// Reading past the end of a `Bytes` panics; the report names the line in
+// bytes.rook that checks the index.
+// expect: 104
+// expect-panic: index outside Bytes at bytes.rook:19
+
+fn test_main() {
+    word: Bytes = "hi"
+    print_u64(word.at(0) as u64)
+    print_u64(word.at(2) as u64)
+}

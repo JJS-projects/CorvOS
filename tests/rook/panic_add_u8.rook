@@ -1,9 +1,6 @@
 // u8 addition past 255 panics, reporting the source line.
 // expect: 255
-// expect-panic: integer overflow at panic_add_u8.rook:11
-
-extern fn print_u64(x: u64)
-extern fn print_i64(x: i64)
+// expect-panic: integer overflow at panic_add_u8.rook:8
 
 fn test_main() {
     a: u8 = 250
