@@ -1,0 +1,13 @@
+// A `val` parameter is read-only.
+// error: 11:16: can't assign to `r`: it is `val`, read-only data
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    pub lossy on look(r: val Reading) {
+        r.temp = 5
+    }
+}

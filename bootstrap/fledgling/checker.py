@@ -42,7 +42,8 @@ from .rtypes import (BOOL, UNIT, U8, U64, INT_TYPES, NAMED_TYPES, ActorType, Enu
 
 # What a message carries in this step: numbers, bools and actor references.
 # Structs, enums and owned data wait for the ownership rules (decision 114).
-MESSAGE_PARAMS = 4          # a message holds a handler number and up to 4 words
+MESSAGE_PARAMS = 4          # a handler takes at most 4 parameters
+MESSAGE_WORDS = 8           # and a message carries at most 8 words (decision 135)
 NEW_PARAMS = 7
 
 # Built-in functions (decision 77: built-ins that produce a value are calls with
@@ -87,9 +88,10 @@ def check(program):
 
 
 class Local:
-    def __init__(self, name, ty, mutable, slot, kind, owned=False):
+    def __init__(self, name, ty, mutable, slot, kind, owned=False, val=False):
         self.name, self.ty, self.mutable, self.slot, self.kind = name, ty, mutable, slot, kind
         self.owned = owned      # an `iso` parameter: not a borrow, so it can be consumed
+        self.val = val          # a `val` parameter: read-only data that can be passed on
 
 
 class FnSig:
@@ -323,10 +325,12 @@ class Checker:
                     raise CompileError(
                         f"`{name}` declares `{hname}` as `{want.decl.handler}`, so "
                         f"`{actor.name}` must too", have.decl.pos)
-                if [t for t, _ in have.params] != [t for t, _ in want.params]:
+                if ([t for t, _ in have.params] != [t for t, _ in want.params]
+                        or [(p.type.iso, p.type.val) for p in have.decl.params]
+                        != [(p.type.iso, p.type.val) for p in want.decl.params]):
                     raise CompileError(
                         f"`{actor.name}.{hname}` must take the same parameter types as "
-                        f"`{name}.{hname}`", have.decl.pos)
+                        f"`{name}.{hname}`, each `iso` or `val` the same way", have.decl.pos)
             actor.implements.append(iface)
 
     def actor_signature(self, actor, decl, limit, what):
@@ -347,23 +351,23 @@ class Checker:
             if what == "`new`" and (p.type.val or p.type.iso):
                 params.append((ty, False))          # data handed to the new actor
                 continue
-            if p.type.iso:
+            if is_aggregate(ty) and not (p.type.iso or p.type.val):
                 raise CompileError(
-                    f"a message can't carry `iso` data yet: that is the next step of "
-                    f"ownership (decision 114); only `new` takes it", p.type.pos)
-            if p.type.val:
-                raise CompileError(
-                    f"a message can't carry `val` data yet: that waits for the ownership "
-                    f"rules (decision 114); only `new` takes it", p.type.pos)
-            if is_aggregate(ty):
-                raise CompileError(
-                    f"a message carries numbers, bools and actor references for now, "
-                    f"not {ty}" + ("; `new` takes read-only data written `val`" if what == "`new`"
-                                   else ""), p.type.pos)
+                    (f"`new` takes a struct or enum as owned or read-only data: write "
+                     f"`iso {ty}` or `val {ty}`" if what == "`new`" else
+                     f"a message carries a struct or enum owned or read-only: write "
+                     f"`iso {ty}` or `val {ty}`"), p.type.pos)
             params.append((ty, False))
         if len(params) > limit:
             raise CompileError(
                 f"{what} takes at most {limit} parameters for now", decl.pos)
+        if what != "`new`":
+            carried = sum(words(ty) for ty, _ in params)
+            if carried > MESSAGE_WORDS:
+                raise CompileError(
+                    f"{what} would carry {carried} words, and a message carries at most "
+                    f"{MESSAGE_WORDS} (larger data waits for the pool that comes with `freeze`)",
+                    decl.pos)
         return FnSig(decl, params, UNIT, actor)
 
     def aggregates(self):
@@ -468,7 +472,7 @@ class Checker:
             param.ty = ty
             kind = "ref" if is_mut or is_aggregate(ty) else "value"
             param.slot = self.new_local(param.name, ty, is_mut, kind, pos=param.pos,
-                                        owned=param.type.iso)
+                                        owned=param.type.iso, val=param.type.val)
         returns = self.block(decl.body)
         if not block_diverges(decl.body):
             self.require_fields_back()
@@ -489,7 +493,7 @@ class Checker:
         self.nslots += n
         return slot
 
-    def new_local(self, name, ty, mutable, kind="value", pos=None, owned=False):
+    def new_local(self, name, ty, mutable, kind="value", pos=None, owned=False, val=False):
         # No shadowing (principle 4): a name means one thing wherever it's visible.
         if pos is not None:
             if self.lookup(name) is not None:
@@ -500,7 +504,7 @@ class Checker:
             if name in BUILTINS:
                 raise CompileError(f"`{name}` is built in; choose another name", pos)
         slot = self.alloc(words(ty) if kind == "region" else 1)
-        self.scopes[-1][name] = Local(name, ty, mutable, slot, kind, owned)
+        self.scopes[-1][name] = Local(name, ty, mutable, slot, kind, owned, val)
         return slot
 
     def lookup(self, name):
@@ -1226,7 +1230,9 @@ class Checker:
                 f"mark the handler `pub` to send it from another file", e.pos)
         e.sig, e.send = sig, True
         e.handler_index = sig.decl.number
-        self.check_args(f"`{actor.name}.{e.name}`", sig.params, e.args, e.pos)
+        self.check_args(f"`{actor.name}.{e.name}`", sig.params, e.args, e.pos, sig=sig)
+        e.payload_words = sum(words(ty) for ty, _ in sig.params)
+        e.payload = self.alloc(max(1, e.payload_words))
         if sig.decl.handler != "reliable":
             return UNIT
         sent = self.enums.get("Sent")
@@ -1283,7 +1289,18 @@ class Checker:
             lent.append((root_name(receiver), receiver_mut, receiver.pos))
         owned = [p.type.iso for p in sig.decl.params] if sig is not None else []
         owned += [False] * (len(params) - len(owned))
-        for arg, (pty, is_mut), takes in zip(args, params, owned):
+        shared = [p.type.val and sig.decl.handler is not None for p in sig.decl.params] \
+            if sig is not None else []
+        shared += [False] * (len(params) - len(shared))
+        for arg, (pty, is_mut), takes, readonly in zip(args, params, owned, shared):
+            if readonly:
+                self.expr(arg, pty)
+                if not self.is_val_source(arg):
+                    raise CompileError(
+                        f"{callee} takes read-only data: pass a `val` field, a `val` "
+                        f"parameter or text in quotes (a value from `freeze` arrives in step 4c)",
+                        arg.pos)
+                continue
             if isinstance(arg, S.Consume) and not takes:
                 raise CompileError(
                     f"{callee} only borrows this argument, so there is nothing to give away: "
@@ -1354,6 +1371,13 @@ class Checker:
             if local is None:
                 raise CompileError(f"can't {action} `{place.ident}`", pos)
             if not local.mutable:
+                if local.val:
+                    raise CompileError(
+                        f"can't {action} `{place.ident}`: it is `val`, read-only data", pos)
+                if local.owned:
+                    raise CompileError(
+                        f"can't {action} `{place.ident}`: an `iso` parameter is read-only; "
+                        f"copy it into a `mut` variable to change it", pos)
                 if local.kind == "ref":
                     raise CompileError(
                         f"can't {action} `{place.ident}`: it is lent read-only; "
@@ -1472,6 +1496,21 @@ class Checker:
         self.require_unlocked(root_name(place), "consume", source_text(place), e.pos)
         self.moved[self.moved_key(place)] = e.pos
         return ty
+
+    def is_val_source(self, e):
+        """Is `e` read-only data that a `val` parameter may be given: text in quotes, a
+        `val` parameter, or a `val` field of the actor?"""
+        if isinstance(e, S.StrLit):
+            return True
+        if isinstance(e, S.Name):
+            if e.const_str is not None:
+                return True
+            local = self.lookup(e.ident) if self.scopes else None
+            return local is not None and local.val
+        if (isinstance(e, S.FieldAccess) and e.obj is None and self.receiver is not None
+                and is_actor(self.receiver[0])):
+            return e.field in self.receiver[0].val_fields
+        return False
 
     def movable(self, e):
         """Could `consume(e)` be written? An owned variable, or a `mut iso` field."""

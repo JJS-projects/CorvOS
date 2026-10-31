@@ -1,0 +1,17 @@
+// An `iso` handler parameter takes a new value, `consume(x)` or `copy(x)`.
+// error: 16:12: giving it to `Holder.keep` would be a copy of `r`; write `copy(r)` to copy it, or `consume(r)` to give it away
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    pub lossy on keep(r: iso Reading) {
+    }
+}
+
+fn f(h: Holder) {
+    r: Reading = Reading(temp: 1, seq: 1)
+    h.keep(r)
+}

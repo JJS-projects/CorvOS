@@ -261,7 +261,8 @@ class Parser:
             while not self.at(")"):
                 ptok = self.expect("ident", "parameter name")
                 self.expect(":")
-                params.append(S.Param(ptok.text, self.type_ref(allow_mut=True), ptok.pos))
+                params.append(S.Param(ptok.text, self.type_ref(allow_mut=True, allow_val=True,
+                                                               allow_iso=True), ptok.pos))
                 if not self.at(")"):
                     self.expect(",", "`,` or `)`")
             self.expect(")")

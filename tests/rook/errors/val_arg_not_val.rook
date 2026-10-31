@@ -1,0 +1,17 @@
+// A `val` handler parameter takes read-only data, not an owned value.
+// error: 16:12: `Holder.look` takes read-only data: pass a `val` field, a `val` parameter or text in quotes (a value from `freeze` arrives in step 4c)
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    pub lossy on look(r: val Reading) {
+    }
+}
+
+fn f(h: Holder) {
+    r: Reading = Reading(temp: 1, seq: 1)
+    h.look(r)
+}

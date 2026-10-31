@@ -16,7 +16,7 @@ actor Pair {
 fn test_main() {
     pair: Pair = spawn Pair()
     unsafe {
-        raven_send(actor_address(pair), handler_number("second"), 0, 0, 0, 0)
+        raven_send(actor_address(pair), handler_number("second"), 0, 0)
     }
     run_until_idle()
 }

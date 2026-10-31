@@ -2,7 +2,7 @@
 // silent overwrite of someone else's memory. (The line is the panic in
 // raven/trusted/actors.rook: update it if that file's lines above it move.)
 // expect: 1
-// expect-panic: out of memory for actors at actors.rook:55
+// expect-panic: out of memory for actors at actors.rook:58
 
 actor Small {
     id: u64

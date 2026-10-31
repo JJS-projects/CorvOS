@@ -1,0 +1,58 @@
+// Read-only data travels as `val`: a `val` field, a `val` parameter passed on, or text in
+// quotes. The receiver can read it but not change it.
+// Worked out: `start` sends `look` and `say` to the listener and `pass` to itself; the
+// listener runs `look` (5, then 5 + 3 = 8) and then, after the relay's `pass` has queued a
+// second `look`, the two `say`s (the 2 letters of "hi", the 3 of GREETING) and that
+// second `look` (5, 8 again).
+// expect: 5
+// expect: 8
+// expect: 2
+// expect: 3
+// expect: 5
+// expect: 8
+
+GREETING: Bytes = "hey"
+
+struct Window {
+    start: u64
+    size: u64
+}
+
+actor Listener {
+    pub lossy on look(w: val Window) {
+        print_u64(w.start)
+        print_u64(w.start + w.size)
+    }
+
+    pub lossy on say(text: val Bytes) {
+        print_u64(text.len())
+    }
+}
+
+actor Relay {
+    window: val Window
+    next: Listener
+
+    new(window: val Window, next: Listener) {
+        .window = window
+        .next = next
+    }
+
+    pub lossy on start() {
+        .next.look(.window)                         // a val field
+        .next.say("hi")                             // text in quotes
+        .next.say(GREETING)                         // a constant of text
+        self.pass(.window)                          // handed to my own handler
+    }
+
+    pub lossy on pass(w: val Window) {
+        .next.look(w)                               // a val parameter passed on
+    }
+}
+
+fn test_main() {
+    listener: Listener = spawn Listener()
+    relay: Relay = spawn Relay(Window(start: 5, size: 3), listener)
+    relay.start()
+    run_until_idle()
+}

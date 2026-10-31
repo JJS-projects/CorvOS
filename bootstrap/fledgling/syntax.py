@@ -123,6 +123,8 @@ class MethodCall(Expr):
         self.sig = None         # set by checker
         self.send = False       # set by checker: a message to an actor, not a method call
         self.handler_index = None   # set by checker: which handler of the actor
+        self.payload = None         # set by checker: frame slot of a message's payload words
+        self.payload_words = 0
 
 
 @dataclass

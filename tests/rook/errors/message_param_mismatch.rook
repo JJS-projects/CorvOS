@@ -1,0 +1,16 @@
+// An implementing handler is `iso` or `val` the same way the interface says.
+// error: 14:11: `Plain.put` must take the same parameter types as `Sink.put`, each `iso` or `val` the same way
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+interface Sink {
+    lossy on put(r: iso Reading)
+}
+
+actor Plain: Sink {
+    lossy on put(r: val Reading) {
+    }
+}

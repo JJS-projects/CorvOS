@@ -1,0 +1,42 @@
+// A message's payload is copied out of its mailbox slot before the handler runs. Here the
+// mailbox is full (16 messages), so when the first handler sends to its own actor the
+// message lands in the slot just freed. The handler still sees its own payload afterwards.
+// expect: 0
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 4
+// expect: 5
+// expect: 6
+// expect: 7
+// expect: 8
+// expect: 9
+// expect: 10
+// expect: 11
+// expect: 12
+// expect: 13
+// expect: 14
+// expect: 15
+// expect: 99
+
+struct Reading {
+    temp: u64
+    seq: u64
+}
+
+actor Echoer {
+    pub lossy on go(r: iso Reading) {
+        if r.temp == 0 {
+            self.go(Reading(temp: 99, seq: 1))      // reuses the slot this message came in
+        }
+        print_u64(r.temp)                           // still the payload it was sent
+    }
+}
+
+fn test_main() {
+    echoer: Echoer = spawn Echoer()
+    filling: loop i: u64 in 0..16 {
+        echoer.go(Reading(temp: i, seq: 0))
+    }
+    run_until_idle()
+}

@@ -8,12 +8,14 @@
 // arena. Actors are never freed (decision 119).
 //
 // An actor's memory, in 8-byte words, with its reference pointing at the fields:
-//     [ header: 8 ][ mailbox: 16 slots of 5 ][ the actor's fields ... ]
-// A slot holds a handler number and up to four argument words.
+//     [ header: 8 ][ mailbox: 16 slots of 9 ][ the actor's fields ... ]
+// A slot holds a handler number and up to eight payload words: the handler's arguments,
+// a struct or enum counting as its size (decision 135).
 
 ACTOR_HEADER_WORDS: u64 = 8
 ACTOR_SLOTS: u64 = 16               // messages one mailbox holds (decision 113, g)
-ACTOR_SLOT_WORDS: u64 = 5
+ACTOR_MESSAGE_WORDS: u64 = 8        // payload words in a message
+ACTOR_SLOT_WORDS: u64 = 9           // a handler number and the payload
 ACTOR_BEFORE_FIELDS: u64 = (ACTOR_HEADER_WORDS + ACTOR_SLOTS * ACTOR_SLOT_WORDS) * 8
 
 // Header, as byte offsets from the start of the actor's memory.
@@ -34,6 +36,7 @@ ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
 ACTOR_RUNQ_SLOTS: u64 = 128
 ACTOR_IRQ_ROUTES: u64 = 1152        // where each interrupt goes: 32 records of (actor, handler number)
 ACTOR_IRQ_FIRST: u64 = 32           // the interrupts handled: peripheral IRQs 32 to 63
+ACTOR_MSG_BUFFER: u64 = 1664        // the message being handled, copied out of its slot (8 words)
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
 
 // A handler may run this long before it counts as failed (decisions 121, 133).
@@ -68,9 +71,9 @@ pub enum Sent {
 
 /// Sends a message to `target`: puts it in the mailbox, or drops it and
 /// counts the drop if the mailbox is full. Used by every send of a `lossy`
-/// handler.
-pub fn raven_send(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64) {
-    if not rt_enqueue(target, handler, a0, a1, a2, a3) {
+/// handler. `payload` is the address of `words` words (at most 8) to copy into it.
+pub fn raven_send(target: u64, handler: u64, payload: u64, words: u64) {
+    if not rt_enqueue(target, handler, payload, words) {
         unsafe {
             rt_base: u64 = actor_arena_base()
             store64(rt_base + ACTOR_S_DROPPED, load64(rt_base + ACTOR_S_DROPPED) + 1)
@@ -81,9 +84,8 @@ pub fn raven_send(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64)
 /// Sends a message to a `reliable` handler: the same, except that a full
 /// mailbox is not a drop. The sender is told and decides what the message is
 /// worth (decision 126).
-pub fn raven_send_reliable(target: u64, handler: u64, a0: u64, a1: u64, a2: u64,
-                           a3: u64) -> Sent {
-    if rt_enqueue(target, handler, a0, a1, a2, a3) {
+pub fn raven_send_reliable(target: u64, handler: u64, payload: u64, words: u64) -> Sent {
+    if rt_enqueue(target, handler, payload, words) {
         return Delivered
     }
     return MailboxFull
@@ -91,7 +93,7 @@ pub fn raven_send_reliable(target: u64, handler: u64, a0: u64, a1: u64, a2: u64,
 
 /// Puts a message in `target`'s mailbox and queues the actor to run. Returns
 /// false, changing nothing, if the mailbox is full.
-fn rt_enqueue(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> bool {
+fn rt_enqueue(target: u64, handler: u64, payload: u64, words: u64) -> bool {
     rt_header: u64 = target - ACTOR_BEFORE_FIELDS
     unsafe {
         rt_count: u64 = load64(rt_header + ACTOR_H_COUNT)
@@ -102,10 +104,9 @@ fn rt_enqueue(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> 
         rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 +
                        ((rt_first + rt_count) % ACTOR_SLOTS) * ACTOR_SLOT_WORDS * 8
         store64(rt_slot, handler)
-        store64(rt_slot + 8, a0)
-        store64(rt_slot + 16, a1)
-        store64(rt_slot + 24, a2)
-        store64(rt_slot + 32, a3)
+        copying: loop rt_w: u64 in 0..words {
+            store64(rt_slot + 8 + rt_w * 8, load64(payload + rt_w * 8))
+        }
         store64(rt_header + ACTOR_H_COUNT, rt_count + 1)
         if load64(rt_header + ACTOR_H_QUEUED) == 0 {
             store64(rt_header + ACTOR_H_QUEUED, 1)
@@ -207,7 +208,7 @@ fn deliver_interrupt(line: u64) {
         if rt_target != 0 {
             rt_number: u64 = load64(rt_slot + 8)
             if not rt_queued(rt_target, rt_number) {
-                discard rt_enqueue(rt_target, rt_number, 0, 0, 0, 0)    // full: the source fires again
+                discard rt_enqueue(rt_target, rt_number, 0, 0)    // full: the source fires again
             }
         }
     }
@@ -264,10 +265,12 @@ fn run_one_turn() {
         rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
         rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 + rt_first * ACTOR_SLOT_WORDS * 8
         rt_handler: u64 = load64(rt_slot)
-        rt_a0: u64 = load64(rt_slot + 8)
-        rt_a1: u64 = load64(rt_slot + 16)
-        rt_a2: u64 = load64(rt_slot + 24)
-        rt_a3: u64 = load64(rt_slot + 32)
+        // Copy the payload out of the slot first: the handler may send to its own actor,
+        // and that send can reuse this slot.
+        rt_buffer: u64 = rt_base + ACTOR_MSG_BUFFER
+        copying: loop rt_w: u64 in 0..ACTOR_MESSAGE_WORDS {
+            store64(rt_buffer + rt_w * 8, load64(rt_slot + 8 + rt_w * 8))
+        }
         rt_left: u64 = load64(rt_header + ACTOR_H_COUNT) - 1
         store64(rt_header + ACTOR_H_FIRST, (rt_first + 1) % ACTOR_SLOTS)
         store64(rt_header + ACTOR_H_COUNT, rt_left)
@@ -280,7 +283,7 @@ fn run_one_turn() {
         store64(rt_base + ACTOR_S_CURRENT_DISPATCHER, rt_dispatcher)
         store64(rt_base + ACTOR_S_CURRENT_HANDLER, rt_handler)
         timer_arm(budget_ticks())
-        call_dispatch(rt_dispatcher, rt_actor, rt_handler, rt_a0, rt_a1, rt_a2, rt_a3)
+        call_dispatch(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
         timer_disarm()
     }
 }

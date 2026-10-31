@@ -137,10 +137,12 @@ class Gen:
         return self.strings[data]
 
     def dispatcher(self, actor):
-        """`Name__dispatch(self, handler, a0, a1, a2, a3)`: Raven's scheduler calls
-        this with a message taken from the mailbox. It jumps to the handler
-        whose number the message carries, moving the arguments down one register
-        so the handler sees `self` in x0 and its arguments from x1."""
+        """`Name__dispatch(self, handler, payload)`: Raven's scheduler calls this with a
+        message taken from the mailbox, its payload words copied to `payload`. It
+        jumps to the handler whose number the message carries, with `self` in x0 and
+        the arguments from x1: a number or reference is loaded from its payload word,
+        a struct or enum is passed as the address of its words in the payload (as a
+        lent struct is)."""
         symbol = f"{actor.name}__dispatch"
         self.lines.append("")
         self.lines.append(f"// dispatcher for actor {actor.name} (line {actor.pos.line})")
@@ -154,8 +156,15 @@ class Gen:
             skip = self.new_label("handler")
             self.emit(f"cmp x1, #{number}")
             self.emit(f"b.ne {skip}")
-            for i in range(1, 5):
-                self.emit(f"mov x{i}, x{i + 1}")
+            self.emit("mov x17, x2")            # the payload; the loads below overwrite x2
+            at = 0
+            for i, param in enumerate(handler.params):
+                if is_aggregate(param.ty):
+                    self.emit(f"add x{i + 1}, x17, #{8 * at}")
+                    at += param.ty.words
+                else:
+                    self.emit(f"ldr x{i + 1}, [x17, #{8 * at}]")
+                    at += 1
             self.emit(f"b {handler.symbol}")
             self.label(skip)
         self.emit("brk #0x53")          # no message carries a handler number the actor lacks
@@ -645,21 +654,27 @@ class Gen:
         self.load_slot(e.temp)
 
     def send(self, e):
-        """`raven_send(target, handler number, a0, a1, a2, a3)`: Raven puts the
-        message in the target's mailbox, or drops it if the mailbox is full. A
-        `reliable` handler calls `raven_send_reliable` instead, which writes
-        a `Sent` to the address in x8 rather than dropping."""
+        """`raven_send(target, handler number, payload, words)`: the arguments are laid
+        out as words in the sender's frame (a struct or enum copied in), and Raven copies
+        them into the target's mailbox, or drops the message if the mailbox is full. A
+        `reliable` handler calls `raven_send_reliable` instead, which writes a `Sent` to
+        the address in x8 rather than dropping."""
         self.expr(e.obj)
         self.push()
+        at = 0
         for arg in e.args:
             self.expr(arg)
-            self.push()
-        n = 1 + len(e.args)
-        for i in reversed(range(n)):
-            self.pop("x0" if i == 0 else f"x{i + 1}")
+            n = words(arg.ty)
+            self.region_addr(e.payload, e.payload_words - at, "x1")   # where word `at` goes
+            if is_aggregate(arg.ty):
+                self.copy_words(n)
+            else:
+                self.emit("str x0, [x1]")
+            at += n
+        self.pop("x0")
         self.emit(f"mov x1, #{e.handler_index}")
-        for i in range(len(e.args), 4):
-            self.emit(f"mov x{i + 2}, #0")
+        self.region_addr(e.payload, e.payload_words, "x2")
+        self.emit(f"mov x3, #{e.payload_words}")
         if e.sig.decl.handler == "reliable":
             self.region_addr(e.temp, e.ty.words, "x8")
             self.emit("bl raven_send_reliable")
