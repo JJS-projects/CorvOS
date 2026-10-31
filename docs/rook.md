@@ -845,7 +845,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 
 - **What is accepted.** `actor Name { fields, new(...), [pub] lossy on name(...) { } }`,
   `spawn Name(args)`, `self`, and a send `ref.handler(args)` or `self.handler(args)`.
-  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet. Read-only `val` fields arrived in step 3d (11.9), and the handler time budget in step 3e (11.10).
+  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet. Read-only `val` fields arrived in step 3d (11.9), the handler time budget in step 3e (11.10), and interrupts as messages in step 3f (11.11).
 - **Fields** hold numbers, bools, actor references and (from step 3d) read-only `val` data (11.9), are private to the actor's own
   handlers (`pub` is an error) and are changed only if written `mut`.
 - **`new`** sets every field exactly once, in any order, with `=` at the top level of its
@@ -870,7 +870,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   of arena is a panic.
 - **Panics.** A panic in a handler reports its line and halts the whole system, as
   any panic does for now; restarting just the actor's domain waits for milestone 7.
-- **Known gaps.** No `Main`, `Boot`, interrupts as messages, ownership (`iso`, `val`),
+- **Known gaps.** No `Main`, `Boot`, ownership (`iso`, `val`),
   or messages that carry structs.
 
 ### 11.7 Rules settled while building reliable sends (step 3b)
@@ -939,6 +939,29 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **A handler that waits is also over budget.** `wait_ms` inside a handler counts. Long
   work belongs in steps (section 4.4).
 - **Nothing else interrupts yet.** The timer is the only interrupt source enabled.
+
+### 11.11 Rules settled while building interrupts as messages (step 3f)
+
+- **`Irq`** is the right to receive one peripheral interrupt (numbered 32 to 63; the
+  PL011 UART is 57). Its field is private to `raven/trusted/actors.rook`, so it can't be
+  written by hand; `make_irq(peripherals, 57)` makes one, and only from the whole
+  peripherals `Mmio` (`is_root`), so a driver given just its registers can't give
+  itself an interrupt. It is held as `irq: val Irq`.
+- **Routing** (the owner's choice, decision 134): `irq.route(narrow(self, Interrupt))`,
+  usually in `new` after every field is set. `Interrupt` is an interface with one
+  `lossy on fired()`. From then on Raven sends `fired` to that actor when the
+  interrupt occurs; one already waiting in the mailbox absorbs a new one. Routing
+  again replaces the route.
+- **Handlers must cope with nothing to do.** A source that is still asserting
+  fires again as soon as it is switched back on, so `fired` can arrive with
+  nothing left to read. `UartListener` simply finds the FIFO empty.
+- **The scheduler.** `run_until_idle` also delivers interrupts that have fired, and
+  returns when nothing is queued. `run_forever` never returns and sleeps the core
+  (`wfi`) when nothing is queued.
+- **Raven's own code** may send a message to a reference it holds as a number, with
+  two built-ins allowed only inside `unsafe` in trusted files: `actor_address(r)` (the
+  reference as a `u64`) and `handler_number("fired")` (the number messages use for
+  handlers of that name).
 
 ## 12. Open questions
 
