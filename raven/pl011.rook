@@ -12,10 +12,13 @@ UART_IBRD: u64 = 0x24               // integer baud divisor
 UART_FBRD: u64 = 0x28               // fractional baud divisor
 UART_LCRH: u64 = 0x2C               // line control
 UART_CR: u64 = 0x30                 // control
+UART_IFLS: u64 = 0x34               // interrupt FIFO level
 UART_IMSC: u64 = 0x38               // interrupt mask
 UART_ICR: u64 = 0x44                // interrupt clear
 FR_TXFF: u32 = 0x20                 // flag: transmit FIFO full
 FR_RXFE: u32 = 0x10                 // flag: receive FIFO empty
+UART_RXIM: u32 = 0x10               // interrupt mask: receive
+UART_RTIM: u32 = 0x40               // interrupt mask: receive timeout
 
 // GPIO registers, as offsets into the GPIO `Mmio`.
 GPFSEL1: u64 = 0x04                 // function of pins 10-19, 3 bits each
@@ -56,6 +59,15 @@ pub struct Pl011 {
     pub fn put(b: u8) {
         waiting: loop (.regs.read32(UART_FR) and FR_TXFF) != 0 { }
         .regs.write32(UART_DR, b as u32)
+    }
+
+    /// Asks for an interrupt when a byte is received: when the receive FIFO holds 2
+    /// (1/8 of 16), and when bytes have waited a while without being read (the
+    /// receive timeout, so one or two bytes are not left in the FIFO). The
+    /// interrupt condition stays until the bytes are read.
+    pub fn listen() {
+        .regs.write32(UART_IFLS, 0)                     // 1/8 receive level
+        .regs.write32(UART_IMSC, UART_RXIM or UART_RTIM)
     }
 
     /// Is a received byte waiting?
@@ -132,5 +144,27 @@ pub actor UartWriter: ByteSink {
 
     lossy on byte(b: u8) {
         .console.put(b)
+    }
+}
+
+/// The receiving half of a UART driven by its interrupt instead of by polling. Raven
+/// sends `fired` when the UART has bytes; the handler passes on everything waiting.
+/// It can be called with nothing waiting (an interrupt that came again before the
+/// bytes were read), which does nothing. Sleeps, with the scheduler, between bytes.
+pub actor UartListener: Interrupt {
+    console: val Pl011
+    out: ByteSink
+
+    new(console: val Pl011, irq: val Irq, out: ByteSink) {
+        .console = console
+        .out = out
+        console.listen()
+        irq.route(narrow(self, Interrupt))
+    }
+
+    lossy on fired() {
+        draining: loop .console.has_byte() {
+            .out.byte(.console.take())
+        }
     }
 }

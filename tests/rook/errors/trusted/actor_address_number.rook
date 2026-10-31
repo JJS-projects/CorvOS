@@ -1,0 +1,8 @@
+// `actor_address` takes a reference.
+// error: 6:32: `actor_address` takes an actor or interface reference, not u64
+
+fn f(n: u64) {
+    unsafe {
+        m: u64 = actor_address(n)
+    }
+}

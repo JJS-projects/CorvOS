@@ -1,0 +1,11 @@
+// `actor_address` takes one argument.
+// error: 9:18: `actor_address` takes one argument: a reference
+
+actor Thing {
+}
+
+fn f(t: Thing) {
+    unsafe {
+        m: u64 = actor_address(t, t)
+    }
+}

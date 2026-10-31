@@ -1,0 +1,8 @@
+// `handler_number` names a handler that exists.
+// error: 6:33: no actor or interface has a handler `nowhere`
+
+fn f() {
+    unsafe {
+        n: u64 = handler_number("nowhere")
+    }
+}

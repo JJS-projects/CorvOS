@@ -470,6 +470,10 @@ class Gen:
         elif isinstance(e, S.Call) and e.callee in LOAD_INSNS:
             self.expr(e.args[0])
             self.emit(f"{LOAD_INSNS[e.callee]}, [x0]")         # exactly one access
+        elif isinstance(e, S.Call) and e.callee == "actor_address":
+            self.expr(e.args[0])                    # a reference already is its address
+        elif isinstance(e, S.Call) and e.callee == "handler_number":
+            self.emit(f"mov x0, #{e.number}")
         elif isinstance(e, S.Call) and e.callee in STORE_INSNS:
             self.expr(e.args[0])
             self.push()

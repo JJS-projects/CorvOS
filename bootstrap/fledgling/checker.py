@@ -50,7 +50,11 @@ NEW_PARAMS = 7
 # inside `unsafe { }`; each is exactly one access of that width, in program order.
 LOADS = {f"load{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
 STORES = {f"store{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
-BUILTINS = set(LOADS) | set(STORES) | {"panic"}
+# Two more only Raven needs, to send a message of its own (an interrupt) to a
+# reference it holds: `actor_address(reference)` is the reference as a number, and
+# `handler_number("fired")` is the number messages use for the handlers of that name.
+# Both are allowed only inside `unsafe { }` in trusted files, like loads and stores.
+BUILTINS = set(LOADS) | set(STORES) | {"panic", "actor_address", "handler_number"}
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -111,6 +115,7 @@ class Checker:
         self.unsafe_depth = 0    # inside `unsafe { }`
         self.actors = {}         # name -> ActorType
         self.interfaces = {}     # name -> InterfaceType
+        self.handler_numbers = {}  # handler name -> its number in messages
         self.in_new = False      # checking an actor's `new`
         self.assigned = set()    # fields `new` has set so far
 
@@ -284,6 +289,7 @@ class Checker:
             if isinstance(item, (S.ActorDecl, S.InterfaceDecl)):
                 for h in item.handlers:
                     h.number = numbers.setdefault(h.name, len(numbers))
+        self.handler_numbers = numbers
 
     def implements(self, actor):
         """`actor Name: Interface` promises every handler of the interface, with the
@@ -952,6 +958,26 @@ class Checker:
             raise CompileError(
                 f"`{name}` touches memory the compiler can't check, so it is only allowed {where}",
                 e.pos)
+        if name == "actor_address":
+            if len(e.args) != 1:
+                raise CompileError("`actor_address` takes one argument: a reference", e.pos)
+            ty = self.expr(e.args[0])
+            if not is_actor(ty):
+                raise CompileError(
+                    f"`actor_address` takes an actor or interface reference, not {ty}",
+                    e.args[0].pos)
+            return U64
+        if name == "handler_number":
+            if len(e.args) != 1 or not isinstance(e.args[0], S.StrLit):
+                raise CompileError(
+                    "`handler_number` takes one argument: a handler's name in quotes", e.pos)
+            handler = e.args[0].data.decode()
+            if handler not in self.handler_numbers:
+                raise CompileError(f"no actor or interface has a handler `{handler}`",
+                                   e.args[0].pos)
+            e.number = self.handler_numbers[handler]
+            e.args[0].ty = self.bytes_type(e.pos)
+            return U64
         if name in LOADS:
             if len(e.args) != 1:
                 raise CompileError(f"`{name}` takes one argument: an address", e.pos)

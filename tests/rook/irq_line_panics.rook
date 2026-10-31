@@ -1,0 +1,6 @@
+// Peripheral interrupts are numbered 32 to 63: another number is refused.
+// expect-panic: peripheral interrupts 32 to 63 only at actors.rook:183
+
+fn test_main(peripherals: Mmio) {
+    irq: Irq = make_irq(peripherals, 20)
+}

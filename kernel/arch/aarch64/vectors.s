@@ -10,25 +10,49 @@
 vectors:
     .irp kind, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
     .balign 0x80                        // each entry is 32 instructions
-    mov     x0, #\kind
     .if \kind == 5
-    b       irq_entry                   // IRQ at EL1 using SP_EL1: the only one in use
+    b       irq_entry                   // IRQ at EL1 using SP_EL1: the only one in use;
+                                        // it must not disturb x0, so no `mov` first
     .else
+    mov     x0, #\kind
     b       exception_report
     .endif
     .endr
 
-// An IRQ at EL1. The only interrupt enabled is the physical timer, armed while a
-// handler runs (decision 133): if it has fired, the handler has run over its time
-// budget and Raven reports it as a failure. Anything else is a report as before.
-// Never returns, so no registers are saved.
+// An IRQ at EL1. The physical timer, armed while a handler runs (decision 133): if
+// it has fired, the handler has run over its time budget and Raven reports it as a
+// failure, and does not return. Anything else is a peripheral interrupt, below.
 irq_entry:
+    stp     x0, x1, [sp, #-16]!         // the interrupted code's registers: the overrun
+    stp     x2, x3, [sp, #-16]!         // path never returns, the other restores them
     mrs     x1, cntp_ctl_el0
     tbz     x1, #2, 1f                  // ISTATUS (bit 2): the timer condition is met
     msr     cntp_ctl_el0, xzr           // disarm, so it can't fire again while we report
     isb
     bl      raven_budget_overrun        // Rook (raven/trusted/actors.rook)
-1:  mov     x0, #5
+
+// Not the timer: a peripheral interrupt (the UART, for now). It must not touch the
+// mailboxes, because it can land in the middle of Raven changing them. It only
+// notes which sources fired in the pending word of the actor arena (offset 48) and
+// switches those sources off at the controller; the scheduler turns them into
+// messages between turns (decision 134) and switches them back on. Uses four
+// registers, saved at the entry, then returns to what was running.
+1:  ldr     x0, =0x3F00B208             // IRQ pending 2: sources 32 to 63
+    ldr     w1, [x0]
+    cbz     w1, 2f                      // nothing we know of: report it
+    ldr     x2, =0x3F00B220             // disable IRQs 2: switch off what fired
+    str     w1, [x2]
+    adrp    x2, actor_arena
+    add     x2, x2, :lo12:actor_arena
+    ldr     x3, [x2, #48]               // the pending word
+    orr     x3, x3, x1                  // w1 was zero-extended by the load
+    str     x3, [x2, #48]
+    ldp     x2, x3, [sp], #16
+    ldp     x0, x1, [sp], #16
+    eret
+2:  ldp     x2, x3, [sp], #16           // an interrupt nobody asked for: report it, with
+    ldp     x0, x1, [sp], #16           // the registers as they were
+    mov     x0, #5
     b       exception_report
 
 // x0 = vector index (0-15). Never returns.

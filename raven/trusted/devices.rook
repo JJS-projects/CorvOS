@@ -24,6 +24,12 @@ pub struct Mmio {
         return Mmio(base: .base + offset, size: size)
     }
 
+    /// Is this the whole of the peripherals, not a part of them? Only the whole can
+    /// make an `Irq` (`make_irq` in actors.rook).
+    pub fn is_root() -> bool {
+        return .base == PERIPHERALS_BASE and .size == PERIPHERALS_SIZE
+    }
+
     /// The 32-bit register `offset` bytes in.
     pub fn read32(offset: u64) -> u32 {
         .check32(offset)

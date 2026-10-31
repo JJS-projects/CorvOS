@@ -1,0 +1,11 @@
+// `route` takes an `Interrupt`, which an actor must implement and `narrow` to.
+// error: 10:15: expected Interrupt, found Thing: hand out only what the interface allows with `narrow(..., Interrupt)`
+
+actor Thing {
+    pub lossy on tick() {
+    }
+}
+
+fn f(irq: Irq, t: Thing) {
+    irq.route(t)
+}
