@@ -11,11 +11,29 @@ vectors:
     .irp kind, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
     .balign 0x80                        // each entry is 32 instructions
     mov     x0, #\kind
+    .if \kind == 5
+    b       irq_entry                   // IRQ at EL1 using SP_EL1: the only one in use
+    .else
     b       exception_report
+    .endif
     .endr
+
+// An IRQ at EL1. The only interrupt enabled is the physical timer, armed while a
+// handler runs (decision 133): if it has fired, the handler has run over its time
+// budget and Raven reports it as a failure. Anything else is a report as before.
+// Never returns, so no registers are saved.
+irq_entry:
+    mrs     x1, cntp_ctl_el0
+    tbz     x1, #2, 1f                  // ISTATUS (bit 2): the timer condition is met
+    msr     cntp_ctl_el0, xzr           // disarm, so it can't fire again while we report
+    isb
+    bl      raven_budget_overrun        // Rook (raven/trusted/actors.rook)
+1:  mov     x0, #5
+    b       exception_report
 
 // x0 = vector index (0-15). Never returns.
 exception_report:
+    msr     cntp_ctl_el0, xzr           // a halted core must not take the budget timer
     mov     x19, x0
 
     adr     x0, msg_banner

@@ -1,0 +1,23 @@
+// A handler that runs past its time budget (100 ms) has failed. Until supervision
+// exists that is reported like a panic, naming the handler and the line where it is
+// declared, and the core halts. This one is slow, not endless: it waits 300 ms.
+// expect: 1
+// expect-panic: Slow.crawl ran for over 100 ms at actors_overrun.rook:12
+
+actor Slow {
+    pub lossy on quick() {
+        print_u64(1)
+    }
+
+    pub lossy on crawl() {
+        wait_ms(300)
+        print_u64(2)                    // never reached
+    }
+}
+
+fn test_main() {
+    slow: Slow = spawn Slow()
+    slow.quick()
+    slow.crawl()
+    run_until_idle()
+}

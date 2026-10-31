@@ -445,6 +445,8 @@ class RookTest:
         outs = [l[len("out: "):] for l in lines if l.startswith("out: ")]
         panics = [l[len(PANIC):] for l in lines if l.startswith(PANIC)]
 
+        if len(panics) > 1:
+            return False, f"more than one panic: {panics[1]!r}", output
         if self.expect_fault is not None:
             if not any(self.expect_fault in l for l in lines):
                 return False, f"expected a CPU exception report with {self.expect_fault!r}", output

@@ -1,0 +1,20 @@
+// A handler that takes a while but finishes inside its budget is not a failure, and
+// the timer is switched off when a handler returns: waiting longer than the budget
+// afterwards, in test_main, is not interrupted.
+// expect: 1
+// expect: 2
+
+actor Steady {
+    pub lossy on work() {
+        wait_ms(40)                     // well inside 100 ms
+        print_u64(1)
+    }
+}
+
+fn test_main() {
+    steady: Steady = spawn Steady()
+    steady.work()
+    run_until_idle()
+    wait_ms(250)                        // over the budget, but no handler is running
+    print_u64(2)
+}
