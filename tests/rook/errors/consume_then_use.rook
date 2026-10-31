@@ -1,0 +1,13 @@
+// Using a variable after consuming it is an error.
+// error: 12:15: `a` was consumed at 11:18, so it has no value here; assign it again first
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f() {
+    a: Reading = Reading(temp: 1, seq: 1)
+    b: Reading = consume(a)
+    print_i64(a.temp as i64)
+}

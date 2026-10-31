@@ -1,0 +1,7 @@
+// Numbers are always copied: `consume` is for structs and enums.
+// error: 6:22: u64 values are always copied; `consume(...)` is for structs and enums
+
+fn f() {
+    n: u64 = 5
+    m: u64 = consume(n)
+}

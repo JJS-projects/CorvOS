@@ -1,0 +1,17 @@
+// `new` gives every field its first value; there is nothing to consume.
+// error: 14:25: `new` gives every field its first value; there is nothing to consume yet
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    mut latest: iso Reading
+
+    new() {
+        .latest = Reading(temp: 0, seq: 0)
+        gone: Reading = consume(.latest)
+    }
+
+}

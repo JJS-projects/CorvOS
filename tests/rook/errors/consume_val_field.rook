@@ -1,0 +1,19 @@
+// Read-only `val` data is never consumed.
+// error: 17:34: `.shared` is `val`: read-only data is never consumed
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    shared: val Reading
+
+    new(r: val Reading) {
+        .shared = r
+    }
+
+    pub lossy on flush() {
+        gone: Reading = consume(.shared)
+    }
+}

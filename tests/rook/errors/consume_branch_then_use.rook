@@ -1,0 +1,15 @@
+// Consumed on one path, it is gone after the `if` unless given back.
+// error: 14:12: `r` was consumed at 12:25, so it has no value here; assign it again first
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f(flag: bool) -> u32 {
+    r: Reading = Reading(temp: 1, seq: 1)
+    if flag {
+        gone: Reading = consume(r)
+    }
+    return r.seq
+}

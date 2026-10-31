@@ -1,5 +1,5 @@
-// An actor's field holds a struct only as read-only data, written `val`.
-// error: 9:12: an actor's field holds a number, a bool, a reference, or read-only data written `val Point`, not a bare Point
+// An actor's field holds a struct only as owned `iso` or read-only `val` data.
+// error: 9:12: an actor's field holds a number, a bool, a reference, owned data written `iso Point`, or read-only data written `val Point`, not a bare Point
 
 struct Point {
     x: u64

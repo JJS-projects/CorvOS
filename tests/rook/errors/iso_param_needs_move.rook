@@ -1,0 +1,15 @@
+// An `iso` parameter takes ownership: pass a new value, `consume(x)` or `copy(x)`.
+// error: 14:10: giving it to `keep` would be a copy of `r`; write `copy(r)` to copy it, or `consume(r)` to give it away
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn keep(r: iso Reading) {
+}
+
+fn f() {
+    r: Reading = Reading(temp: 1, seq: 1)
+    keep(r)
+}

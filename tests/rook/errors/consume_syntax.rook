@@ -1,0 +1,12 @@
+// `consume` is written with brackets.
+// error: 11:26: write `consume(variable)`
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f() {
+    r: Reading = Reading(temp: 1, seq: 1)
+    s: Reading = consume r
+}

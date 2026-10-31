@@ -1,0 +1,15 @@
+// A `continue` after consuming brings the loop back without the value.
+// error: 12:25: `r` is consumed here, inside a loop, but the next turn needs it: assign it again before the end of the loop
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f() {
+    mut r: Reading = Reading(temp: 1, seq: 1)
+    again: loop i: u64 in 0..3 {
+        gone: Reading = consume(r)
+        continue again
+    }
+}

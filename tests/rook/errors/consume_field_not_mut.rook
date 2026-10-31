@@ -1,0 +1,19 @@
+// Only a `mut` field can be consumed and refilled.
+// error: 17:34: can't consume `.latest`: the field isn't `mut`
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    latest: iso Reading
+
+    new() {
+        .latest = Reading(temp: 0, seq: 0)
+    }
+
+    pub lossy on flush() {
+        gone: Reading = consume(.latest)
+    }
+}

@@ -1,0 +1,61 @@
+// Giving a struct away: `consume(x)` hands over `x`, which can't be used until it is
+// assigned again. A parameter written `iso` takes ownership; a bare one only borrows.
+// An actor's `iso` field can be consumed and must be refilled before the handler ends.
+// expect: 7
+// expect: 1
+// expect: 1
+// expect: 9
+// expect: 3
+// expect: 3
+// expect: 6
+// expect: 8
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn keep(r: iso Reading) -> u32 {
+    return r.seq
+}
+
+actor Sensor {
+    mut latest: iso Reading
+
+    new() {
+        .latest = Reading(temp: 0, seq: 0)
+    }
+
+    pub lossy on tick(temp: i32) {
+        .latest = Reading(temp: temp, seq: .latest.seq + 1)
+    }
+
+    pub lossy on flush() {
+        gone: Reading = consume(.latest)        // moved out into a local
+        print_i64(gone.temp as i64)
+        .latest = Reading(temp: 0, seq: 0)      // refilled before the handler ends
+    }
+}
+
+fn test_main() {
+    a: Reading = Reading(temp: 7, seq: 1)
+    b: Reading = consume(a)                     // a is gone
+    print_i64(b.temp as i64)                    // 7
+    print_u64(keep(consume(b)) as u64)          // the callee owns it now: 1
+
+    mut d: Reading = Reading(temp: 1, seq: 2)
+    e: Reading = consume(d)
+    d = Reading(temp: 9, seq: 3)                // d has a value again
+    print_i64(e.temp as i64)                    // 1
+    print_i64(d.temp as i64)                    // 9
+    print_u64(keep(copy(d)) as u64)             // a copy is given; d is still ours: 3
+    print_u64(d.seq as u64)                     // 3
+
+    sensor: Sensor = spawn Sensor()
+    sensor.tick(4)
+    sensor.tick(6)
+    sensor.flush()                              // prints 6
+    sensor.tick(8)
+    sensor.flush()                              // prints 8
+    run_until_idle()
+}

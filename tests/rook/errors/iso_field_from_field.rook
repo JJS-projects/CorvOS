@@ -1,0 +1,21 @@
+// An `iso` field set from another field says whether it is copied or given away.
+// error: 19:20: `.latest` would be a copy of `.spare`; write `copy(.spare)` to copy it, or `consume(.spare)` to give it away
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    mut latest: iso Reading
+    mut spare: iso Reading
+
+    new() {
+        .latest = Reading(temp: 0, seq: 0)
+        .spare = Reading(temp: 1, seq: 1)
+    }
+
+    pub lossy on swap() {
+        .latest = .spare
+    }
+}

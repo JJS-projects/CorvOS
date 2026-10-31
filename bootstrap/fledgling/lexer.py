@@ -16,13 +16,13 @@ KEYWORDS = {
     "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
     "continue", "return", "true", "false", "as", "wrap", "discard",
     "and", "or", "xor", "not", "shl", "shr", "struct", "copy", "enum", "match",
-    "unsafe", "actor", "on", "spawn", "self", "lossy", "reliable", "interface", "narrow",
+    "unsafe", "actor", "on", "spawn", "self", "lossy", "reliable", "interface", "narrow", "consume",
 }
 
 # Reserved for later milestones: using them now is an error, so programs
 # written today keep working when the features arrive.
 RESERVED = {
-    "consume", "import", "freeze",
+    "import", "freeze",
 }
 
 # Words from other languages that Rook deliberately doesn't use, with a hint.

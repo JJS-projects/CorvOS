@@ -1,0 +1,14 @@
+// A number field is copied, not consumed.
+// error: 12:27: u64 values are always copied; `consume(...)` is for structs and enums
+
+actor Holder {
+    mut count: u64
+
+    new() {
+        .count = 0
+    }
+
+    pub lossy on flush() {
+        n: u64 = consume(.count)
+    }
+}

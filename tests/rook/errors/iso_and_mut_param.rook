@@ -1,0 +1,10 @@
+// A parameter is lent as `mut` or owned as `iso`, not both.
+// error: 9:13: a parameter is lent as `mut` or owned as `iso`, not both
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f(r: mut iso Reading) {
+}
