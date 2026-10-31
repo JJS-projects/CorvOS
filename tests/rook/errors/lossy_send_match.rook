@@ -1,0 +1,14 @@
+// A send to a `lossy` handler returns nothing, so there is nothing to match.
+// error: 10:16: there is nothing to match: this call returns no value
+
+actor Sink {
+    pub lossy on take(n: u64) {
+    }
+}
+
+fn f(sink: Sink) {
+    match sink.take(1) {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(0)
+    }
+}

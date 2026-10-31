@@ -610,7 +610,9 @@ class Gen:
 
     def send(self, e):
         """`raven_send(target, handler number, a0, a1, a2, a3)`: Raven puts the
-        message in the target's mailbox, or drops it if the mailbox is full."""
+        message in the target's mailbox, or drops it if the mailbox is full. A
+        `reliable` handler calls `raven_send_reliable` instead, which writes
+        a `Sent` to the address in x8 rather than dropping."""
         self.expr(e.obj)
         self.push()
         for arg in e.args:
@@ -622,7 +624,12 @@ class Gen:
         self.emit(f"mov x1, #{e.handler_index}")
         for i in range(len(e.args), 4):
             self.emit(f"mov x{i + 2}, #0")
-        self.emit("bl raven_send")
+        if e.sig.decl.handler == "reliable":
+            self.region_addr(e.temp, e.ty.words, "x8")
+            self.emit("bl raven_send_reliable")
+            self.region_addr(e.temp, e.ty.words)
+        else:
+            self.emit("bl raven_send")
 
     def call(self, symbol, receiver, args, ret, temp):
         """Call a function or method. Struct arguments are passed by address."""

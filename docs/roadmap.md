@@ -88,7 +88,7 @@ that PC.
 
 1. *Actors that run* (3a, done): `actor`, `new`, `lossy` handlers, `spawn`, `self`,
    sends; mailboxes, run queue and `run_until_idle` in Raven.
-2. Reliable sends and `MailboxFull` (3b).
+2. *Reliable sends* (3b, done): `reliable on` handlers; a send to one returns `Sent` (`Delivered` or `MailboxFull`).
 3. Interfaces and `narrow` (3c).
 4. A polling UART actor, a harness that feeds QEMU serial input, two actors
    echoing it, and the cost per send measured (3d).

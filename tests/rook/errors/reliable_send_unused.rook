@@ -1,0 +1,12 @@
+// A send to a `reliable` handler returns `Sent`; ignoring it takes `discard`.
+// error: 11:5: the result of `take` is unused; write `discard take(...)` to ignore it on purpose
+
+actor Sink {
+    pub reliable on take(n: u64) {
+    }
+}
+
+fn f() {
+    sink: Sink = spawn Sink()
+    sink.take(1)
+}

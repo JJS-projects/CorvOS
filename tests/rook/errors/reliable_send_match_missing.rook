@@ -1,0 +1,13 @@
+// A `match` on a `Sent` lists both variants.
+// error: 10:5: this `match` is missing `MailboxFull`
+
+actor Sink {
+    pub reliable on take(n: u64) {
+    }
+}
+
+fn f(sink: Sink) {
+    match sink.take(1) {
+        Delivered => print_u64(1)
+    }
+}
