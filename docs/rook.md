@@ -618,9 +618,9 @@ building an `iso` then freezing it into a `val` covers `trn`.
 
 ### 7.1 Ownership in practice
 
-*Step 4a (decisions 135 to 137) builds `consume`, `iso` parameters and fields, and the
-move checking, in the compiler only. Messages that carry structs (4b) and `freeze`
-(4c) are still to come; section 11.12 says what is accepted today.*
+*Steps 4a and 4b (decisions 135 to 140) build `consume`, `iso` parameters and fields,
+the move checking, and messages that carry structs and enums. `freeze` (4c) is still to
+come; sections 11.12 and 11.13 say what is accepted today.*
 
 - `consume(x)` moves `x`; the compiler forbids using `x` afterwards.
 - `freeze(x)`, where `x` is `iso T`, takes it like `consume` and returns it as
@@ -732,6 +732,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 | Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
 | Ownership (4a) | `consume`, `iso` parameters and fields, move checking; no run-time change | done |
+| Ownership (4b) | handlers take `iso` and `val` structs and enums; up to 8 words are copied into the message | done |
 | Reliable sends (3b) | `reliable on` handlers; a send to one returns `Sent` | done |
 | Interfaces (3c) | `interface`, `actor Name: Interface`, `narrow(x, Interface)` (not generic) | done |
 | The echo demo (3d) | see the roadmap | planned |
@@ -875,8 +876,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   of arena is a panic.
 - **Panics.** A panic in a handler reports its line and halts the whole system, as
   any panic does for now; restarting just the actor's domain waits for milestone 7.
-- **Known gaps.** No `Main`, `Boot`, ownership (`iso`, `val`),
-  or messages that carry structs.
+- **Known gaps.** No `Main`, `Boot`, `freeze` (section 11.13).
 
 ### 11.7 Rules settled while building reliable sends (step 3b)
 
@@ -973,9 +973,8 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **`iso`** (owned, the only reference) is written on an actor's field or a function's
   parameter of struct or enum type: `mut latest: iso Reading`, `fn keep(r: iso Reading)`.
   A plain local is owned without a word; a bare parameter is a read-only lend (unchanged).
-  A `new` parameter may be `iso` (or `val`). On a handler parameter `iso` is an error
-  until messages carry structs (step 4b), and on a local, a number, or a `mut` parameter
-  it is an error.
+  A `new` parameter or a handler parameter may be `iso` (or `val`, section 11.13). On a
+  local, a number, or a `mut` parameter it is an error.
 - **`consume(x)`** gives away an owned variable (a local, or an `iso` parameter) or a
   `mut iso` field of the actor. It is a new value nothing else holds, so it can be
   assigned, returned, or passed to an `iso` parameter. Not a lent parameter, a `val`
@@ -992,9 +991,31 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **An `iso` parameter takes ownership**: the argument is a new value, `consume(x)` or
   `copy(x)` (the error names both when `consume` would be allowed). `consume(x)` to a
   parameter that only borrows is an error.
-- **Messages copy small data** (decision 135, built in 4b): a struct up to about 8 words is
-  copied into the mailbox slot; a pool comes with `freeze`.
+- **Messages copy small data** (decision 135, built in 4b, section 11.13).
 - **No run-time cost or change.** `consume(x)` generates no code beyond reading `x`.
+
+### 11.13 Rules settled while building messages that carry data (step 4b)
+
+- **A handler parameter of struct or enum type** says `iso` (owned) or `val` (read-only);
+  a bare one is an error. At most 4 parameters and **8 words** in all (a struct counts as
+  its size; a number, bool or reference as one); more is a compile error that says how
+  many.
+- **The sender** gives an `iso` parameter a new value, `consume(x)` or `copy(x)`. A `val`
+  parameter takes read-only data: a `val` field, a `val` parameter, or text in quotes
+  (a constant of text too). An owned value can't be passed as `val` until `freeze` exists
+  (step 4c). Interfaces say `iso`/`val` too, and an implementing handler must match.
+- **A refused send has still consumed the value** (decision 138): `consume(r)` into a full
+  mailbox returns `MailboxFull` (or drops, for `lossy`) and `r` is gone. To keep the right
+  to retry, send `copy(r)`.
+- **How it works.** The compiler lays the arguments out as words in the sender's frame (a
+  struct or enum copied in); `raven_send(target, handler, payload, words)` copies them into
+  a 9-word mailbox slot. Before a handler runs, Raven copies the payload into a message
+  buffer, so a send from inside the handler can't overwrite it; the dispatcher gives each
+  number its word and each struct or enum the address of its words in the buffer (as a lent
+  struct is passed). A mailbox is now about 1.1 KB (was 0.7 KB), so the 64 KB arena holds
+  fewer actors.
+- **An `iso` or `val` parameter is read-only in the handler** (copy it into a `mut` variable
+  to change it); an `iso` one can be consumed, for example into an `iso` field.
 
 ## 12. Open questions
 
