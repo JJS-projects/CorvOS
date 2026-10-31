@@ -1,0 +1,15 @@
+// `narrow` takes a reference and an interface.
+// error: 14:23: expected `,` and the interface, found `)`
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+    lossy on put(n: u64) {
+    }
+}
+
+fn f(p: Plain) {
+    s: Sink = narrow(p)
+}

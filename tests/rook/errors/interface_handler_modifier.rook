@@ -1,0 +1,6 @@
+// Every handler in an interface is `lossy` or `reliable`.
+// error: 5:5: a handler is `lossy` or `reliable`: write one of them before `on`
+
+interface Sink {
+    on put(n: u64)
+}

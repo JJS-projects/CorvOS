@@ -53,3 +53,11 @@ actor Vault {
     pub lossy on peek() {
     }
 }
+
+pub interface Latch {
+    lossy on shut()
+}
+
+interface Hidden {
+    lossy on poke()
+}

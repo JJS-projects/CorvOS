@@ -1,0 +1,10 @@
+// A constant can't narrow a reference.
+// error: 10:16: constants can't narrow references
+
+actor Plain: Sink {
+}
+
+interface Sink {
+}
+
+HANDLE: Sink = narrow(spawn Plain(), Sink)

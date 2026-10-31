@@ -1,0 +1,5 @@
+// Interface names are CamelCase.
+// error: 4:1: interface names are CamelCase, like `Point`: `sink`
+
+interface sink {
+}

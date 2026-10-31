@@ -115,9 +115,6 @@ class InterfaceType(ActorType):
         super().__init__(name, decl)
         self.is_interface = True
 
-    def __repr__(self):
-        return f"InterfaceType({self.name})"
-
 
 class Variant:
     def __init__(self, name, tag, enum, pos):

@@ -1,0 +1,11 @@
+// An interface is listed once.
+// error: 8:20: `Plain` already implements `Sink`
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink, Sink {
+    lossy on put(n: u64) {
+    }
+}

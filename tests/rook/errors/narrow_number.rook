@@ -1,0 +1,10 @@
+// `narrow` works on actor references.
+// error: 9:22: `narrow` works on actor references, not u64
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+fn f(n: u64) {
+    s: Sink = narrow(n, Sink)
+}

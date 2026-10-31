@@ -1,0 +1,6 @@
+// An interface's handlers are not marked `pub`.
+// error: 5:5: an interface's handlers are not marked `pub`: anything that holds the interface can send them
+
+interface Sink {
+    pub lossy on put(n: u64)
+}

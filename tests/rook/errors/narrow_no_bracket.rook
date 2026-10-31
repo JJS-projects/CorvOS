@@ -1,0 +1,12 @@
+// `narrow` is written with brackets.
+// error: 11:22: write `narrow(reference, Interface)`
+
+interface Sink {
+}
+
+actor Plain: Sink {
+}
+
+fn f(p: Plain) {
+    s: Sink = narrow p
+}

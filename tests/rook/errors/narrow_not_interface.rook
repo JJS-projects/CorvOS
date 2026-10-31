@@ -1,0 +1,9 @@
+// `narrow` to an actor, not an interface.
+// error: 8:26: `Plain` is not an interface
+
+actor Plain {
+}
+
+fn f(p: Plain) {
+    s: Plain = narrow(p, Plain)
+}

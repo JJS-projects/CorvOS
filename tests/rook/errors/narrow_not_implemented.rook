@@ -1,0 +1,13 @@
+// `narrow` needs the actor to say it implements the interface.
+// error: 12:22: `Plain` doesn't implement `Sink`: declare it as `actor Plain: Sink`
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain {
+}
+
+fn f(p: Plain) {
+    s: Sink = narrow(p, Sink)
+}

@@ -1,0 +1,7 @@
+// An interface declares each handler once.
+// error: 6:11: `Sink` already has a handler `put`
+
+interface Sink {
+    lossy on put(n: u64)
+    lossy on put(n: bool)
+}

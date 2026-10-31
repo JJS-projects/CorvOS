@@ -1,0 +1,9 @@
+// An actor implements interfaces, not structs.
+// error: 8:14: `Point` is not an interface
+
+struct Point {
+    x: u64
+}
+
+actor Plain: Point {
+}

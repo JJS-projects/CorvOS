@@ -1,0 +1,11 @@
+// An implementing handler declares the same `lossy` or `reliable` as the interface.
+// error: 9:14: `Sink` declares `put` as `lossy`, so `Plain` must too
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+    reliable on put(n: u64) {
+    }
+}

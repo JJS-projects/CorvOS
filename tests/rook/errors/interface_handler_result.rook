@@ -1,0 +1,6 @@
+// A handler has no result, in an interface as in an actor.
+// error: 5:26: a handler has no result: to answer, send a message to a reference you were given
+
+interface Sink {
+    lossy on put(n: u64) -> u64
+}

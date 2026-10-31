@@ -1,0 +1,5 @@
+// A `pub` interface is usable from another file.
+// error: 4:14: `Plain` implements `Latch`, so it needs a handler `shut`
+
+actor Plain: Latch {
+}

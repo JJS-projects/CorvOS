@@ -1,0 +1,9 @@
+// `narrow` to a name that is nothing.
+// error: 8:26: unknown interface `Nope`
+
+actor Plain {
+}
+
+fn f(p: Plain) {
+    s: Plain = narrow(p, Nope)
+}

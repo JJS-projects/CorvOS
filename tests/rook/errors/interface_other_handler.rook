@@ -1,0 +1,18 @@
+// Through an interface, only its own handlers can be sent.
+// error: 17:7: `Sink` has no handler `secret`
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+    lossy on put(n: u64) {
+    }
+
+    pub lossy on secret() {
+    }
+}
+
+fn f(s: Sink) {
+    s.secret()
+}

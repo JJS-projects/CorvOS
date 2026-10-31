@@ -1,0 +1,18 @@
+// An actor reference is not accepted where an interface is expected: it must be narrowed.
+// error: 17:10: expected Sink, found Plain: hand out only what the interface allows with `narrow(..., Sink)`
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+    lossy on put(n: u64) {
+    }
+}
+
+fn take(s: Sink) {
+}
+
+fn f(p: Plain) {
+    take(p)
+}
