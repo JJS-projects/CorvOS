@@ -1,0 +1,28 @@
+// `run_until_idle` returns once an interrupt has been delivered and its handler has
+// run: the interrupt is not left pending to be delivered again for ever.
+// input: hello
+// expect: 1
+
+actor Drain: Interrupt {
+    console: val Pl011
+
+    new(console: val Pl011, irq: val Irq) {
+        .console = console
+        console.listen()
+        irq.route(narrow(self, Interrupt))
+    }
+
+    lossy on fired() {
+        draining: loop .console.has_byte() {
+            discard .console.take()
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    drain: Drain = spawn Drain(console, make_irq(peripherals, 57))
+    wait_ms(500)                        // the input arrives and the interrupt fires
+    run_until_idle()                    // delivers it, the handler reads the bytes
+    print_u64(1)
+}

@@ -26,7 +26,10 @@ Four kinds of test:
              has printed `Raven: running Rook test`, and pass when the program has
              written a line "hello" back, even if test_main never returns (a
              polling driver doesn't). At most 15 bytes, so the UART's FIFO holds
-             them. Not run against a real board: this harness doesn't type into one.
+             them. Several pairs are typed one after another: each `input:` after the
+             first is typed once the line before it has come back. `input:` alone
+             types and expects nothing back (test_main must return). Not run against
+             a real board: this harness doesn't type into one.
 
   error/...  Programs in tests/rook/errors/*.rook (or errors/trusted/, compiled
              as trusted) that Fledgling must reject:
@@ -149,8 +152,8 @@ def boot(image, finished, timeout, machine, log_path, feed=None):
     (the default), QEMU's serial port on a pseudo-terminal read like a real
     port ("pty"), or a real serial port on a board (a device path).
 
-    `feed`, if given, is typed into the program's serial input once the program
-    has started (FEED_AFTER has been printed).
+    `feed`, if given, is a list of (bytes to type, line to wait for before typing
+    the next): see Typist.
     """
     if SERIAL not in ("stdio", "pty"):
         return read_board(finished, timeout)
@@ -184,7 +187,7 @@ def boot(image, finished, timeout, machine, log_path, feed=None):
                 type_in = lambda data: os.write(port, data)
             else:
                 type_in = lambda data: (proc.stdin.write(data), proc.stdin.flush())
-            typer = (feed, type_in)
+            typer = Typist(feed, type_in)
         output, timed_out = read_until(sel, finished, timeout, proc, typer)
         return output, timed_out, read_qemu_log(proc, log_path)
     finally:
@@ -207,16 +210,35 @@ def read_board(finished, timeout):
         os.close(port)
 
 
+class Typist:
+    """Types a test program's input: the first part once the program has started
+    (FEED_AFTER has been printed), each later part once the line that followed the
+    one before has come back."""
+
+    def __init__(self, parts, send):
+        self.parts, self.send, self.next = parts, send, 0
+
+    def poll(self, output):
+        if self.next >= len(self.parts):
+            return
+        if self.next == 0:
+            ready = FEED_AFTER in output
+        else:
+            ready = self.parts[self.next - 1][1] in complete_lines(output)
+        if ready:
+            self.send(self.parts[self.next][0])
+            self.next += 1
+
+
 def read_until(sel, finished, timeout, proc, typer=None):
     """Collect output from `sel` until `finished(lines)`, the timeout, or the
-    process (if any) ends. Returns (output, timed_out). `typer` is (bytes,
-    function): the bytes are passed to the function once, when the program starts."""
+    process (if any) ends. Returns (output, timed_out). `typer` types the program's
+    input as it goes (see Typist)."""
     output = ""
     deadline = time.monotonic() + timeout
     while True:
-        if typer and FEED_AFTER in output:
-            typer[1](typer[0])
-            typer = None
+        if typer:
+            typer.poll(output)
         if finished(complete_lines(output)):
             # Catch anything printed straight afterwards.
             return output + read_available(sel, 0.2), False
@@ -384,8 +406,8 @@ class RookTest:
     expect_qemu_log: list = field(default_factory=list)
     expect_fault: str = None
     machines: list = None           # None: every machine in MACHINES
-    input: str = None               # typed (with a newline) into the serial input
-    expect_echo: str = None         # a line the program must write back
+    input: list = field(default_factory=list)        # typed (with a newline) into the input
+    expect_echo: list = field(default_factory=list)  # lines the program must write back
     timeout: float = 10.0
 
     @classmethod
@@ -393,7 +415,7 @@ class RookTest:
         rel = os.path.relpath(path, os.path.join(ROOT, "tests", "rook"))
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
-        fault, machines, typed, echo = None, None, None, None
+        fault, machines, typed, echo = None, None, [], []
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -410,9 +432,9 @@ class RookTest:
             elif text.startswith("expect-qemu-log:"):
                 qemu_log.append(text[len("expect-qemu-log:"):].strip())
             elif text.startswith("input:"):
-                typed = text[len("input:"):].strip()
+                typed.append(text[len("input:"):].strip())
             elif text.startswith("expect-echo:"):
-                echo = text[len("expect-echo:"):].strip()
+                echo.append(text[len("expect-echo:"):].strip())
             elif not description:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
@@ -426,15 +448,18 @@ class RookTest:
         if not board_mode() and not os.path.exists(image):
             return False, missing_image(image)
 
-        if board_mode() and self.input is not None:
+        if board_mode() and self.input:
             return True, "skipped: input is not typed into a board", ""
 
         def finished(lines):
             return any(l.startswith((DONE, PANIC)) or "unhandled exception" in l
-                       or (self.expect_echo is not None and self.expect_echo in lines)
+                       or (self.expect_echo and all(e in lines for e in self.expect_echo))
                        for l in lines)
 
-        typed = None if self.input is None else (self.input + "\n").encode()
+        # Each part is typed with a newline; the line to wait for before the next part
+        # is the echo that goes with it (or none, if the test expects no echoes).
+        typed = [((text + "\n").encode(), self.expect_echo[i] if i < len(self.expect_echo) else "")
+                 for i, text in enumerate(self.input)]
         output, timed_out, qemu_log = boot(image, finished, self.timeout, machine,
                                            log_base(self.name, machine) + ".qemu", typed)
         save_log(self.name, machine, output, qemu_log)
@@ -463,11 +488,12 @@ class RookTest:
                 return False, f"expected a panic ({self.expect_panic!r}), but none happened", output
             if panics[0] != self.expect_panic:
                 return False, f"expected panic {self.expect_panic!r}, got {panics[0]!r}", output
-        elif self.expect_echo is not None:
+        elif self.expect_echo:
             if panics:
                 return False, f"unexpected panic: {panics[0]!r}", output
-            if self.expect_echo not in lines:
-                return False, f"expected the program to write back {self.expect_echo!r}", output
+            for echo in self.expect_echo:
+                if echo not in lines:
+                    return False, f"expected the program to write back {echo!r}", output
         else:
             if panics:
                 return False, f"unexpected panic: {panics[0]!r}", output
@@ -686,8 +712,8 @@ def check_echo_expectations():
         return None
     path = os.path.join(ROOT, "tests", "rook", "echo_demo.rook")
     wrong = {
-        "an echo that is not what was typed": dict(expect_echo="goodbye"),
-        "no input typed": dict(input=None),
+        "an echo that is not what was typed": dict(expect_echo=["goodbye"]),
+        "no input typed": dict(input=[]),
     }
     for what, change in wrong.items():
         test = RookTest.from_file(path)
@@ -697,6 +723,55 @@ def check_echo_expectations():
         if test.run()[0]:
             return f"passed with {what}"
     return None
+
+
+def thread_ticks(pid):
+    """CPU time, user plus system, of each thread of a process, in clock ticks."""
+    ticks = {}
+    for task in os.listdir(f"/proc/{pid}/task"):
+        try:
+            with open(f"/proc/{pid}/task/{task}/stat") as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+        except OSError:
+            continue
+        ticks[task] = int(fields[11]) + int(fields[12])
+    return ticks
+
+
+def check_idle_sleeps():
+    """A core with nothing to run sleeps (`wfi`) instead of spinning. Boots the
+    interrupt echo, which idles in `run_forever`, and counts QEMU's busy threads. Cores
+    1 to 3 are parked with `wfe`, which QEMU spins on (one busy thread each), so a
+    sleeping core 0 leaves exactly three; a spinning one makes four."""
+    if board_mode():
+        return None
+    image = os.path.join(ROOT, "build", "rook-tests", "echo_interrupt.img")
+    if not os.path.exists(image):
+        return missing_image(image)
+    cmd = [QEMU, "-M", MACHINES[0], "-kernel", image, "-display", "none",
+           "-serial", "stdio", "-monitor", "none"]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
+    try:
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stdout, selectors.EVENT_READ)
+        seen, deadline = "", time.monotonic() + 10
+        while FEED_AFTER not in seen and time.monotonic() < deadline:
+            seen += read_available(sel, 0.2)
+        if FEED_AFTER not in seen:
+            return "the test program did not start"
+        time.sleep(0.5)                              # let it reach its idle loop
+        before = thread_ticks(proc.pid)
+        time.sleep(2.0)
+        after = thread_ticks(proc.pid)
+        busy = sum(1 for t, n in after.items()
+                   if (n - before.get(t, 0)) / os.sysconf("SC_CLK_TCK") > 1.5)
+        if busy > 3:
+            return f"{busy} QEMU threads were busy for 2 s; core 0 is not sleeping"
+        return None
+    finally:
+        proc.kill()
+        proc.wait()
 
 
 def check_wrong_expectations_fail():
@@ -725,6 +800,8 @@ HARNESS_TESTS = [
                 "expectation fails", check_wrong_expectations_fail),
     HarnessTest("harness/echo_expectations", "A Rook test that expects an echo fails unless the "
                 "typed line comes back", check_echo_expectations),
+    HarnessTest("harness/idle_sleeps", "A core with nothing to run sleeps instead of spinning",
+                check_idle_sleeps),
     HarnessTest("harness/serial_pty", "Output is read from QEMU's serial port on a pty, as a "
                 "board's will be", check_serial_pty),
     HarnessTest("harness/serial_raw", "A serial port is read raw: no byte is changed",

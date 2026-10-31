@@ -4,3 +4,7 @@
 pub extern fn print_u64(x: u64)
 pub extern fn print_i64(x: i64)
 pub extern fn print_bool(b: bool)
+
+/// Spins with known values in registers while the UART's interrupt is taken, and says
+/// whether the interrupt code gave them back (kernel/test/print.s).
+pub extern fn probe_irq_registers() -> bool

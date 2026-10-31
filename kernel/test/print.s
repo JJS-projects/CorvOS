@@ -66,3 +66,47 @@ msg_out:     .asciz "out: "
 msg_newline: .asciz "\n"
 msg_true:    .asciz "true\n"
 msg_false:   .asciz "false\n"
+
+    .section .text
+
+// bool probe_irq_registers(void): switches on the UART's interrupt line (57), then
+// spins with known values in x0-x3 and says whether they are still there. The test
+// that calls it has typed input and asked the UART for an interrupt, so one is taken
+// during the spin: the interrupt code has to give the registers back (vectors.s).
+    .global probe_irq_registers
+probe_irq_registers:
+    stp     x29, x30, [sp, #-16]!
+    mov     x0, #57
+    bl      irq_enable_source
+    mov     w0, #0x1111
+    movk    w0, #0x1111, lsl #16
+    mov     w1, #0x2222
+    movk    w1, #0x2222, lsl #16
+    mov     w2, #0x3333
+    movk    w2, #0x3333, lsl #16
+    mov     w3, #0x4444
+    movk    w3, #0x4444, lsl #16
+    mov     x4, #20000
+1:  subs    x4, x4, #1
+    b.ne    1b
+    mov     w5, #0x1111
+    movk    w5, #0x1111, lsl #16
+    cmp     x0, x5
+    b.ne    2f
+    mov     w5, #0x2222
+    movk    w5, #0x2222, lsl #16
+    cmp     x1, x5
+    b.ne    2f
+    mov     w5, #0x3333
+    movk    w5, #0x3333, lsl #16
+    cmp     x2, x5
+    b.ne    2f
+    mov     w5, #0x4444
+    movk    w5, #0x4444, lsl #16
+    cmp     x3, x5
+    b.ne    2f
+    mov     x0, #1
+    b       3f
+2:  mov     x0, #0
+3:  ldp     x29, x30, [sp], #16
+    ret
