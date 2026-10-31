@@ -229,6 +229,25 @@ Erlang-style supervision trees. Supervisors are actors that hold references to t
 children and restart them (at domain granularity) when they fail. This is how the
 fault-tolerance claim will be tested.
 
+How failure and ending look to other actors (decisions 117 to 120):
+
+- **A reference names a place, not an instance.** After a restart, references others
+  hold reach the new instance, so clients that keep no state in the server carry on
+  with no recovery code. The new instance starts from `new`; its mailbox starts empty
+  and counts as full while it starts.
+- **`watch` is how a client that does keep state finds out.** Raven sends it
+  `restarted()` once the new instance is ready, and it rebuilds what the restart
+  lost. Forgetting to `watch` is silent; the compiler cannot know.
+- **Actors end explicitly.** An actor can `stop()` itself, and the actor that spawned
+  one holds the authority to stop it: an authority of its own, separate from the
+  send-only reference, so no holder of a reference can kill an actor (Erlang's `exit`
+  by process id is exactly that ambient authority). Actors are never collected
+  automatically: counting every reference would add a hidden cost to every send
+  (principle 8), make freeing unpredictable (principle 9), and needs a cycle-handling
+  protocol in the kernel (principle 7).
+- A supervisor is an ordinary actor built from these pieces. How its restart policy
+  is written is decided at milestone 7.
+
 ## 8. Prior art
 
 - **Singularity / Midori** (Microsoft): safe-language OS, typed channels between processes.
@@ -236,6 +255,13 @@ fault-tolerance claim will be tested.
 - **Pony**: reference capabilities, data-race freedom at compile time.
 - **seL4**: capability microkernel, formally verified.
 - **E language / object capabilities literature**: attenuation and revocation via proxies.
+- **Akka, Pony, Orleans, Aether** (surveyed for how an actor ends, decision 119):
+  Akka stops actors explicitly (`context.stop`, `PoisonPill`); Pony collects dead
+  actors automatically with a reference-counting protocol; Orleans' virtual actors
+  always exist logically and the runtime activates and deactivates them; Aether is
+  an early-stage actor language that compiles to C, ends actors explicitly (a
+  `kill(ref)` works from anywhere), and restarts a child under the same handle its
+  clients hold, as decision 117 does.
 
 ## 9. Open questions
 
@@ -255,6 +281,14 @@ fault-tolerance claim will be tested.
   each interrupt; how a ring wakes its reader (an inter-core interrupt or `sev`);
   how supervision works across cores. Each is decided when milestone 6 needs it.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
+- **How Rook asks for a separate domain** (decision 116): decide at milestone 6, with
+  the question below. The leaning is `separate` on an actor that needs its own
+  domain, `spawn separate` at the spawn, and a compile error where they disagree.
+- **The form of the stop authority** that `spawn` gives its caller (decision 119), and
+  whether stopping an actor stops the actors it spawned. Decide at milestone 6 or 7,
+  when a program first needs an actor per request.
+- **How a supervisor's restart policy is written** (retry limits, what to restart
+  together). Decide at milestone 7.
 - **Visible cost of cross-domain sends** (principle 8): a send to an actor in
   another domain copies the message, while an identical-looking send within a
   domain doesn't. Should the difference show in the code? A send to another core is a
