@@ -1,0 +1,12 @@
+// `consume` takes a variable, not an expression.
+// error: 11:18: `consume` gives away a whole variable or an actor's `mut iso` field, nothing else
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f() {
+    r: Reading = Reading(temp: 1, seq: 1)
+    t: Reading = consume(copy(r))
+}

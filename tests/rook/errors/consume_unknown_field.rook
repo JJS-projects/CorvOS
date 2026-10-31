@@ -1,0 +1,19 @@
+// Consuming a field the actor doesn't have.
+// error: 17:34: `Holder` has no field `nothing`
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    mut latest: iso Reading
+
+    new() {
+        .latest = Reading(temp: 0, seq: 0)
+    }
+
+    pub lossy on flush() {
+        gone: Reading = consume(.nothing)
+    }
+}

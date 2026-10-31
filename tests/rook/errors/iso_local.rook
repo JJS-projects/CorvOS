@@ -1,0 +1,11 @@
+// `iso` goes only on fields and parameters: a local is owned without saying so.
+// error: 10:8: `iso` goes only on an actor's fields and on parameters
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f() {
+    r: iso Reading = Reading(temp: 1, seq: 1)
+}

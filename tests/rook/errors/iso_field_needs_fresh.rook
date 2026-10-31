@@ -1,0 +1,15 @@
+// An `iso` field is set from a new value or `consume(x)`, not from a name that is still used.
+// error: 13:19: `.latest` would be a copy of `r`; write `copy(r)` to copy it, or `consume(r)` to give it away
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    mut latest: iso Reading
+
+    new(r: iso Reading) {
+        .latest = r
+    }
+}

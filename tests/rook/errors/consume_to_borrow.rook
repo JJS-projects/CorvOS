@@ -1,0 +1,15 @@
+// Giving a variable away to a parameter that only borrows is an error.
+// error: 14:10: `look` only borrows this argument, so there is nothing to give away: pass it as it is
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn look(r: Reading) {
+}
+
+fn f() {
+    r: Reading = Reading(temp: 1, seq: 1)
+    look(consume(r))
+}

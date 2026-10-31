@@ -1,0 +1,4 @@
+// A constant can't consume.
+// error: 4:10: constants can't consume
+
+X: u64 = consume(1)

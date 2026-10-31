@@ -1,0 +1,16 @@
+// Consumed before a `break`, the variable is gone after the loop.
+// error: 15:12: `r` was consumed at 12:25, so it has no value here; assign it again first
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f() -> u32 {
+    r: Reading = Reading(temp: 1, seq: 1)
+    out: loop i: u64 in 0..3 {
+        gone: Reading = consume(r)
+        break out
+    }
+    return r.seq
+}

@@ -1,0 +1,11 @@
+// A parameter that is only lent isn't the callee's to consume.
+// error: 10:29: `r` is only lent to this function, so it isn't yours to consume; the parameter would have to be `iso`
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f(r: Reading) {
+    gone: Reading = consume(r)
+}

@@ -1,0 +1,18 @@
+// Consumed in one arm of a `match`, it is gone after it.
+// error: 17:12: `r` was consumed at 13:29, so it has no value here; assign it again first
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn f(n: u8) -> u32 {
+    r: Reading = Reading(temp: 1, seq: 1)
+    match n {
+        0 => {
+            gone: Reading = consume(r)
+        }
+        else => { }
+    }
+    return r.seq
+}

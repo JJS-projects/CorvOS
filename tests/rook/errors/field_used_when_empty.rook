@@ -1,0 +1,21 @@
+// A consumed field can't be read until it is assigned again.
+// error: 18:20: `.latest` was consumed at 17:25, so it has no value here; assign it again first
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    mut latest: iso Reading
+
+    new() {
+        .latest = Reading(temp: 0, seq: 0)
+    }
+
+    pub lossy on flush() {
+        gone: Reading = consume(.latest)
+        print_i64(.latest.temp as i64)
+        .latest = Reading(temp: 0, seq: 0)
+    }
+}

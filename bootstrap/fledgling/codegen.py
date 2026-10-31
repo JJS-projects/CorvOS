@@ -445,6 +445,9 @@ class Gen:
             self.struct_lit(e)
         elif isinstance(e, S.MethodCall):
             self.method_call(e)
+        elif isinstance(e, S.Consume):
+            self.addr(e.value)                      # the same storage, which is now the
+                                                    # receiver's: nothing is copied here
         elif isinstance(e, S.Copy):
             self.addr(e.value)
             self.region_addr(e.temp, e.ty.words, "x1")

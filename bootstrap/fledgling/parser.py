@@ -212,7 +212,8 @@ class Parser:
                     mutable = True
                 ftok = self.expect("ident", "a field name")
                 self.expect(":", "`:` and the field's type")
-                field = S.Field(ftok.text, self.type_ref(allow_val=True), ftok.pos, member_public,
+                field = S.Field(ftok.text, self.type_ref(allow_val=True, allow_iso=True), ftok.pos,
+                                member_public,
                                 mutable)
                 fields.append(field)
                 self.end_statement()
@@ -301,8 +302,8 @@ class Parser:
         while not self.at(")"):
             ptok = self.expect("ident", "parameter name")
             self.expect(":")
-            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True, allow_val=True),
-                                  ptok.pos))
+            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True, allow_val=True,
+                                                           allow_iso=True), ptok.pos))
             if not self.at(")"):
                 self.expect(",", "`,` or `)`")
         self.expect(")")
@@ -377,7 +378,7 @@ class Parser:
         while not self.at(")"):
             ptok = self.expect("ident", "parameter name")
             self.expect(":")
-            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True), ptok.pos))
+            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True, allow_iso=True), ptok.pos))
             if not self.at(")"):
                 self.expect(",", "`,` or `)`")
         self.expect(")")
@@ -408,12 +409,21 @@ class Parser:
         self.end_statement()
         return S.ConstDecl(name.text, ty, value, name.pos, public)
 
-    def type_ref(self, allow_mut=False, allow_val=False):
+    def type_ref(self, allow_mut=False, allow_val=False, allow_iso=False):
         if (allow_val and self.at("ident") and self.peek().text == "val"
                 and self.peek(1).kind == "ident"):
             self.advance()
             tok = self.expect("ident", "a type")
             return S.TypeRef(tok.text, tok.pos, val=True)
+        if (allow_iso and self.at("ident") and self.peek().text == "iso"
+                and self.peek(1).kind == "ident"):
+            self.advance()
+            tok = self.expect("ident", "a type")
+            return S.TypeRef(tok.text, tok.pos, iso=True)
+        if (not allow_iso and self.at("ident") and self.peek().text == "iso"
+                and self.peek(1).kind == "ident"):
+            raise CompileError(
+                "`iso` goes only on an actor's fields and on parameters", self.peek().pos)
         if (not allow_val and self.at("ident") and self.peek().text == "val"
                 and self.peek(1).kind == "ident"):
             raise CompileError(
@@ -426,6 +436,9 @@ class Parser:
                     "`mut` goes before the name, as in `mut count: u64 = 0`", self.peek().pos)
             self.advance()
             mut = True
+            if self.at("ident") and self.peek().text == "iso" and self.peek(1).kind == "ident":
+                raise CompileError("a parameter is lent as `mut` or owned as `iso`, not both",
+                                   self.peek().pos)
         tok = self.expect("ident", "a type")
         return S.TypeRef(tok.text, tok.pos, mut)
 
@@ -762,6 +775,14 @@ class Parser:
             itok = self.expect("ident", "an interface name")
             self.expect(")")
             return S.Narrow(tok.pos, value, itok.text, itok.pos)
+        if tok.kind == "consume":
+            self.advance()
+            if not self.at("("):
+                raise CompileError("write `consume(variable)`", self.peek().pos)
+            self.advance()
+            value = self.expr()
+            self.expect(")")
+            return S.Consume(tok.pos, value)
         if tok.kind == "copy":
             self.advance()
             if not self.at("("):

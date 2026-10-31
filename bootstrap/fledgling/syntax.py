@@ -15,6 +15,7 @@ class TypeRef:
     pos: Pos
     mut: bool = False           # `mut T` on a parameter: lent so it can be changed
     val: bool = False           # `val T` on an actor's field or `new` parameter: read-only data
+    iso: bool = False           # `iso T` on an actor's field or a parameter: owned, the only reference
 
 
 # ---- expressions -------------------------------------------------------
@@ -145,6 +146,13 @@ class Spawn(Expr):
         self.actor = None       # set by checker: the ActorType
         self.sig = None         # set by checker: the signature of `new`, or None
         self.temp = None        # set by checker: frame slot holding the new reference
+
+
+@dataclass
+class Consume(Expr):
+    """`consume(x)`: gives `x` away. Its value is a new value that nothing else holds,
+    and `x` can't be used until it is assigned again."""
+    value: Expr
 
 
 @dataclass

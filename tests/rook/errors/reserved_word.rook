@@ -1,5 +1,5 @@
 // Words reserved for later milestones are rejected with a clear message.
-// error: 4:1: `consume` is reserved for a later milestone
+// error: 4:1: `import` is reserved for a later milestone
 
-consume Counter {
+import Counter {
 }

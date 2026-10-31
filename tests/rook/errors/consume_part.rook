@@ -1,0 +1,17 @@
+// `consume` takes a whole variable, not part of one.
+// error: 16:18: `consume` gives away a whole variable or an actor's `mut iso` field, nothing else
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+struct Twin {
+    first: Reading
+    second: Reading
+}
+
+fn f() {
+    p: Twin = Twin(first: Reading(temp: 1, seq: 1), second: Reading(temp: 2, seq: 2))
+    t: Reading = consume(p.first)
+}

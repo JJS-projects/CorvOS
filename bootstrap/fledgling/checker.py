@@ -87,8 +87,9 @@ def check(program):
 
 
 class Local:
-    def __init__(self, name, ty, mutable, slot, kind):
+    def __init__(self, name, ty, mutable, slot, kind, owned=False):
         self.name, self.ty, self.mutable, self.slot, self.kind = name, ty, mutable, slot, kind
+        self.owned = owned      # an `iso` parameter: not a borrow, so it can be consumed
 
 
 class FnSig:
@@ -118,6 +119,10 @@ class Checker:
         self.handler_numbers = {}  # handler name -> its number in messages
         self.in_new = False      # checking an actor's `new`
         self.assigned = set()    # fields `new` has set so far
+        self.moved = {}          # consumed places -> Pos of the `consume`; a place is a Local
+                                 # (variable) or ".field" (an actor's `iso` field)
+        self.break_states = []   # per enclosing loop: the moved states at its `break`s
+        self.loop_entries = []   # per enclosing loop: (moved at entry, locals outside it)
 
     # ---- top level -----------------------------------------------------
 
@@ -241,15 +246,21 @@ class Checker:
             if f.type.val and not is_aggregate(ty):
                 raise CompileError(
                     f"`val` is for structs and enums; {ty} is already a plain value", f.type.pos)
+            if f.type.iso and not is_aggregate(ty):
+                raise CompileError(
+                    f"`iso` is for structs and enums; {ty} is already a plain value", f.type.pos)
             if f.type.val and f.mutable:
                 raise CompileError("a `val` field is read-only, so it can't be `mut`", f.pos)
-            if is_aggregate(ty) and not f.type.val:
+            if is_aggregate(ty) and not (f.type.val or f.type.iso):
                 raise CompileError(
-                    f"an actor's field holds a number, a bool, a reference, or read-only data "
-                    f"written `val {ty}`, not a bare {ty}", f.type.pos)
+                    f"an actor's field holds a number, a bool, a reference, owned data "
+                    f"written `iso {ty}`, or read-only data written `val {ty}`, not a bare {ty}",
+                    f.type.pos)
             actor.fields.append((f.name, ty))
             if f.type.val:
                 actor.val_fields.add(f.name)
+            if f.type.iso:
+                actor.iso_fields.add(f.name)
             if f.mutable:
                 actor.mut_fields.add(f.name)
         if decl.fields and decl.new is None:
@@ -330,9 +341,16 @@ class Checker:
             if p.type.val and not is_aggregate(ty):
                 raise CompileError(
                     f"`val` is for structs and enums; {ty} is already a plain value", p.type.pos)
-            if what == "`new`" and p.type.val:
-                params.append((ty, False))          # read-only data, copied into a field
+            if p.type.iso and not is_aggregate(ty):
+                raise CompileError(
+                    f"`iso` is for structs and enums; {ty} is already a plain value", p.type.pos)
+            if what == "`new`" and (p.type.val or p.type.iso):
+                params.append((ty, False))          # data handed to the new actor
                 continue
+            if p.type.iso:
+                raise CompileError(
+                    f"a message can't carry `iso` data yet: that is the next step of "
+                    f"ownership (decision 114); only `new` takes it", p.type.pos)
             if p.type.val:
                 raise CompileError(
                     f"a message can't carry `val` data yet: that waits for the ownership "
@@ -416,7 +434,11 @@ class Checker:
         params = []
         for p in decl.params:
             require_snake(p.name, "parameter", p.pos)
-            params.append((self.resolve_type(p.type), p.type.mut))
+            ty = self.resolve_type(p.type)
+            if p.type.iso and not is_aggregate(ty):
+                raise CompileError(
+                    f"`iso` is for structs and enums; {ty} is already a plain value", p.type.pos)
+            params.append((ty, p.type.mut))
         limit = 7 if owner else 8
         if len(params) > limit:
             raise CompileError(f"Fledgling supports at most {limit} parameters here", decl.pos)
@@ -433,6 +455,7 @@ class Checker:
         self.in_new = is_actor(sig.owner) and decl.name == "new"
         self.assigned = set()
         self.locked = {}
+        self.moved, self.break_states, self.loop_entries = {}, [], []
         self.unsafe_depth = 0
         self.enter_file(decl)
         if sig.owner:
@@ -444,8 +467,11 @@ class Checker:
                 raise CompileError(f"duplicate parameter `{param.name}`", param.pos)
             param.ty = ty
             kind = "ref" if is_mut or is_aggregate(ty) else "value"
-            param.slot = self.new_local(param.name, ty, is_mut, kind, pos=param.pos)
+            param.slot = self.new_local(param.name, ty, is_mut, kind, pos=param.pos,
+                                        owned=param.type.iso)
         returns = self.block(decl.body)
+        if not block_diverges(decl.body):
+            self.require_fields_back()
         if sig.ret != UNIT and not returns:
             raise CompileError(
                 f"`{decl.name}` must return a {sig.ret} on every path", decl.pos)
@@ -463,7 +489,7 @@ class Checker:
         self.nslots += n
         return slot
 
-    def new_local(self, name, ty, mutable, kind="value", pos=None):
+    def new_local(self, name, ty, mutable, kind="value", pos=None, owned=False):
         # No shadowing (principle 4): a name means one thing wherever it's visible.
         if pos is not None:
             if self.lookup(name) is not None:
@@ -474,7 +500,7 @@ class Checker:
             if name in BUILTINS:
                 raise CompileError(f"`{name}` is built in; choose another name", pos)
         slot = self.alloc(words(ty) if kind == "region" else 1)
-        self.scopes[-1][name] = Local(name, ty, mutable, slot, kind)
+        self.scopes[-1][name] = Local(name, ty, mutable, slot, kind, owned)
         return slot
 
     def lookup(self, name):
@@ -513,7 +539,12 @@ class Checker:
                 if s.target.ident in self.consts:
                     raise CompileError(f"can't assign to constant `{s.target.ident}`", s.target.pos)
                 raise CompileError(f"unknown variable `{s.target.ident}`", s.target.pos)
+            # Assigning to a consumed place gives it a value again, so it is not a use.
+            key = self.moved_key(s.target)
+            was = self.moved.pop(key, None) if key is not None else None
             target_ty = self.expr(s.target)
+            if was is not None:
+                self.moved[key] = was
             self.require_mutable(s.target, s.pos)
             if s.op != "=":
                 if not is_int(target_ty):
@@ -523,6 +554,8 @@ class Checker:
             self.expr(s.value, target_ty)
             if is_aggregate(target_ty):
                 self.require_fresh(s.value, describe_place(s.target))
+            if key is not None:
+                self.moved.pop(key, None)
             return False
 
         if isinstance(s, S.ExprStmt):
@@ -544,13 +577,21 @@ class Checker:
 
         if isinstance(s, S.If):
             self.expr(s.cond, BOOL)
+            before = dict(self.moved)
             then_returns = self.block(s.then)
+            ends = [self.moved] if not block_diverges(s.then) else []
+            self.moved = dict(before)
             if s.else_ is None:
+                ends.append(self.moved)
+                self.moved = merge_moved(ends, before)
                 return False
             if isinstance(s.else_, S.If):
                 else_returns = self.stmt(s.else_)
             else:
                 else_returns = self.block(s.else_)
+            if not diverges(s.else_):
+                ends.append(self.moved)
+            self.moved = merge_moved(ends, before)
             return then_returns and else_returns
 
         if isinstance(s, S.Loop):
@@ -558,7 +599,9 @@ class Checker:
             if s.cond is not None:
                 self.expr(s.cond, BOOL)
             self.loops.append(s.label)
+            self.enter_loop()
             self.block(s.body)
+            self.leave_loop(s.body)
             self.loops.pop()
             # `loop { }` (or `loop true`) that nothing breaks out of never falls through.
             forever = s.cond is None or (isinstance(s.cond, S.BoolLit) and s.cond.value)
@@ -577,7 +620,9 @@ class Checker:
             s.end_slot = self.new_local(" end", ty, mutable=False)
             s.slot = self.new_local(s.var, ty, mutable=False, pos=s.pos)
             self.loops.append(s.label)
+            self.enter_loop()
             self.block(s.body)
+            self.leave_loop(s.body)
             self.loops.pop()
             self.scopes.pop()
             return False
@@ -585,14 +630,19 @@ class Checker:
         if isinstance(s, S.Match):
             self.match_patterns(s)
             always_returns = True
+            before, ends = dict(self.moved), []
             for arm in s.arms:
+                self.moved = dict(before)
                 unlock = self.enter_arm(s, arm)
                 if isinstance(arm.body, S.Block):
                     returns = self.block(arm.body)
                 else:
                     returns = self.stmt(arm.body)
                 self.exit_arm(unlock)
+                if not diverges(arm.body):
+                    ends.append(self.moved)
                 always_returns = always_returns and returns
+            self.moved = merge_moved(ends, before)
             # Every value is matched by some arm, so if each arm returns, so does the match.
             return always_returns
 
@@ -615,6 +665,11 @@ class Checker:
                     raise CompileError(f"`{word}` outside a loop", s.pos)
                 raise CompileError(f"`{word} {s.label}`: no enclosing loop is named `{s.label}`",
                                    s.pos)
+            at = self.loops.index(s.label)
+            if isinstance(s, S.Break):
+                self.break_states[at].append(dict(self.moved))
+            else:
+                self.require_loop_ready(at)
             return False
 
         if isinstance(s, S.Return):
@@ -629,9 +684,10 @@ class Checker:
                 self.expr(s.value, self.fn.ret)
                 if is_aggregate(self.fn.ret):
                     local = getattr(s.value, "local", None) if isinstance(s.value, S.Name) else None
-                    owned_local = local is not None and local.kind == "region"
+                    owned_local = local is not None and (local.kind == "region" or local.owned)
                     if not owned_local:
                         self.require_fresh(s.value, "the result")
+            self.require_fields_back()
             return True
 
         raise AssertionError(f"unknown statement {s!r}")
@@ -670,6 +726,7 @@ class Checker:
         if isinstance(e, S.Name):
             local = self.lookup(e.ident) if self.scopes else None
             if local is not None:
+                self.require_not_consumed(local, e.ident, e.pos)
                 e.slot = local.slot
                 e.local = local
                 return local.ty
@@ -748,7 +805,7 @@ class Checker:
             if self.fn is None:
                 raise CompileError("constants can't call functions", e.pos)
             self.require_visible(sig.decl, e.callee, e.pos)
-            self.check_args(f"`{e.callee}`", sig.params, e.args, e.pos)
+            self.check_args(f"`{e.callee}`", sig.params, e.args, e.pos, sig=sig)
             if is_aggregate(sig.ret):
                 e.temp = self.alloc(sig.ret.words)
             return sig.ret
@@ -794,6 +851,7 @@ class Checker:
                     raise CompileError(f"`{st.name}` has no field `{e.field}`", e.pos)
                 if self.in_new and e.field not in self.assigned:
                     raise CompileError(f"`.{e.field}` is read before `new` sets it", e.pos)
+                self.require_not_consumed("." + e.field, "." + e.field, e.pos)
                 e.struct = st
                 return st.offset(e.field)[1]
             if is_enum(st):
@@ -834,10 +892,13 @@ class Checker:
             # `.m()` inside a method acts on the method's own struct ("self").
             receiver = e.obj if e.obj is not None else S.FieldAccess(e.pos, None, "")
             self.check_args(f"`{st.name}.{e.name}`", sig.params, e.args, e.pos,
-                            receiver=receiver, receiver_mut=sig.mutating)
+                            receiver=receiver, receiver_mut=sig.mutating, sig=sig)
             if is_aggregate(sig.ret):
                 e.temp = self.alloc(sig.ret.words)
             return sig.ret
+
+        if isinstance(e, S.Consume):
+            return self.consume(e)
 
         if isinstance(e, S.Copy):
             ty = self.expr(e.value)
@@ -903,7 +964,8 @@ class Checker:
                 raise CompileError(f"unknown actor `{e.name}`", e.pos)
             self.require_visible(actor.decl, actor.name, e.pos)
             sig = actor.new_sig
-            self.check_args(f"`spawn {e.name}`", sig.params if sig else [], e.args, e.pos)
+            self.check_args(f"`spawn {e.name}`", sig.params if sig else [], e.args, e.pos,
+                            sig=sig)
             e.actor, e.sig = actor, sig
             e.temp = self.alloc(1)
             return actor
@@ -1211,14 +1273,25 @@ class Checker:
             raise CompileError(f"{ty} has no field or method `{what}`", e.pos)
         return ty
 
-    def check_args(self, callee, params, args, pos, receiver=None, receiver_mut=False):
+    def check_args(self, callee, params, args, pos, receiver=None, receiver_mut=False,
+                   sig=None):
         if len(args) != len(params):
             raise CompileError(f"{callee} takes {len(params)} argument(s), but {len(args)} given",
                                pos)
         lent = []                       # (root name, is_mut, pos) of structs lent by reference
         if receiver is not None and root_name(receiver) is not None:
             lent.append((root_name(receiver), receiver_mut, receiver.pos))
-        for arg, (pty, is_mut) in zip(args, params):
+        owned = [p.type.iso for p in sig.decl.params] if sig is not None else []
+        owned += [False] * (len(params) - len(owned))
+        for arg, (pty, is_mut), takes in zip(args, params, owned):
+            if isinstance(arg, S.Consume) and not takes:
+                raise CompileError(
+                    f"{callee} only borrows this argument, so there is nothing to give away: "
+                    f"pass it as it is", arg.pos)
+            if takes:
+                self.expr(arg, pty)
+                self.require_fresh(arg, f"giving it to {callee}")
+                continue
             if is_mut:
                 if not isinstance(arg, S.MutArg):
                     raise CompileError(
@@ -1262,6 +1335,8 @@ class Checker:
         s.target.struct = actor
         s.target.ty = fty
         self.expr(s.value, fty)
+        if name in actor.iso_fields:
+            self.require_fresh(s.value, f"`.{name}`")
         self.assigned.add(name)
         return False
 
@@ -1304,12 +1379,121 @@ class Checker:
             return
         raise CompileError(f"can only {action} a variable or a field", pos)
 
+    # ---- consuming and moved places ------------------------------------
+
+    def moved_key(self, place):
+        """What `consume` would record for `place`: its Local, or ".field" for an
+        actor's field; None for anything else."""
+        if isinstance(place, S.Name) and self.scopes:
+            return self.lookup(place.ident)
+        if (isinstance(place, S.FieldAccess) and place.obj is None and self.receiver is not None
+                and is_actor(self.receiver[0])):
+            return "." + place.field
+        return None
+
+    def require_not_consumed(self, key, name, pos):
+        at = self.moved.get(key)
+        if at is not None:
+            raise CompileError(
+                f"`{name}` was consumed at {at.line}:{at.col}, so it has no value here; "
+                f"assign it again first", pos)
+
+    def require_fields_back(self):
+        """An actor's `iso` field a handler consumed must have a value again before
+        the handler ends."""
+        for key, at in self.moved.items():
+            if isinstance(key, str):
+                raise CompileError(
+                    f"`{key}` is consumed here and not assigned again before the handler "
+                    f"ends", at)
+
+    def enter_loop(self):
+        outside = {local for scope in self.scopes for local in scope.values()}
+        self.loop_entries.append((dict(self.moved), outside))
+        self.break_states.append([])
+
+    def require_loop_ready(self, depth):
+        """What the next turn of loop number `depth` would use must still have its value."""
+        before, outside = self.loop_entries[depth]
+        for key, at in self.moved.items():
+            if key in before:
+                continue
+            if isinstance(key, str) or key in outside:
+                name = key if isinstance(key, str) else key.name
+                raise CompileError(
+                    f"`{name}` is consumed here, inside a loop, but the next turn needs it: "
+                    f"assign it again before the end of the loop", at)
+
+    def leave_loop(self, body):
+        before, _ = self.loop_entries[-1]
+        if not block_diverges(body):
+            self.require_loop_ready(len(self.loop_entries) - 1)
+        breaks = self.break_states.pop()
+        self.loop_entries.pop()
+        self.moved = merge_moved(breaks + [before], before)
+
+    def consume(self, e):
+        if self.fn is None:
+            raise CompileError("constants can't consume", e.pos)
+        place = e.value
+        if self.in_new:
+            raise CompileError("`new` gives every field its first value; there is nothing "
+                               "to consume yet", e.pos)
+        if isinstance(place, S.Name) and self.scopes and self.lookup(place.ident) is not None:
+            local = self.lookup(place.ident)
+            if not is_aggregate(local.ty):
+                raise CompileError(
+                    f"{local.ty} values are always copied; `consume(...)` is for structs "
+                    f"and enums", place.pos)
+            if local.kind != "region" and not local.owned:
+                raise CompileError(
+                    f"`{place.ident}` is only lent to this function, so it isn't yours to "
+                    f"consume; the parameter would have to be `iso`", place.pos)
+        elif (isinstance(place, S.FieldAccess) and place.obj is None and self.receiver is not None
+              and is_actor(self.receiver[0])):
+            actor = self.receiver[0]
+            if not any(n == place.field for n, _ in actor.fields):
+                raise CompileError(f"`{actor.name}` has no field `{place.field}`", place.pos)
+            if place.field in actor.val_fields:
+                raise CompileError(f"`.{place.field}` is `val`: read-only data is never "
+                                   f"consumed", place.pos)
+            if not is_aggregate(actor.offset(place.field)[1]):
+                raise CompileError(
+                    f"{actor.offset(place.field)[1]} values are always copied; "
+                    f"`consume(...)` is for structs and enums", place.pos)
+            if place.field not in actor.mut_fields:
+                raise CompileError(
+                    f"can't consume `.{place.field}`: the field isn't `mut`", place.pos)
+        else:
+            raise CompileError(
+                "`consume` gives away a whole variable or an actor's `mut iso` field, "
+                "nothing else", e.pos)
+        ty = self.expr(place)
+        self.require_unlocked(root_name(place), "consume", source_text(place), e.pos)
+        self.moved[self.moved_key(place)] = e.pos
+        return ty
+
+    def movable(self, e):
+        """Could `consume(e)` be written? An owned variable, or a `mut iso` field."""
+        if isinstance(e, S.Name) and self.scopes:
+            local = self.lookup(e.ident)
+            return local is not None and is_aggregate(local.ty) and (
+                local.kind == "region" or local.owned)
+        if (isinstance(e, S.FieldAccess) and e.obj is None and self.receiver is not None
+                and is_actor(self.receiver[0])):
+            actor = self.receiver[0]
+            return e.field in actor.iso_fields and e.field in actor.mut_fields
+        return False
+
     def require_fresh(self, e, what):
         """A struct value can be stored only if nothing else holds it."""
         if not is_fresh(e):
+            name = source_text(e)
+            movable = self.movable(e)
             raise CompileError(
-                f"{what} would be a copy of {describe_place(e)}; write `copy({source_text(e)})` "
-                f"to copy it", e.pos)
+                f"{what} would be a copy of {describe_place(e)}; write `copy({name})` "
+                f"to copy it" + (f", or `consume({name})` to give it away" if movable else ""),
+                e.pos)
 
     def same_type_pair(self, a, b, hint, what):
         """Check two expressions that must share a type. The one that isn't a
@@ -1457,7 +1641,7 @@ def untyped_literal(e):
 
 def is_fresh(e):
     """Is `e` a new struct or enum value that nothing else holds?"""
-    if isinstance(e, (S.StructLit, S.Call, S.MethodCall, S.Copy, S.StrLit)):
+    if isinstance(e, (S.StructLit, S.Call, S.MethodCall, S.Copy, S.Consume, S.StrLit)):
         return True
     if isinstance(e, S.Name):
         return e.variant is not None or e.const_str is not None     # `Idle`, `HELLO`
@@ -1466,6 +1650,40 @@ def is_fresh(e):
     if isinstance(e, S.MatchExpr):
         return all(is_fresh(arm.body) for arm in e.arms if isinstance(arm.body, S.Expr))
     return False
+
+
+def diverges(st):
+    """Does control never continue past statement `st` (it returns, breaks, continues
+    or panics)?"""
+    if isinstance(st, (S.Return, S.Break, S.Continue)):
+        return True
+    if isinstance(st, S.ExprStmt):
+        return isinstance(st.expr, S.Call) and st.expr.callee == "panic"
+    if isinstance(st, S.Block):
+        return block_diverges(st)
+    if isinstance(st, S.If):
+        return (st.else_ is not None and block_diverges(st.then)
+                and diverges(st.else_))
+    if isinstance(st, S.Match):
+        return all(diverges(arm.body) for arm in st.arms)
+    if isinstance(st, S.Unsafe):
+        return block_diverges(st.body)
+    return False
+
+
+def block_diverges(block):
+    return any(diverges(st) for st in block.stmts)
+
+
+def merge_moved(states, before):
+    """The consumed places after paths join: consumed on any of them. With no path
+    left (all returned or broke out), nothing after matters, so `before` stands."""
+    if not states:
+        return dict(before)
+    merged = {}
+    for state in states:
+        merged.update(state)
+    return merged
 
 
 def root_name(e):

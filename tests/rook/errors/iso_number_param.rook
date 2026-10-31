@@ -1,0 +1,5 @@
+// `iso` is for structs and enums.
+// error: 4:13: `iso` is for structs and enums; u64 is already a plain value
+
+fn f(n: iso u64) {
+}

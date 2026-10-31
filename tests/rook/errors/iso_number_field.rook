@@ -1,0 +1,10 @@
+// `iso` is for structs and enums.
+// error: 5:12: `iso` is for structs and enums; u64 is already a plain value
+
+actor Holder {
+    n: iso u64
+
+    new() {
+        .n = 0
+    }
+}

@@ -1,0 +1,60 @@
+// Consuming on one path of an `if` is fine if the variable has its value again before
+// it is used; in a loop it is fine if each turn gives it back. Breaking out of a loop
+// after consuming is fine if the variable is not used afterwards.
+// expect: 11
+// expect: 10
+// expect: 13
+// expect: 4
+// expect: 3
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+fn pick(flag: bool) -> u32 {
+    mut r: Reading = Reading(temp: 1, seq: 10)
+    if flag {
+        gone: Reading = consume(r)
+        r = Reading(temp: 2, seq: gone.seq + 1)     // assigned again on this path
+    }
+    return r.seq
+}
+
+fn grow() -> u32 {
+    mut r: Reading = Reading(temp: 1, seq: 10)
+    growing: loop i: u64 in 0..3 {
+        old: Reading = consume(r)
+        r = Reading(temp: old.temp, seq: old.seq + 1)   // given back every turn
+    }
+    return r.seq
+}
+
+fn search() -> u32 {
+    r: Reading = Reading(temp: 4, seq: 0)
+    looking: loop i: u64 in 0..10 {
+        if i == 2 {
+            moved: Reading = consume(r)
+            return moved.seq + 4                    // r is never used again
+        }
+    }
+    return 0
+}
+
+fn spent() -> u32 {
+    r: Reading = Reading(temp: 1, seq: 1)
+    moved: Reading = consume(r)         // r stays consumed through the loop, which never uses it
+    mut total: u32 = 0
+    counting: loop i: u64 in 0..3 {
+        total += 1
+    }
+    return total
+}
+
+fn test_main() {
+    print_u64(pick(true) as u64)        // 10 + 1
+    print_u64(pick(false) as u64)       // untouched: 10
+    print_u64(grow() as u64)            // 10 + 3
+    print_u64(search() as u64)          // 4
+    print_u64(spent() as u64)           // 3
+}

@@ -1,0 +1,23 @@
+// A `return` with a field consumed ends the handler with it empty.
+// error: 17:25: `.latest` is consumed here and not assigned again before the handler ends
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    mut latest: iso Reading
+
+    new() {
+        .latest = Reading(temp: 0, seq: 0)
+    }
+
+    pub lossy on flush(flag: bool) {
+        gone: Reading = consume(.latest)
+        if flag {
+            return
+        }
+        .latest = Reading(temp: 0, seq: 0)
+    }
+}
