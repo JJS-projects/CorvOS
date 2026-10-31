@@ -89,11 +89,17 @@ class ActorType:
         self.decl = decl
         self.fields = []            # [(name, type)]
         self.mut_fields = set()     # fields that handlers may change
+        self.val_fields = set()     # read-only data held by value (`val T`)
         self.public_fields = set()  # always empty: an actor's fields are private
         self.methods = {}           # handler name -> signature, in declaration order
         self.new_sig = None         # signature of `new`, or None
         self.is_interface = False
         self.implements = []        # [InterfaceType] the actor declares it implements
+
+    @property
+    def words(self):
+        """Size of the actor's fields in 8-byte words."""
+        return sum(words(ty) for _, ty in self.fields)
 
     def offset(self, field):
         """Offset of `field` in words from the actor's reference, and its type."""

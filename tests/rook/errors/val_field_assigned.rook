@@ -1,0 +1,23 @@
+// A `val` field can't be replaced after `new`.
+// error: 21:12: can't assign to `.w`: it is `val`, read-only data
+
+struct Window {
+    start: u64
+    size: u64
+
+    mut fn grow() {
+        .size += 1
+    }
+}
+
+actor Holder {
+    w: val Window
+
+    new(w: val Window) {
+        .w = w
+    }
+
+    pub lossy on reset() {
+        .w = Window(start: 0, size: 0)
+    }
+}

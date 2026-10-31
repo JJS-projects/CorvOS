@@ -1,0 +1,19 @@
+// A `val` field is read-only, so it is never `mut`.
+// error: 14:9: a `val` field is read-only, so it can't be `mut`
+
+struct Window {
+    start: u64
+    size: u64
+
+    mut fn grow() {
+        .size += 1
+    }
+}
+
+actor Holder {
+    mut w: val Window
+
+    new(w: val Window) {
+        .w = w
+    }
+}

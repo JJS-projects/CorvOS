@@ -1,0 +1,7 @@
+// A `new` parameter that is a number is not `val`.
+// error: 5:16: `val` is for structs and enums; u64 is already a plain value
+
+actor Holder {
+    new(n: val u64) {
+    }
+}

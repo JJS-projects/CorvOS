@@ -1,0 +1,19 @@
+// `val` is for structs and enums, not numbers.
+// error: 14:12: `val` is for structs and enums; u64 is already a plain value
+
+struct Window {
+    start: u64
+    size: u64
+
+    mut fn grow() {
+        .size += 1
+    }
+}
+
+actor Holder {
+    n: val u64
+
+    new(n: u64) {
+        .n = n
+    }
+}

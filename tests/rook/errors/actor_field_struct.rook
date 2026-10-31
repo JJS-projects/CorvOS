@@ -1,5 +1,5 @@
-// An actor's fields hold numbers, bools and actor references for now.
-// error: 9:12: an actor's field holds a number, a bool or an actor reference for now, not Point
+// An actor's field holds a struct only as read-only data, written `val`.
+// error: 9:12: an actor's field holds a number, a bool, a reference, or read-only data written `val Point`, not a bare Point
 
 struct Point {
     x: u64

@@ -1,0 +1,16 @@
+// `new` takes a struct as read-only data, written `val`.
+// error: 14:12: a message carries numbers, bools and actor references for now, not Window; `new` takes read-only data written `val`
+
+struct Window {
+    start: u64
+    size: u64
+
+    mut fn grow() {
+        .size += 1
+    }
+}
+
+actor Holder {
+    new(w: Window) {
+    }
+}
