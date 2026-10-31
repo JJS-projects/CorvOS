@@ -1,0 +1,5 @@
+// Actor names are CamelCase.
+// error: 4:1: actor names are CamelCase, like `Point`: `counter`
+
+actor counter {
+}

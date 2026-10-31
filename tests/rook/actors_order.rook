@@ -1,0 +1,34 @@
+// Runnable actors take turns, one message each, and the messages from one
+// sender to one receiver arrive in the order sent (decision 122).
+// expect: 101
+// expect: 201
+// expect: 102
+// expect: 202
+// expect: 103
+// expect: 203
+// expect: 104
+
+actor Tagged {
+    id: u64
+
+    new(id: u64) {
+        .id = id
+    }
+
+    pub lossy on note(n: u64) {
+        print_u64(.id * 100 + n)
+    }
+}
+
+fn test_main() {
+    first: Tagged = spawn Tagged(1)
+    second: Tagged = spawn Tagged(2)
+    first.note(1)
+    first.note(2)
+    first.note(3)
+    first.note(4)
+    second.note(1)
+    second.note(2)
+    second.note(3)
+    run_until_idle()
+}

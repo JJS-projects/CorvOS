@@ -79,6 +79,31 @@ class StructType(AggregateType):
         return field_offset(self.fields, field)
 
 
+class ActorType:
+    """A reference to an actor: one word, copied freely, good only for sending it
+    messages. The type also describes the actor's fields (private to its own
+    code) and its handlers. Compared by identity, like structs."""
+
+    def __init__(self, name, decl):
+        self.name = name
+        self.decl = decl
+        self.fields = []            # [(name, type)]
+        self.mut_fields = set()     # fields that handlers may change
+        self.public_fields = set()  # always empty: an actor's fields are private
+        self.methods = {}           # handler name -> signature, in declaration order
+        self.new_sig = None         # signature of `new`, or None
+
+    def offset(self, field):
+        """Offset of `field` in words from the actor's reference, and its type."""
+        return field_offset(self.fields, field)
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return f"ActorType({self.name})"
+
+
 class Variant:
     def __init__(self, name, tag, enum, pos):
         self.name, self.tag, self.enum, self.pos = name, tag, enum, pos
@@ -123,6 +148,10 @@ def is_struct(ty):
 
 def is_enum(ty):
     return isinstance(ty, EnumType)
+
+
+def is_actor(ty):
+    return isinstance(ty, ActorType)
 
 
 def is_int(ty):

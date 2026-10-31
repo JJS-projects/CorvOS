@@ -1,0 +1,11 @@
+// `new` can only set fields the actor has.
+// error: 9:10: `Counter` has no field `z`
+
+actor Counter {
+    a: u64
+
+    new() {
+        .a = 1
+        .z = 2
+    }
+}

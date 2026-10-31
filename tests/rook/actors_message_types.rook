@@ -1,0 +1,39 @@
+// A message carries numbers of any width and sign, bools and actor references,
+// and all four of its words arrive in order with their values.
+// expect: -5
+// expect: 250
+// expect: 60000
+// expect: 4000000000
+// expect: true
+// expect: -123456789
+// expect: 7
+
+actor Reader {
+    pub lossy on small(a: i8, b: u8, c: u16, d: u32) {
+        print_i64(a as i64)
+        print_u64(b as u64)
+        print_u64(c as u64)
+        print_u64(d as u64)
+    }
+
+    pub lossy on flag(f: bool) {
+        print_bool(f)
+    }
+
+    pub lossy on wide(n: i32, other: Reader) {
+        print_i64(n as i64)
+        other.last(7)
+    }
+
+    pub lossy on last(n: u64) {
+        print_u64(n)
+    }
+}
+
+fn test_main() {
+    reader: Reader = spawn Reader()
+    reader.small(-5, 250, 60000, 4000000000)
+    reader.flag(true)
+    reader.wide(-123456789, reader)
+    run_until_idle()
+}

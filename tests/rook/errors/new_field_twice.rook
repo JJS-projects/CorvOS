@@ -1,0 +1,11 @@
+// `new` sets each field once.
+// error: 9:12: `.a` is already set: `new` sets each field once
+
+actor Counter {
+    a: u64
+
+    new() {
+        .a = 1
+        .a = 2
+    }
+}

@@ -1,0 +1,7 @@
+// `new` isn't `pub`: only `spawn` runs it.
+// error: 5:9: `new` is not marked `pub`: it runs when the actor is spawned
+
+actor Counter {
+    pub new() {
+    }
+}

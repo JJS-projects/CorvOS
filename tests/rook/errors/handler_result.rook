@@ -1,0 +1,8 @@
+// A handler has no result: an answer is a message to a reference.
+// error: 5:26: a handler has no result: to answer, send a message to a reference you were given
+
+actor Counter {
+    lossy on add(n: u64) -> u64 {
+        return n
+    }
+}

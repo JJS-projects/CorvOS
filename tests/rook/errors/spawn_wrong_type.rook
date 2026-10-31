@@ -1,0 +1,20 @@
+// `spawn` gives a reference to the actor, not a number.
+// error: 19:14: expected u64, found Counter
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f() {
+    x: u64 = spawn Counter(1)
+}

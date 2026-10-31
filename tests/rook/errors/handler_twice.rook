@@ -1,0 +1,10 @@
+// An actor has one handler of each name.
+// error: 8:11: `Counter` already has a handler `add`
+
+actor Counter {
+    lossy on add() {
+    }
+
+    lossy on add() {
+    }
+}

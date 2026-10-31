@@ -1,0 +1,26 @@
+// An actor keeps its own state and handles one message at a time. A send only
+// queues the message: the handler runs when the scheduler does.
+// expect: 0
+// expect: 5
+// expect: 12
+
+actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    pub lossy on add(n: u64) {
+        .total += n
+        print_u64(.total)
+    }
+}
+
+fn test_main() {
+    counter: Counter = spawn Counter(2)
+    counter.add(3)
+    counter.add(7)
+    print_u64(0)                // nothing has run yet
+    run_until_idle()
+}

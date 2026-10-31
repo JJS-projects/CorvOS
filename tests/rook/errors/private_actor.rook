@@ -1,0 +1,6 @@
+// Without `pub`, an actor can only be used in its own file.
+// error: 5:8: `Vault` is private to visibility.rook; mark it `pub` to use it in another file
+
+fn f() {
+    v: Vault = spawn Vault()
+}

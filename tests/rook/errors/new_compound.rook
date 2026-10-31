@@ -1,0 +1,10 @@
+// `new` sets a field with `=`, not `+=`: there is nothing to add to yet.
+// error: 8:12: `new` sets each field once, with `=`
+
+actor Counter {
+    a: u64
+
+    new() {
+        .a += 1
+    }
+}

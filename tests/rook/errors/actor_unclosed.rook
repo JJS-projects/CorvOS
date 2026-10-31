@@ -1,0 +1,6 @@
+// An actor that never closes is reported where it opened.
+// error: 4:1: unclosed `{`
+
+actor Counter {
+    lossy on add() {
+    }

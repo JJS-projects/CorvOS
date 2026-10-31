@@ -1,0 +1,144 @@
+// Raven's actors, on one core: where they live, their mailboxes, and the
+// scheduler. Fledgling compiles `spawn` and every send into calls to
+// `raven_spawn_actor` and `raven_send` here; the scheduler runs one message at
+// a time through the dispatcher Fledgling generates for each actor.
+//
+// Everything lives in one fixed arena (kernel/arch/aarch64/actors.s), so this
+// code keeps no global variables: Raven's own tables are at the start of the
+// arena. Actors are never freed (decision 119).
+//
+// An actor's memory, in 8-byte words, with its reference pointing at the fields:
+//     [ header: 8 ][ mailbox: 16 slots of 5 ][ the actor's fields ... ]
+// A slot holds a handler number and up to four argument words.
+
+ACTOR_HEADER_WORDS: u64 = 8
+ACTOR_SLOTS: u64 = 16               // messages one mailbox holds (decision 113, g)
+ACTOR_SLOT_WORDS: u64 = 5
+ACTOR_BEFORE_FIELDS: u64 = (ACTOR_HEADER_WORDS + ACTOR_SLOTS * ACTOR_SLOT_WORDS) * 8
+
+// Header, as byte offsets from the start of the actor's memory.
+ACTOR_H_DISPATCHER: u64 = 0         // address of its dispatcher
+ACTOR_H_FIRST: u64 = 8              // slot of the oldest message
+ACTOR_H_COUNT: u64 = 16             // messages waiting
+ACTOR_H_QUEUED: u64 = 24            // 1 if it is in the run queue
+
+// Raven's tables, as byte offsets from the start of the arena.
+ACTOR_S_NEXT: u64 = 0               // next free byte (0 until the first spawn)
+ACTOR_S_RUNQ_FIRST: u64 = 8
+ACTOR_S_RUNQ_COUNT: u64 = 16
+ACTOR_S_DROPPED: u64 = 24           // messages dropped because a mailbox was full
+ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
+ACTOR_RUNQ_SLOTS: u64 = 128
+ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
+
+/// Makes room for an actor with `fields` words of fields and returns its
+/// reference. `dispatcher` is the address of the actor's dispatcher.
+pub fn raven_spawn_actor(fields: u64, dispatcher: u64) -> u64 {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        mut rt_next: u64 = load64(rt_base + ACTOR_S_NEXT)
+        if rt_next == 0 {
+            rt_next = rt_base + ACTOR_FIRST_ACTOR
+        }
+        rt_size: u64 = ACTOR_BEFORE_FIELDS + fields * 8
+        if rt_next + rt_size > actor_arena_limit() {
+            panic("out of memory for actors")
+        }
+        store64(rt_base + ACTOR_S_NEXT, rt_next + rt_size)
+        store64(rt_next + ACTOR_H_DISPATCHER, dispatcher)
+        return rt_next + ACTOR_BEFORE_FIELDS
+    }
+}
+
+/// Sends a message to `target`: puts it in the mailbox, or drops it if the
+/// mailbox is full. Used by every send of a `lossy` handler.
+pub fn raven_send(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64) {
+    rt_base: u64 = actor_arena_base()
+    rt_header: u64 = target - ACTOR_BEFORE_FIELDS
+    unsafe {
+        rt_count: u64 = load64(rt_header + ACTOR_H_COUNT)
+        if rt_count == ACTOR_SLOTS {
+            store64(rt_base + ACTOR_S_DROPPED, load64(rt_base + ACTOR_S_DROPPED) + 1)
+            return
+        }
+        rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
+        rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 +
+                       ((rt_first + rt_count) % ACTOR_SLOTS) * ACTOR_SLOT_WORDS * 8
+        store64(rt_slot, handler)
+        store64(rt_slot + 8, a0)
+        store64(rt_slot + 16, a1)
+        store64(rt_slot + 24, a2)
+        store64(rt_slot + 32, a3)
+        store64(rt_header + ACTOR_H_COUNT, rt_count + 1)
+        if load64(rt_header + ACTOR_H_QUEUED) == 0 {
+            store64(rt_header + ACTOR_H_QUEUED, 1)
+            run_queue_push(target)
+        }
+    }
+}
+
+/// The number of messages dropped so far because a mailbox was full.
+pub fn dropped_messages() -> u64 {
+    unsafe {
+        return load64(actor_arena_base() + ACTOR_S_DROPPED)
+    }
+}
+
+/// Runs actors until none has a message waiting. Each turn delivers one
+/// message to the actor at the front of the run queue; an actor with more
+/// waiting goes to the back (decision 122, d).
+pub fn run_until_idle() {
+    scheduling: loop actors_waiting() != 0 {
+        run_one_turn()
+    }
+}
+
+fn actors_waiting() -> u64 {
+    unsafe {
+        return load64(actor_arena_base() + ACTOR_S_RUNQ_COUNT)
+    }
+}
+
+fn run_queue_push(actor_ref: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_waiting: u64 = load64(rt_base + ACTOR_S_RUNQ_COUNT)
+        if rt_waiting == ACTOR_RUNQ_SLOTS {
+            panic("run queue full")
+        }
+        rt_front: u64 = load64(rt_base + ACTOR_S_RUNQ_FIRST)
+        store64(rt_base + ACTOR_RUNQ_OFFSET + ((rt_front + rt_waiting) % ACTOR_RUNQ_SLOTS) * 8,
+                actor_ref)
+        store64(rt_base + ACTOR_S_RUNQ_COUNT, rt_waiting + 1)
+    }
+}
+
+fn run_one_turn() {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_front: u64 = load64(rt_base + ACTOR_S_RUNQ_FIRST)
+        rt_actor: u64 = load64(rt_base + ACTOR_RUNQ_OFFSET + rt_front * 8)
+        store64(rt_base + ACTOR_S_RUNQ_FIRST, (rt_front + 1) % ACTOR_RUNQ_SLOTS)
+        store64(rt_base + ACTOR_S_RUNQ_COUNT, load64(rt_base + ACTOR_S_RUNQ_COUNT) - 1)
+
+        // Take the oldest message out of the actor's mailbox.
+        rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
+        rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
+        rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 + rt_first * ACTOR_SLOT_WORDS * 8
+        rt_handler: u64 = load64(rt_slot)
+        rt_a0: u64 = load64(rt_slot + 8)
+        rt_a1: u64 = load64(rt_slot + 16)
+        rt_a2: u64 = load64(rt_slot + 24)
+        rt_a3: u64 = load64(rt_slot + 32)
+        rt_left: u64 = load64(rt_header + ACTOR_H_COUNT) - 1
+        store64(rt_header + ACTOR_H_FIRST, (rt_first + 1) % ACTOR_SLOTS)
+        store64(rt_header + ACTOR_H_COUNT, rt_left)
+        if rt_left > 0 {
+            run_queue_push(rt_actor)
+        } else {
+            store64(rt_header + ACTOR_H_QUEUED, 0)
+        }
+        call_dispatch(load64(rt_header + ACTOR_H_DISPATCHER), rt_actor, rt_handler,
+                      rt_a0, rt_a1, rt_a2, rt_a3)
+    }
+}

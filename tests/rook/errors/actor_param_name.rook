@@ -1,0 +1,7 @@
+// A handler's parameter names are snake_case.
+// error: 5:18: parameter names are snake_case, like `n`: `N`
+
+actor Counter {
+    lossy on add(N: u64) {
+    }
+}

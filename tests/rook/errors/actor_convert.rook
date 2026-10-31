@@ -1,0 +1,20 @@
+// An actor reference is not a number.
+// error: 19:14: can't convert Counter to u64
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f(c: Counter) -> u64 {
+    return c as u64
+}

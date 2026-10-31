@@ -36,8 +36,14 @@ import re
 
 from .errors import CompileError
 from . import syntax as S
-from .rtypes import (BOOL, UNIT, U8, U64, INT_TYPES, NAMED_TYPES, EnumType, IntType, StructType,
-                     Variant, is_aggregate, is_enum, is_int, is_struct, lossless, words)
+from .rtypes import (BOOL, UNIT, U8, U64, INT_TYPES, NAMED_TYPES, ActorType, EnumType, IntType,
+                     StructType, Variant, is_actor, is_aggregate, is_enum, is_int, is_struct,
+                     lossless, words)
+
+# What a message carries in this step: numbers, bools and actor references.
+# Structs, enums and owned data wait for the ownership rules (decision 114).
+MESSAGE_PARAMS = 4          # a message holds a handler number and up to 4 words
+NEW_PARAMS = 7
 
 # Built-in functions (decision 77: built-ins that produce a value are calls with
 # reserved names). Loads and stores touch raw memory, so they are only allowed
@@ -103,6 +109,9 @@ class Checker:
         self.file = None         # the file of the code being checked
         self.trusted = False     # ... and whether it is in a trusted directory
         self.unsafe_depth = 0    # inside `unsafe { }`
+        self.actors = {}         # name -> ActorType
+        self.in_new = False      # checking an actor's `new`
+        self.assigned = set()    # fields `new` has set so far
 
     # ---- top level -----------------------------------------------------
 
@@ -123,6 +132,11 @@ class Checker:
                         self.declare_unique(vd.name, vd.pos)
                         self.variants[vd.name] = en.variants[vd.name] = Variant(
                             vd.name, tag, en, vd.pos)
+        for item in prog.items:
+            if isinstance(item, S.ActorDecl):
+                require_camel(item.name, "actor", item.pos)
+                self.declare_unique(item.name, item.pos)
+                self.actors[item.name] = item.ty = ActorType(item.name, item)
         for st in self.structs.values():
             self.enter_file(st.decl)
             st.fields = self.field_list(st.decl.fields, f"`{st.name}`")
@@ -135,6 +149,9 @@ class Checker:
                 en.variants[vd.name].fields = self.field_list(vd.fields or [], f"`{vd.name}`")
         for ty in self.aggregates():
             self.size(ty, [])
+        for actor in self.actors.values():
+            self.enter_file(actor.decl)
+            self.actor_fields(actor)
         # Signatures next, so functions and methods can call each other in any order.
         for item in prog.items:
             if isinstance(item, S.FnDecl):
@@ -157,6 +174,9 @@ class Checker:
                 if m.name in st.methods:
                     raise CompileError(f"`{st.name}` already has a method `{m.name}`", m.pos)
                 st.methods[m.name] = self.signature(m, st)
+        for actor in self.actors.values():
+            self.enter_file(actor.decl)
+            self.actor_signatures(actor)
         # Constants in order: each may use the ones before it.
         for item in prog.items:
             if isinstance(item, S.ConstDecl):
@@ -183,6 +203,72 @@ class Checker:
         for st in self.aggregates():
             for sig in st.methods.values():
                 self.function(sig)
+        for actor in self.actors.values():
+            if actor.new_sig is not None:
+                self.function(actor.new_sig)
+            for sig in actor.methods.values():
+                self.function(sig)
+
+    def actor_fields(self, actor):
+        decl = actor.decl
+        seen = set()
+        for f in decl.fields:
+            require_snake(f.name, "field", f.pos)
+            if f.name in seen:
+                raise CompileError(f"`{actor.name}` already has a field `{f.name}`", f.pos)
+            seen.add(f.name)
+            if f.public:
+                raise CompileError(
+                    "an actor's fields are private: other actors reach it with messages", f.pos)
+            ty = self.resolve_type(f.type)
+            if is_aggregate(ty):
+                raise CompileError(
+                    f"an actor's field holds a number, a bool or an actor reference for now, "
+                    f"not {ty}", f.type.pos)
+            actor.fields.append((f.name, ty))
+            if f.mutable:
+                actor.mut_fields.add(f.name)
+        if decl.fields and decl.new is None:
+            raise CompileError(
+                f"`{actor.name}` has fields, so it needs a `new` that sets them", decl.pos)
+
+    def actor_signatures(self, actor):
+        decl = actor.decl
+        if decl.new is not None:
+            decl.new.file, decl.new.trusted = decl.file, decl.trusted
+            actor.new_sig = self.actor_signature(actor, decl.new, NEW_PARAMS, "`new`")
+        for h in decl.handlers:
+            h.file, h.trusted = decl.file, decl.trusted
+            require_snake(h.name, "handler", h.pos)
+            if h.name in {name for name, _ in actor.fields}:
+                raise CompileError(f"`{h.name}` is already a field of `{actor.name}`", h.pos)
+            if h.name in actor.methods:
+                raise CompileError(f"`{actor.name}` already has a handler `{h.name}`", h.pos)
+            if h.handler == "reliable":
+                raise CompileError(
+                    "`reliable` handlers are not supported by Fledgling yet: only `lossy` "
+                    "ones, whose sends return nothing", h.pos)
+            actor.methods[h.name] = self.actor_signature(
+                actor, h, MESSAGE_PARAMS, f"handler `{h.name}`")
+
+    def actor_signature(self, actor, decl, limit, what):
+        params = []
+        for p in decl.params:
+            require_snake(p.name, "parameter", p.pos)
+            if p.type.mut:
+                raise CompileError(
+                    "a message can't carry a borrow: a `mut` parameter is lent to a call, "
+                    "not sent", p.pos)
+            ty = self.resolve_type(p.type)
+            if is_aggregate(ty):
+                raise CompileError(
+                    f"a message carries numbers, bools and actor references for now, "
+                    f"not {ty}", p.type.pos)
+            params.append((ty, False))
+        if len(params) > limit:
+            raise CompileError(
+                f"{what} takes at most {limit} parameters for now", decl.pos)
+        return FnSig(decl, params, UNIT, actor)
 
     def aggregates(self):
         return list(self.structs.values()) + list(self.enums.values())
@@ -204,12 +290,13 @@ class Checker:
             raise CompileError(
                 f"`{name}` is already a variant of `{self.variants[name].enum}`", pos)
         if (name in self.fns or name in self.consts or name in self.structs
-                or name in self.enums):
+                or name in self.enums or name in self.actors):
             raise CompileError(f"`{name}` is already defined", pos)
 
     def resolve_type(self, ref):
-        ty = NAMED_TYPES.get(ref.name) or self.structs.get(ref.name) or self.enums.get(ref.name)
-        if is_aggregate(ty):
+        ty = (NAMED_TYPES.get(ref.name) or self.structs.get(ref.name)
+              or self.enums.get(ref.name) or self.actors.get(ref.name))
+        if is_aggregate(ty) or is_actor(ty):
             self.require_visible(ty.decl, ty.name, ref.pos)
         if ty is None:
             if ref.name in self.variants:
@@ -264,6 +351,8 @@ class Checker:
         self.nslots = 0
         self.loops = []          # labels of the enclosing loops, innermost last
         self.receiver = (sig.owner, sig.mutating) if sig.owner else None
+        self.in_new = is_actor(sig.owner) and decl.name == "new"
+        self.assigned = set()
         self.locked = {}
         self.unsafe_depth = 0
         self.enter_file(decl)
@@ -282,6 +371,12 @@ class Checker:
             raise CompileError(
                 f"`{decl.name}` must return a {sig.ret} on every path", decl.pos)
         decl.nslots = self.nslots
+        if self.in_new:
+            for name, _ in sig.owner.fields:
+                if name not in self.assigned:
+                    raise CompileError(f"`new` must set every field: `.{name}` is never set",
+                                       decl.pos)
+        self.in_new = False
         self.receiver = None
 
     def alloc(self, n):
@@ -333,6 +428,8 @@ class Checker:
             return False
 
         if isinstance(s, S.Assign):
+            if self.in_new and isinstance(s.target, S.FieldAccess) and s.target.obj is None:
+                return self.assign_in_new(s)
             if isinstance(s.target, S.Name) and self.lookup(s.target.ident) is None:
                 if s.target.ident in self.consts:
                     raise CompileError(f"can't assign to constant `{s.target.ident}`", s.target.pos)
@@ -514,7 +611,7 @@ class Checker:
                 return v.enum
             if e.ident in self.fns:
                 raise CompileError(f"`{e.ident}` is a function; call it with `{e.ident}(...)`", e.pos)
-            if e.ident in self.structs or e.ident in self.enums:
+            if e.ident in self.structs or e.ident in self.enums or e.ident in self.actors:
                 raise CompileError(f"`{e.ident}` is a type, not a value", e.pos)
             raise CompileError(f"unknown name `{e.ident}`", e.pos)
 
@@ -604,6 +701,17 @@ class Checker:
 
         if isinstance(e, S.FieldAccess):
             st = self.struct_of(e)
+            if is_actor(st):
+                if e.obj is not None:
+                    raise CompileError(
+                        f"an actor's fields are private: send `{st.name}` a message instead",
+                        e.pos)
+                if not any(name == e.field for name, _ in st.fields):
+                    raise CompileError(f"`{st.name}` has no field `{e.field}`", e.pos)
+                if self.in_new and e.field not in self.assigned:
+                    raise CompileError(f"`.{e.field}` is read before `new` sets it", e.pos)
+                e.struct = st
+                return st.offset(e.field)[1]
             if is_enum(st):
                 raise CompileError(
                     f"`{st.name}` is an enum: read its fields with `match`", e.pos)
@@ -619,6 +727,8 @@ class Checker:
 
         if isinstance(e, S.MethodCall):
             st = self.struct_of(e)
+            if is_actor(st):
+                return self.send(e, st)
             sig = st.methods.get(e.name)
             if sig is None:
                 raise CompileError(f"`{st.name}` has no method `{e.name}`", e.pos)
@@ -659,7 +769,35 @@ class Checker:
                 raise CompileError(
                     "`.` on its own is a method's own value, so it only works inside methods",
                     e.pos)
+            if is_actor(self.receiver[0]):
+                raise CompileError(
+                    "`.` on its own is a struct's own value: an actor refers to itself "
+                    "as `self`", e.pos)
             return self.receiver[0]
+
+        if isinstance(e, S.SelfRef):
+            if self.receiver is None or not is_actor(self.receiver[0]):
+                raise CompileError("`self` is the actor itself, so it only works inside an actor",
+                                   e.pos)
+            if self.in_new and len(self.assigned) < len(self.receiver[0].fields):
+                raise CompileError(
+                    "`self` can't be used in `new` until every field is set", e.pos)
+            return self.receiver[0]
+
+        if isinstance(e, S.Spawn):
+            if self.fn is None:
+                raise CompileError("constants can't spawn actors", e.pos)
+            actor = self.actors.get(e.name)
+            if actor is None:
+                if e.name in self.structs or e.name in self.enums:
+                    raise CompileError(f"`{e.name}` is not an actor: `spawn` creates actors", e.pos)
+                raise CompileError(f"unknown actor `{e.name}`", e.pos)
+            self.require_visible(actor.decl, actor.name, e.pos)
+            sig = actor.new_sig
+            self.check_args(f"`spawn {e.name}`", sig.params if sig else [], e.args, e.pos)
+            e.actor, e.sig = actor, sig
+            e.temp = self.alloc(1)
+            return actor
 
         if isinstance(e, S.MatchExpr):
             if self.fn is None:
@@ -879,6 +1017,23 @@ class Checker:
 
     # ---- structs, places and lending ----------------------------------
 
+    def send(self, e, actor):
+        """`ref.handler(args)`: a message to an actor. It returns nothing."""
+        if e.obj is None:
+            raise CompileError(
+                f"to send a message to yourself, write `self.{e.name}(...)`", e.pos)
+        sig = actor.methods.get(e.name)
+        if sig is None:
+            raise CompileError(f"`{actor.name}` has no handler `{e.name}`", e.pos)
+        if actor.decl.file != self.file and not sig.decl.public:
+            raise CompileError(
+                f"`{e.name}` is private to {os.path.basename(actor.decl.file)}; "
+                f"mark the handler `pub` to send it from another file", e.pos)
+        e.sig, e.send = sig, True
+        e.handler_index = list(actor.methods).index(e.name)
+        self.check_args(f"`{actor.name}.{e.name}`", sig.params, e.args, e.pos)
+        return UNIT
+
     def named_fields(self, owner, fields, given, pos):
         """`given` [(name, pos)] must name every field once, in declared order."""
         wanted = [name for name, _ in fields]
@@ -908,6 +1063,8 @@ class Checker:
                 raise CompileError(f"`.{what}` only works inside a struct's methods", e.pos)
             return self.receiver[0]
         ty = self.expr(e.obj)
+        if is_actor(ty):
+            return ty
         if not is_aggregate(ty):
             what = e.field if isinstance(e, S.FieldAccess) else e.name
             raise CompileError(f"{ty} has no field or method `{what}`", e.pos)
@@ -945,6 +1102,28 @@ class Checker:
                         f"`{name}` is lent as `mut` in this call, so it can't be lent again here",
                         at)
 
+    def assign_in_new(self, s):
+        """`.field = value` in an actor's `new`: every field is set once, at the
+        top level of the body, so none is left unset or read before it is set."""
+        actor = self.receiver[0]
+        name = s.target.field
+        if not any(n == name for n, _ in actor.fields):
+            raise CompileError(f"`{actor.name}` has no field `{name}`", s.target.pos)
+        if s.op != "=":
+            raise CompileError("`new` sets each field once, with `=`", s.pos)
+        if name in self.assigned:
+            raise CompileError(f"`.{name}` is already set: `new` sets each field once", s.pos)
+        if len(self.scopes) != 2:
+            raise CompileError(
+                "`new` sets each field at the top level of its body, not inside an `if`, "
+                "a loop or a `match`", s.pos)
+        fty = actor.offset(name)[1]
+        s.target.struct = actor
+        s.target.ty = fty
+        self.expr(s.value, fty)
+        self.assigned.add(name)
+        return False
+
     def require_mutable(self, place, pos, action="assign to"):
         root = root_name(place)
         if root is not None:
@@ -969,6 +1148,11 @@ class Checker:
             return
         if isinstance(place, S.FieldAccess):
             if place.obj is None:
+                if is_actor(self.receiver[0]):
+                    if place.field not in self.receiver[0].mut_fields:
+                        raise CompileError(
+                            f"can't {action} `.{place.field}`: the field isn't `mut`", pos)
+                    return
                 if not self.receiver[1]:
                     raise CompileError(
                         f"can't {action} `.{place.field}`: only a `mut fn` can change its struct",

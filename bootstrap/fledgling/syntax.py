@@ -118,6 +118,8 @@ class MethodCall(Expr):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot for a struct result
         self.sig = None         # set by checker
+        self.send = False       # set by checker: a message to an actor, not a method call
+        self.handler_index = None   # set by checker: which handler of the actor
 
 
 @dataclass
@@ -128,6 +130,24 @@ class Copy(Expr):
     def __post_init__(self):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot for the copy
+
+
+@dataclass
+class Spawn(Expr):
+    """`spawn Counter(args)`: creates an actor, runs its `new`, gives its reference."""
+    name: str
+    args: list
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.actor = None       # set by checker: the ActorType
+        self.sig = None         # set by checker: the signature of `new`, or None
+        self.temp = None        # set by checker: frame slot holding the new reference
+
+
+@dataclass
+class SelfRef(Expr):
+    """`self` inside an actor: a reference to the actor itself."""
 
 
 @dataclass
@@ -310,7 +330,8 @@ class FnDecl:
     pos: Pos
     public: bool = False
     mutating: bool = False      # `mut fn`: a method that may change its struct or enum
-    owner: Optional[str] = None  # the struct or enum a method belongs to
+    owner: Optional[str] = None  # the struct, enum or actor a method belongs to
+    handler: Optional[str] = None   # "lossy" or "reliable" for an actor's `on` handler
 
     def __post_init__(self):
         self.file = None        # set by compile_program: the source file
@@ -344,6 +365,7 @@ class Field:
     type: TypeRef
     pos: Pos
     public: bool = False        # `pub`: usable outside the struct's file
+    mutable: bool = False       # an actor's `mut` field: handlers may change it
 
 
 @dataclass
@@ -357,6 +379,22 @@ class StructDecl:
     def __post_init__(self):
         self.file = None
         self.trusted = False
+
+
+@dataclass
+class ActorDecl:
+    """`actor Name { fields, new(...), handlers }`."""
+    name: str
+    fields: list                # [Field]
+    new: Optional["FnDecl"]     # runs once when the actor is spawned
+    handlers: list              # [FnDecl], each with `handler` set
+    pos: Pos
+    public: bool = False
+
+    def __post_init__(self):
+        self.file = None
+        self.trusted = False
+        self.ty = None          # set by checker: the ActorType
 
 
 @dataclass

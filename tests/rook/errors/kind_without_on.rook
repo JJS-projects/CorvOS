@@ -1,0 +1,7 @@
+// `lossy` and `reliable` go before `on`.
+// error: 5:11: `lossy` goes before `on`, as in `lossy on name(...)`
+
+actor Counter {
+    lossy add(n: u64) {
+    }
+}

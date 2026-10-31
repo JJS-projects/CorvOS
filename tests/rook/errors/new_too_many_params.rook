@@ -1,0 +1,7 @@
+// `new` takes at most seven parameters for now.
+// error: 5:5: `new` takes at most 7 parameters for now
+
+actor Counter {
+    new(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) {
+    }
+}

@@ -1,0 +1,14 @@
+// A handler can only change a field declared `mut`.
+// error: 12:16: can't assign to `.total`: the field isn't `mut`
+
+actor Counter {
+    total: u64
+
+    new() {
+        .total = 0
+    }
+
+    lossy on add(n: u64) {
+        .total += n
+    }
+}

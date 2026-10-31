@@ -1,0 +1,10 @@
+// `spawn` creates actors, not structs.
+// error: 9:16: `Point` is not an actor: `spawn` creates actors
+
+struct Point {
+    x: u64
+}
+
+fn f() {
+    p: Point = spawn Point()
+}

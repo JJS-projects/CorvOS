@@ -1,0 +1,20 @@
+// An actor's fields are private to its own handlers.
+// error: 19:14: an actor's fields are private: send `Counter` a message instead
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f(c: Counter) -> u64 {
+    return c.count
+}

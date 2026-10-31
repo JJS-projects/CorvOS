@@ -1,0 +1,42 @@
+// A mailbox holds 16 messages. A send to a full one is dropped (a `lossy`
+// handler), the messages already queued keep their order, and Raven counts
+// the drops.
+// expect: 0
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 4
+// expect: 5
+// expect: 6
+// expect: 7
+// expect: 8
+// expect: 9
+// expect: 10
+// expect: 11
+// expect: 12
+// expect: 13
+// expect: 14
+// expect: 15
+// expect: 4
+// expect: 99
+// expect: 98
+// expect: 4
+
+actor Sink {
+    pub lossy on take(n: u64) {
+        print_u64(n)
+    }
+}
+
+fn test_main() {
+    sink: Sink = spawn Sink()
+    sent: loop i: u64 in 0..20 {
+        sink.take(i)
+    }
+    run_until_idle()
+    print_u64(dropped_messages())
+    sink.take(99)               // room again once the mailbox has drained
+    sink.take(98)
+    run_until_idle()
+    print_u64(dropped_messages())
+}

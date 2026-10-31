@@ -715,8 +715,8 @@ later if this becomes painful.
 ## 11. Fledgling's subset
 
 Fledgling (milestone 2) compiles only what is needed to write the real compiler and
-the first kernel code. No generics, interfaces or actors at first; those arrive
-with milestone 3. It is being built in three steps:
+the first kernel code. No generics or interfaces at first; actors arrive in
+milestone 3 (step 3a is done), interfaces and the rest after. It is being built in three steps:
 
 | Step | Adds | Status |
 |---|---|---|
@@ -725,6 +725,8 @@ with milestone 3. It is being built in three steps:
 | Data (2b) | enums, `match`, `.` | done |
 | Hardware (2c) | trusted files, `unsafe { }`, `load`/`store`, text, `panic`, programs of several files | done |
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
+| Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
+| Reliable sends (3b), interfaces (3c), the echo demo (3d) | see the roadmap | planned |
 
 ### 11.1 Rules settled while building the core
 
@@ -835,6 +837,38 @@ with milestone 3. It is being built in three steps:
   `kernel_main` having set the UART up.
 - **Test programs** are compiled with all of Raven's Rook code. Their `test_main`
   may take `peripherals: Mmio`, the same root `kernel_main` has.
+
+### 11.6 Rules settled while building actors (step 3a)
+
+- **What is accepted.** `actor Name { fields, new(...), [pub] lossy on name(...) { } }`,
+  `spawn Name(args)`, `self`, and a send `ref.handler(args)` or `self.handler(args)`.
+  `reliable` handlers, interfaces, `narrow`, `watch` and `stop` are not accepted yet.
+- **Fields** hold numbers, bools and actor references, are private to the actor's own
+  handlers (`pub` is an error) and are changed only if written `mut`.
+- **`new`** sets every field exactly once, in any order, with `=` at the top level of its
+  body (not inside an `if`, loop or `match`), and cannot read a field before it is set
+  or hand out `self` before every field is. An actor with fields needs one; `new` is
+  not `pub` and takes at most 7 parameters.
+- **A handler** says `lossy` (or `reliable`, which is rejected for now) before `on`,
+  has no result, and takes at most 4 parameters, each a number, a bool or an actor
+  reference. A send returns nothing, so there is nothing to handle or `discard`.
+  Without `pub`, a handler can be sent to only from its own file.
+- **Words.** `actor`, `on`, `spawn`, `self`, `lossy` and `reliable` are keywords. `new`
+  is a word only inside an actor, so a method called `new` can still be written
+  elsewhere. `interface`, `consume`, `import`, `freeze` and `narrow` stay reserved.
+- **An actor reference is one word**: the address of the actor's fields. Raven's
+  header and the mailbox sit just below it, so handlers reach fields exactly as methods
+  reach a struct's. References are copied freely, have no `==`, and are not numbers.
+- **The runtime** is `raven/trusted/actors.rook`: one fixed 64 KB arena, a mailbox of
+  16 messages per actor (a handler number and 4 words each), a run queue, and
+  `run_until_idle()`, which takes turns one message at a time. A send to a full mailbox
+  is dropped and counted (`dropped_messages()`). Actors are never freed: running out
+  of arena is a panic.
+- **Panics.** A panic in a handler reports its line and halts the whole system, as
+  any panic does for now; restarting just the actor's domain waits for milestone 7.
+- **Known gaps.** No time budget yet (decision 121): a handler that never returns
+  hangs the core. No `Main`, `Boot`, interrupts as messages, ownership (`iso`, `val`),
+  or messages that carry structs.
 
 ## 12. Open questions
 

@@ -1,0 +1,6 @@
+// Only fields, `new` and handlers go inside an actor.
+// error: 5:5: expected a field, `new` or a handler, found `42`
+
+actor Counter {
+    42
+}

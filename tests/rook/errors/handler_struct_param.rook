@@ -1,0 +1,11 @@
+// A message carries only numbers, bools and actor references for now.
+// error: 9:21: a message carries numbers, bools and actor references for now, not Point
+
+struct Point {
+    x: u64
+}
+
+actor Counter {
+    lossy on add(p: Point) {
+    }
+}
