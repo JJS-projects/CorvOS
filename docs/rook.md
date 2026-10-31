@@ -87,8 +87,8 @@ actor LineEditor: ByteSink {
             line: val Buffer = freeze(.buf)    // iso -> val: shared from now on
             .buf = Buffer.new(LINE_MAX)
             match .lines.line(line) {
-                Ok(value: _) => { }
-                Err(error: _) => discard .out.write('!')   // the shell is behind
+                Delivered => { }
+                MailboxFull => discard .out.write('!')     // the shell is behind
             }
         } else {
             match append(mut .buf, b) {
@@ -134,7 +134,7 @@ fn append(buf: mut Buffer, b: u8) -> Result<u64, AppendError> {
 | Moving and freezing | `consume(.buf)`, `freeze(.buf)` | `freeze` turns `iso` into shared, refcounted `val` |
 | Narrowing | `narrow(editor, ByteSink)` | Hands out a reference that can only send that interface's handlers |
 | Message handlers | `reliable on write(b: u8) { }`, `lossy on byte(b: u8) { }` | Every handler says which; `new(...)` initialises an actor; `spawn Uart(...)` creates one |
-| Sending | `discard uart.write(b)`, `match uart.write(b) { … }`, `sink.byte(b)` | A send to a `reliable` handler returns a `Result` that must be handled; a send to a `lossy` one returns nothing |
+| Sending | `discard uart.write(b)`, `match uart.write(b) { … }`, `sink.byte(b)` | A send to a `reliable` handler returns a `Sent` (`Delivered` or `MailboxFull`) that must be handled; a send to a `lossy` one returns nothing |
 | Watching, stopping | `watch(out, narrow(self, Restarts))`, `stop()` | Planned (section 4.3): `restarted()` tells a client its server restarted; `stop()` ends the actor it is in |
 | Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
@@ -392,9 +392,10 @@ fn classify(b: u8) -> u8 {
 Mailboxes hold a fixed number of messages, so a flood can't use up memory, and a
 full mailbox never crashes the sender or the receiver.
 
-- A send to a **`reliable`** handler returns a `Result` whose error is
-  `MailboxFull`. The compiler makes the sender handle it with `match`, or throw it
-  away on purpose with `discard`. The sender knows what the message is worth.
+- A send to a **`reliable`** handler returns a `Sent`, an enum with the variants
+  `Delivered` and `MailboxFull` (decision 126). The compiler makes the sender handle
+  it with `match`, or throw it away on purpose with `discard`. A refused message is
+  not counted as a drop. The sender knows what the message is worth.
 - A send to a **`lossy`** handler returns nothing. If the mailbox is full the new
   message is dropped, the messages already queued keep their order, and Raven
   counts the drop. `lossy` is the receiver's promise that its protocol copes with
@@ -726,7 +727,8 @@ milestone 3 (step 3a is done), interfaces and the rest after. It is being built 
 | Hardware (2c) | trusted files, `unsafe { }`, `load`/`store`, text, `panic`, programs of several files | done |
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 | Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
-| Reliable sends (3b), interfaces (3c), the echo demo (3d) | see the roadmap | planned |
+| Reliable sends (3b) | `reliable on` handlers; a send to one returns `Sent` | done |
+| Interfaces (3c), the echo demo (3d) | see the roadmap | planned |
 
 ### 11.1 Rules settled while building the core
 
@@ -842,16 +844,17 @@ milestone 3 (step 3a is done), interfaces and the rest after. It is being built 
 
 - **What is accepted.** `actor Name { fields, new(...), [pub] lossy on name(...) { } }`,
   `spawn Name(args)`, `self`, and a send `ref.handler(args)` or `self.handler(args)`.
-  `reliable` handlers, interfaces, `narrow`, `watch` and `stop` are not accepted yet.
+  Interfaces, `narrow`, `watch` and `stop` are not accepted yet.
 - **Fields** hold numbers, bools and actor references, are private to the actor's own
   handlers (`pub` is an error) and are changed only if written `mut`.
 - **`new`** sets every field exactly once, in any order, with `=` at the top level of its
   body (not inside an `if`, loop or `match`), and cannot read a field before it is set
   or hand out `self` before every field is. An actor with fields needs one; `new` is
   not `pub` and takes at most 7 parameters.
-- **A handler** says `lossy` (or `reliable`, which is rejected for now) before `on`,
+- **A handler** says `lossy` (or `reliable`) before `on`,
   has no result, and takes at most 4 parameters, each a number, a bool or an actor
-  reference. A send returns nothing, so there is nothing to handle or `discard`.
+  reference. A send to a `lossy` handler returns nothing, so there is nothing to handle
+  or `discard`.
   Without `pub`, a handler can be sent to only from its own file.
 - **Words.** `actor`, `on`, `spawn`, `self`, `lossy` and `reliable` are keywords. `new`
   is a word only inside an actor, so a method called `new` can still be written
@@ -869,6 +872,18 @@ milestone 3 (step 3a is done), interfaces and the rest after. It is being built 
 - **Known gaps.** No time budget yet (decision 121): a handler that never returns
   hangs the core. No `Main`, `Boot`, interrupts as messages, ownership (`iso`, `val`),
   or messages that carry structs.
+
+### 11.7 Rules settled while building reliable sends (step 3b)
+
+- **`Sent`** is an ordinary enum declared in `raven/trusted/actors.rook`:
+  `Delivered` and `MailboxFull`. A send to a `reliable` handler returns it, and the
+  unused-result rule applies as for any call: `match` it (both variants) or write
+  `discard`. A program compiled without Raven's code that sends to a `reliable`
+  handler is an error that says `Sent` is missing.
+- **Counting.** `raven_send` (lossy) drops a message to a full mailbox and counts it;
+  `raven_send_reliable` leaves the queue alone, does not count, and returns
+  `MailboxFull`. Both use one routine to place a message.
+- **`match` on a call that returns nothing** says there is nothing to match.
 
 ## 12. Open questions
 
