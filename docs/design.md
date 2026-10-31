@@ -223,11 +223,54 @@ kind of send instead of two (principle 6) and a smaller part of Raven to audit
 tables are written as one core's own from the start, which is cheap now and costly
 to retrofit.
 
+### 6.4 Scheduling
+
+Each core's Raven schedules the actors in its own domains (section 6.3).
+
+- **A handler runs to completion.** Once Raven starts a handler on a core it is never
+  paused; it runs on the core's own stack, so an actor with no handler running needs
+  no stack at all (decision 121). Raven's interrupt code still runs at any time: it
+  puts a message in the driver actor's mailbox and returns to what was running.
+- **A handler has a time budget.** Raven sets a one-shot timer when a handler starts
+  and clears it when the handler returns. If the timer fires first, the handler has
+  failed, exactly as if it had panicked: its domain is restarted by its supervisor.
+  So a handler that never returns is an ordinary failure, not a hung core.
+- **Long work is written in steps**, each ending by sending a message to oneself
+  (`rook.md` section 4.4).
+- **Order.** Runnable actors take turns, one message per turn, with no priorities to
+  begin with. Messages from one sender to one receiver arrive in the order sent
+  (decision 122).
+- **Why not pause handlers?** Pausing needs a stack for every actor that is partway
+  through a handler, and Raven has to save and restore full register state and cope
+  with an interrupt landing on any instruction: more memory, and a larger part of
+  the kernel to trust (principle 7). It is not ruled out. Code written for run to
+  completion stays valid if pausing is added later, so it waits until a real program
+  needs it.
+
 ## 7. Supervision
 
 Erlang-style supervision trees. Supervisors are actors that hold references to their
 children and restart them (at domain granularity) when they fail. This is how the
 fault-tolerance claim will be tested.
+
+How failure and ending look to other actors (decisions 117 to 120):
+
+- **A reference names a place, not an instance.** After a restart, references others
+  hold reach the new instance, so clients that keep no state in the server carry on
+  with no recovery code. The new instance starts from `new`; its mailbox starts empty
+  and counts as full while it starts.
+- **`watch` is how a client that does keep state finds out.** Raven sends it
+  `restarted()` once the new instance is ready, and it rebuilds what the restart
+  lost. Forgetting to `watch` is silent; the compiler cannot know.
+- **Actors end explicitly.** An actor can `stop()` itself, and the actor that spawned
+  one holds the authority to stop it: an authority of its own, separate from the
+  send-only reference, so no holder of a reference can kill an actor (Erlang's `exit`
+  by process id is exactly that ambient authority). Actors are never collected
+  automatically: counting every reference would add a hidden cost to every send
+  (principle 8), make freeing unpredictable (principle 9), and needs a cycle-handling
+  protocol in the kernel (principle 7).
+- A supervisor is an ordinary actor built from these pieces. How its restart policy
+  is written is decided at milestone 7.
 
 ## 8. Prior art
 
@@ -236,6 +279,13 @@ fault-tolerance claim will be tested.
 - **Pony**: reference capabilities, data-race freedom at compile time.
 - **seL4**: capability microkernel, formally verified.
 - **E language / object capabilities literature**: attenuation and revocation via proxies.
+- **Akka, Pony, Orleans, Aether** (surveyed for how an actor ends, decision 119):
+  Akka stops actors explicitly (`context.stop`, `PoisonPill`); Pony collects dead
+  actors automatically with a reference-counting protocol; Orleans' virtual actors
+  always exist logically and the runtime activates and deactivates them; Aether is
+  an early-stage actor language that compiles to C, ends actors explicitly (a
+  `kill(ref)` works from anywhere), and restarts a child under the same handle its
+  clients hold, as decision 117 does.
 
 ## 9. Open questions
 
@@ -247,14 +297,25 @@ fault-tolerance claim will be tested.
   for a different size, whether one sender can fill a mailbox so that every other
   sender gets `MailboxFull` (per-sender quotas), and whether a receiver is told how
   many messages it lost.
-- **Scheduling policy** within a core: round robin, priorities, fairness.
-  (Run queues are per core and a domain stays on its core: decision 111.)
+- **Scheduling policy details** (the start is settled, section 6.4): the value of the
+  handler time budget, whether it can differ per actor, whether interrupt-driven
+  drivers need priority over others, whether a busy actor should drain its whole
+  mailbox in one turn (the fast path of section 6.2), and when pausing handlers
+  becomes worth its cost. Decide with measurements, from milestone 3 on.
 - **Details of one Raven per core** (the structure itself is settled, section 6.3):
   how a domain is given a core; whether a domain can ever move to another core, and
   how; per-core memory pools and how memory moves between them; which core takes
   each interrupt; how a ring wakes its reader (an inter-core interrupt or `sev`);
   how supervision works across cores. Each is decided when milestone 6 needs it.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
+- **How Rook asks for a separate domain** (decision 116): decide at milestone 6, with
+  the question below. The leaning is `separate` on an actor that needs its own
+  domain, `spawn separate` at the spawn, and a compile error where they disagree.
+- **The form of the stop authority** that `spawn` gives its caller (decision 119), and
+  whether stopping an actor stops the actors it spawned. Decide at milestone 6 or 7,
+  when a program first needs an actor per request.
+- **How a supervisor's restart policy is written** (retry limits, what to restart
+  together). Decide at milestone 7.
 - **Visible cost of cross-domain sends** (principle 8): a send to an actor in
   another domain copies the message, while an identical-looking send within a
   domain doesn't. Should the difference show in the code? A send to another core is a

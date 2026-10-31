@@ -75,8 +75,10 @@ that PC.
 
 - `actor`, `spawn`, `new`, `on` handlers (each `lossy` or `reliable`, decision 112),
   bounded mailboxes.
-- Cooperative scheduler in Raven (there is no separate runtime), on core 0 only,
-  with Raven's tables written as one core's own (decision 111).
+- Scheduler in Raven (there is no separate runtime), on core 0 only, with Raven's
+  tables written as one core's own (decision 111). Handlers run to completion, and a
+  handler that exceeds its time budget is a failure (decision 121); until supervision
+  exists, that is reported like a panic.
 - Every send goes through Raven; a mailbox belongs to one core and is laid out so a
   same-domain fast path can be added later.
 - Ownership and moves in the compiler; freezing plus refcounted frozen data.
@@ -115,7 +117,10 @@ and a domain cannot read another's memory.
 ## 7. Drivers as actors, and supervision
 
 - Interrupts delivered as messages to driver actors in their own domains.
-- Supervision trees; a domain restarts as a unit.
+- Supervision trees; a domain restarts as a unit. Supervisors are ordinary actors
+  built from `watch`, restarts that keep references valid, and the spawner's
+  authority to stop (decisions 117 to 120); the way a restart policy is written is
+  decided here.
 - Settle the DMA question (see design.md, section 9).
 
 **Done when:** killing a driver domain mid-use restarts it and the system carries on.

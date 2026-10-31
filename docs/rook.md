@@ -135,6 +135,7 @@ fn append(buf: mut Buffer, b: u8) -> Result<u64, AppendError> {
 | Narrowing | `narrow(editor, ByteSink)` | Hands out a reference that can only send that interface's handlers |
 | Message handlers | `reliable on write(b: u8) { }`, `lossy on byte(b: u8) { }` | Every handler says which; `new(...)` initialises an actor; `spawn Uart(...)` creates one |
 | Sending | `discard uart.write(b)`, `match uart.write(b) { … }`, `sink.byte(b)` | A send to a `reliable` handler returns a `Result` that must be handled; a send to a `lossy` one returns nothing |
+| Watching, stopping | `watch(out, narrow(self, Restarts))`, `stop()` | Planned (section 4.3): `restarted()` tells a client its server restarted; `stop()` ends the actor it is in |
 | Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
 | Enums | `Busy(job: 3, since: now)`, `Idle` | Variant names are unique, so they're written bare |
@@ -467,6 +468,97 @@ actor Sensor {
 Copying a small record at every send is the price of the rule that a copy is
 always written (decision 70). If small-record sends turn out to be common, copying
 plain data by itself is the first thing to reconsider (decision 114).
+
+### 4.3 Failure, restarts and ending
+
+*Planned (decisions 116 to 120); none of it is built before milestone 6 or 7.*
+
+- **Domains.** Until milestone 6 every `spawn` puts the new actor in the spawner's
+  domain, and Rook has no word for domains. Raven still gives untrusted code and DMA
+  drivers a domain of their own. How to ask for a separate one is decided at
+  milestone 6.
+- **A reference survives a restart.** It names the actor's place, not one instance.
+  When a failed actor's domain restarts, references others hold reach the new
+  instance, which starts from `new` with an empty mailbox. While it restarts, its
+  mailbox counts as full.
+- **`watch` tells you.** A holder that keeps state in a server can ask to be told:
+  `watch(ref, narrow(self, Restarts))`. When the target's domain restarts, Raven
+  sends `restarted()` once the new instance has run `new`. A watch ends when the
+  watcher itself fails, so its `new` sets it up again.
+- **An actor ends by `stop()`** in one of its own handlers, or when the actor that
+  spawned it uses the authority `spawn` gave it. No other holder of a reference can
+  end it, and actors are never freed automatically. A send to a stopped actor
+  returns an error from a `reliable` handler (`Gone`) and is dropped from a `lossy`
+  one; watchers are told.
+
+```rook
+pub interface Restarts {
+    lossy on restarted()       // Raven sends this when the watched actor restarts
+}
+
+actor LineEditor: ByteSink, Restarts {
+    out: Uart
+    lines: LineSink
+    mut buf: iso Buffer
+
+    new(out: Uart, lines: LineSink) {
+        .out = out
+        .lines = lines
+        .buf = Buffer.new(LINE_MAX)
+        watch(out, narrow(self, Restarts))     // after every field is set
+    }
+
+    lossy on restarted() {
+        discard .out.subscribe(narrow(self, ByteSink))   // rebuild what the restart lost
+    }
+    ...
+} LineEditor
+
+actor Worker {
+    reliable on run(cmd: iso Command, reply: Reply<Output>) {
+        ...
+        discard reply.got(output)
+        stop()                                 // finished; Raven frees this actor
+    }
+}
+```
+
+Forgetting to `watch` is silent: the compiler cannot know which clients keep state
+in a server, so a server whose interface stores a client's reference should say so.
+
+### 4.4 How long a handler may run
+
+*Planned (decisions 121 and 122).*
+
+- A handler runs from its first line to its return and is never paused. Other actors
+  on the core wait their turn.
+- Each handler has a **time budget**. A handler that exceeds it has failed, like a
+  panic, and its domain is restarted by its supervisor. A handler that loops forever
+  is therefore a failure, not a hung core.
+- **Long work is written in steps**: do a bounded amount, then send a message to
+  oneself for the next. A step that must not be lost is a `reliable` handler whose
+  send is checked.
+- **Messages from one sender to one receiver arrive in the order sent.** Messages from
+  different senders may interleave in any order. A `lossy` drop removes a message but
+  never reorders the ones that remain.
+
+```rook
+reliable on checksum(data: val Buffer, from_byte: u64, sum: u32) {
+    to_byte: u64 = if from_byte + 4096 < data.len() { from_byte + 4096 } else { data.len() }
+    mut acc: u32 = sum
+    adding: loop i: u64 in from_byte..to_byte {
+        acc = update(acc, data.at(i))
+    }
+    if to_byte < data.len() {
+        match self.checksum(data, to_byte, acc) {      // the next step: others run first
+            Ok(value: _) => { }
+            Err(error: _) => panic("checksum step lost")
+        }
+    } else {
+        discard .reply.done(acc)
+    }
+}
+```
 
 ## 5. Replies: pass a reference
 
