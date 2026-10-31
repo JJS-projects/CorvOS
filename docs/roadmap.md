@@ -84,6 +84,17 @@ that PC.
 - Ownership and moves in the compiler; freezing plus refcounted frozen data.
 - Measure the cost of a kernel-mediated send.
 
+**Progress:**
+
+1. *Actors that run* (3a, done): `actor`, `new`, `lossy` handlers, `spawn`, `self`,
+   sends; mailboxes, run queue and `run_until_idle` in Raven.
+2. Reliable sends and `MailboxFull` (3b).
+3. Interfaces and `narrow` (3c).
+4. A polling UART actor, a harness that feeds QEMU serial input, two actors
+   echoing it, and the cost per send measured (3d).
+5. Later: UART interrupts as messages and the handler time budget; then ownership
+   (`iso`, `val`, `consume`, `freeze`).
+
 **Done when:** two actors echo UART input to each other by message passing, and
 the cost per send is measured.
 
