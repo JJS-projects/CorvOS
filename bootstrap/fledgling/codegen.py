@@ -123,7 +123,8 @@ class Gen:
         self.emit(f".global {symbol}")
         self.emit(".balign 4")
         self.label(symbol)
-        for number, handler in enumerate(actor.handlers):
+        for handler in actor.handlers:
+            number = handler.number
             skip = self.new_label("handler")
             self.emit(f"cmp x1, #{number}")
             self.emit(f"b.ne {skip}")
@@ -461,6 +462,8 @@ class Gen:
             self.load_slot(self.fn.self_slot)
         elif isinstance(e, S.SelfRef):
             self.load_slot(self.fn.self_slot)       # the actor's reference is its fields' address
+        elif isinstance(e, S.Narrow):
+            self.expr(e.value)                      # the same reference
         elif isinstance(e, S.Spawn):
             self.spawn(e)
         elif isinstance(e, S.MatchExpr):

@@ -1,0 +1,43 @@
+// An interface lists handlers; an actor that implements it can be handed out as
+// `narrow(actor, Interface)`. Two different actors answer the same sends, and a
+// send through the interface reaches whichever one it was made from.
+// expect: 1
+// expect: 100
+// expect: 2
+// expect: 200
+// expect: 70
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+    lossy on put(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Times100: Sink {
+    lossy on put(n: u64) {
+        print_u64(n * 100)
+    }
+
+    pub lossy on extra() {
+        print_u64(70)
+    }
+}
+
+fn fill(sink: Sink, n: u64) {
+    sink.put(n)
+}
+
+fn test_main() {
+    plain: Plain = spawn Plain()
+    times: Times100 = spawn Times100()
+    fill(narrow(plain, Sink), 1)
+    fill(narrow(times, Sink), 1)
+    fill(narrow(plain, Sink), 2)
+    fill(narrow(times, Sink), 2)
+    times.extra()                       // not in Sink, so only the actor itself can send it
+    run_until_idle()
+}

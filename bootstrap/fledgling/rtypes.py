@@ -92,6 +92,8 @@ class ActorType:
         self.public_fields = set()  # always empty: an actor's fields are private
         self.methods = {}           # handler name -> signature, in declaration order
         self.new_sig = None         # signature of `new`, or None
+        self.is_interface = False
+        self.implements = []        # [InterfaceType] the actor declares it implements
 
     def offset(self, field):
         """Offset of `field` in words from the actor's reference, and its type."""
@@ -102,6 +104,19 @@ class ActorType:
 
     def __repr__(self):
         return f"ActorType({self.name})"
+
+
+class InterfaceType(ActorType):
+    """A reference narrowed to an interface: the same one word as an actor
+    reference, good only for sending the interface's handlers. It has no
+    fields, can't be spawned, and can't be turned back into the actor."""
+
+    def __init__(self, name, decl):
+        super().__init__(name, decl)
+        self.is_interface = True
+
+    def __repr__(self):
+        return f"InterfaceType({self.name})"
 
 
 class Variant:

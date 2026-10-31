@@ -105,6 +105,8 @@ class Parser:
                 public = True
             if self.at("actor"):
                 prog.items.append(self.actor_decl(public))
+            elif self.at("interface"):
+                prog.items.append(self.interface_decl(public))
             elif self.at("struct"):
                 prog.items.append(self.struct_decl(public))
             elif self.at("enum"):
@@ -123,7 +125,7 @@ class Parser:
             else:
                 tok = self.peek()
                 raise CompileError(
-                    f"expected `fn`, `extern fn`, `struct`, `enum`, `actor` or a constant at top level, "
+                    f"expected `fn`, `extern fn`, `struct`, `enum`, `actor`, `interface` or a constant at top level, "
                     f"found {describe_tok(tok)}", tok.pos)
             self.skip_newlines()
         return prog
@@ -171,6 +173,15 @@ class Parser:
     def actor_decl(self, public):
         start = self.expect("actor")
         name = self.expect("ident", "actor name").text
+        implements = []
+        if self.at(":"):
+            self.advance()
+            while True:
+                itok = self.expect("ident", "an interface name")
+                implements.append((itok.text, itok.pos))
+                if not self.at(","):
+                    break
+                self.advance()
         self.expect("{")
         self.open_blocks.append({name})
         fields, handlers, new = [], [], None
@@ -210,7 +221,63 @@ class Parser:
                     f"expected a field, `new` or a handler, found {describe_tok(tok)}", tok.pos)
         self.open_blocks.pop()
         self.end_statement()
-        return S.ActorDecl(name, fields, new, handlers, start.pos, public)
+        return S.ActorDecl(name, fields, new, handlers, start.pos, public, implements)
+
+    def interface_decl(self, public):
+        """`interface Name { [lossy|reliable] on name(params) }`: handlers with no bodies."""
+        start = self.expect("interface")
+        name = self.expect("ident", "interface name").text
+        self.expect("{")
+        self.open_blocks.append({name})
+        handlers = []
+        while True:
+            self.skip_newlines()
+            if self.at("}"):
+                self.close_block({name}, start)
+                break
+            if self.at("eof"):
+                raise CompileError("unclosed `{`", start.pos)
+            if self.at("pub"):
+                raise CompileError(
+                    "an interface's handlers are not marked `pub`: anything that holds the "
+                    "interface can send them", self.peek().pos)
+            if not (self.at("lossy") or self.at("reliable") or self.at("on")):
+                tok = self.peek()
+                raise CompileError(f"expected a handler, found {describe_tok(tok)}", tok.pos)
+            if self.at("on"):
+                raise CompileError(
+                    "a handler is `lossy` or `reliable`: write one of them before `on`",
+                    self.peek().pos)
+            kind = self.advance().kind
+            if not self.at("on"):
+                raise CompileError(f"`{kind}` goes before `on`, as in `{kind} on name(...)`",
+                                   self.peek().pos)
+            on = self.advance()
+            name_tok = self.expect("ident", "handler name")
+            self.expect("(")
+            params = []
+            while not self.at(")"):
+                ptok = self.expect("ident", "parameter name")
+                self.expect(":")
+                params.append(S.Param(ptok.text, self.type_ref(allow_mut=True), ptok.pos))
+                if not self.at(")"):
+                    self.expect(",", "`,` or `)`")
+            self.expect(")")
+            if self.at("->"):
+                raise CompileError(
+                    "a handler has no result: to answer, send a message to a reference you "
+                    "were given", self.peek().pos)
+            if self.at("{"):
+                raise CompileError(
+                    "an interface only declares handlers: the actor that implements it "
+                    "writes the body", self.peek().pos)
+            self.end_statement()
+            # Public: whoever holds the interface may send it.
+            handlers.append(S.FnDecl(name_tok.text, params, None, None, on.pos, True, False,
+                                     name, kind))
+        self.open_blocks.pop()
+        self.end_statement()
+        return S.InterfaceDecl(name, handlers, start.pos, public)
 
     def actor_fn(self, owner, handler, public=False):
         """`new(params) { }` or `[lossy|reliable] on name(params) { }` in an actor."""
@@ -673,6 +740,16 @@ class Parser:
         if tok.kind == "self":
             self.advance()
             return S.SelfRef(tok.pos)
+        if tok.kind == "narrow":
+            self.advance()
+            if not self.at("("):
+                raise CompileError("write `narrow(reference, Interface)`", self.peek().pos)
+            self.advance()
+            value = self.expr()
+            self.expect(",", "`,` and the interface")
+            itok = self.expect("ident", "an interface name")
+            self.expect(")")
+            return S.Narrow(tok.pos, value, itok.text, itok.pos)
         if tok.kind == "copy":
             self.advance()
             if not self.at("("):
