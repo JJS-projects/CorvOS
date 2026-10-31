@@ -1,0 +1,23 @@
+// A `mut fn` can't be called on a `val` field.
+// error: 21:12: can't call `mut fn grow` on `.w`: it is `val`, read-only data
+
+struct Window {
+    start: u64
+    size: u64
+
+    mut fn grow() {
+        .size += 1
+    }
+}
+
+actor Holder {
+    w: val Window
+
+    new(w: val Window) {
+        .w = w
+    }
+
+    pub lossy on bigger() {
+        .w.grow()
+    }
+}

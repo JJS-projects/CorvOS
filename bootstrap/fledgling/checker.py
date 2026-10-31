@@ -233,11 +233,18 @@ class Checker:
                 raise CompileError(
                     "an actor's fields are private: other actors reach it with messages", f.pos)
             ty = self.resolve_type(f.type)
-            if is_aggregate(ty):
+            if f.type.val and not is_aggregate(ty):
                 raise CompileError(
-                    f"an actor's field holds a number, a bool or an actor reference for now, "
-                    f"not {ty}", f.type.pos)
+                    f"`val` is for structs and enums; {ty} is already a plain value", f.type.pos)
+            if f.type.val and f.mutable:
+                raise CompileError("a `val` field is read-only, so it can't be `mut`", f.pos)
+            if is_aggregate(ty) and not f.type.val:
+                raise CompileError(
+                    f"an actor's field holds a number, a bool, a reference, or read-only data "
+                    f"written `val {ty}`, not a bare {ty}", f.type.pos)
             actor.fields.append((f.name, ty))
+            if f.type.val:
+                actor.val_fields.add(f.name)
             if f.mutable:
                 actor.mut_fields.add(f.name)
         if decl.fields and decl.new is None:
@@ -314,10 +321,21 @@ class Checker:
                     "a message can't carry a borrow: a `mut` parameter is lent to a call, "
                     "not sent", p.pos)
             ty = self.resolve_type(p.type)
+            if p.type.val and not is_aggregate(ty):
+                raise CompileError(
+                    f"`val` is for structs and enums; {ty} is already a plain value", p.type.pos)
+            if what == "`new`" and p.type.val:
+                params.append((ty, False))          # read-only data, copied into a field
+                continue
+            if p.type.val:
+                raise CompileError(
+                    f"a message can't carry `val` data yet: that waits for the ownership "
+                    f"rules (decision 114); only `new` takes it", p.type.pos)
             if is_aggregate(ty):
                 raise CompileError(
                     f"a message carries numbers, bools and actor references for now, "
-                    f"not {ty}", p.type.pos)
+                    f"not {ty}" + ("; `new` takes read-only data written `val`" if what == "`new`"
+                                   else ""), p.type.pos)
             params.append((ty, False))
         if len(params) > limit:
             raise CompileError(
@@ -1247,8 +1265,9 @@ class Checker:
             if place.obj is None:
                 if is_actor(self.receiver[0]):
                     if place.field not in self.receiver[0].mut_fields:
-                        raise CompileError(
-                            f"can't {action} `.{place.field}`: the field isn't `mut`", pos)
+                        why = ("it is `val`, read-only data" if place.field in
+                               self.receiver[0].val_fields else "the field isn't `mut`")
+                        raise CompileError(f"can't {action} `.{place.field}`: {why}", pos)
                     return
                 if not self.receiver[1]:
                     raise CompileError(

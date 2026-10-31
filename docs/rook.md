@@ -845,8 +845,8 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 
 - **What is accepted.** `actor Name { fields, new(...), [pub] lossy on name(...) { } }`,
   `spawn Name(args)`, `self`, and a send `ref.handler(args)` or `self.handler(args)`.
-  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet.
-- **Fields** hold numbers, bools and actor references, are private to the actor's own
+  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet. Read-only `val` fields arrived in step 3d (11.9).
+- **Fields** hold numbers, bools, actor references and (from step 3d) read-only `val` data (11.9), are private to the actor's own
   handlers (`pub` is an error) and are changed only if written `mut`.
 - **`new`** sets every field exactly once, in any order, with `=` at the top level of its
   body (not inside an `if`, loop or `match`), and cannot read a field before it is set
@@ -908,6 +908,23 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   carries the same number whether it was sent through an actor or an interface.
 - **Not yet.** Generic interfaces (`Reply<T>`, which wait for generics), narrowing
   an interface to a smaller one, and `==` on references.
+
+### 11.9 Rules settled while building `val` fields (step 3d)
+
+- **`val` data in an actor.** A field or a `new` parameter of struct or enum type is
+  written `val`: `regs: val Mmio`, `new(regs: val Mmio)`. The value is copied into the
+  actor once, by `.regs = regs` in `new`, and is read-only afterwards: it can't be
+  assigned, a part of it can't be assigned, and a `mut fn` can't be called on it. It is
+  never `mut`. A bare struct field or `new` parameter is an error that says to write
+  `val`.
+- **Where `val` may go.** Only on an actor's fields and `new`'s parameters. On a handler
+  parameter it is an error until the ownership rules arrive (decision 114): no message
+  carries a struct yet. On a number or bool it is an error, since those are already
+  plain values. Anywhere else (a local, a function parameter, a struct field) it is an
+  error that says so.
+- **Not ownership.** This is the first use of `val`, not the freezing and reference
+  counting of section 7: nothing here is shared between actors, because each actor holds
+  its own copy.
 
 ## 12. Open questions
 

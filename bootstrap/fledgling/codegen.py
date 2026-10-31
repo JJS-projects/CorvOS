@@ -597,7 +597,7 @@ class Gen:
     def spawn(self, e):
         """Raven makes room for the actor (`raven_spawn_actor(fields, dispatcher)`
         gives its reference), then `new` runs on it. The reference is the value."""
-        self.emit(f"mov x0, #{len(e.actor.fields)}")
+        self.emit(f"mov x0, #{e.actor.words}")
         self.emit(f"adr x1, {e.actor.name}__dispatch")
         self.emit("bl raven_spawn_actor")
         self.store_slot(e.temp)

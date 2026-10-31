@@ -14,6 +14,7 @@ class TypeRef:
     name: str
     pos: Pos
     mut: bool = False           # `mut T` on a parameter: lent so it can be changed
+    val: bool = False           # `val T` on an actor's field or `new` parameter: read-only data
 
 
 # ---- expressions -------------------------------------------------------

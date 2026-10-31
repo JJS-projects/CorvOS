@@ -212,7 +212,8 @@ class Parser:
                     mutable = True
                 ftok = self.expect("ident", "a field name")
                 self.expect(":", "`:` and the field's type")
-                field = S.Field(ftok.text, self.type_ref(), ftok.pos, member_public, mutable)
+                field = S.Field(ftok.text, self.type_ref(allow_val=True), ftok.pos, member_public,
+                                mutable)
                 fields.append(field)
                 self.end_statement()
             else:
@@ -300,7 +301,8 @@ class Parser:
         while not self.at(")"):
             ptok = self.expect("ident", "parameter name")
             self.expect(":")
-            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True), ptok.pos))
+            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True, allow_val=True),
+                                  ptok.pos))
             if not self.at(")"):
                 self.expect(",", "`,` or `)`")
         self.expect(")")
@@ -406,7 +408,17 @@ class Parser:
         self.end_statement()
         return S.ConstDecl(name.text, ty, value, name.pos, public)
 
-    def type_ref(self, allow_mut=False):
+    def type_ref(self, allow_mut=False, allow_val=False):
+        if (allow_val and self.at("ident") and self.peek().text == "val"
+                and self.peek(1).kind == "ident"):
+            self.advance()
+            tok = self.expect("ident", "a type")
+            return S.TypeRef(tok.text, tok.pos, val=True)
+        if (not allow_val and self.at("ident") and self.peek().text == "val"
+                and self.peek(1).kind == "ident"):
+            raise CompileError(
+                "`val` goes only on an actor's fields and `new` parameters for now",
+                self.peek().pos)
         mut = False
         if self.at("mut"):
             if not allow_mut:

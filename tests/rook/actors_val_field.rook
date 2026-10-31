@@ -1,0 +1,39 @@
+// An actor can hold read-only data written `val`: a struct handed to `new`,
+// copied in once. Handlers read it with `.field`. Two actors made from the same
+// struct hold separate copies.
+// expect: 7
+// expect: 40
+// expect: 9
+// expect: 90
+
+struct Window {
+    start: u64
+    size: u64
+
+    fn end() -> u64 {
+        return .start + .size
+    }
+}
+
+actor Probe {
+    window: val Window
+    scale: u64
+
+    new(window: val Window, scale: u64) {
+        .window = window
+        .scale = scale
+    }
+
+    pub lossy on ask(n: u64) {
+        print_u64(.window.start + n)
+        print_u64(.window.end() * .scale)
+    }
+}
+
+fn test_main() {
+    first: Probe = spawn Probe(Window(start: 5, size: 3), 5)
+    second: Probe = spawn Probe(Window(start: 6, size: 4), 9)
+    first.ask(2)
+    second.ask(3)
+    run_until_idle()
+}

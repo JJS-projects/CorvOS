@@ -1,0 +1,14 @@
+// `val` goes only on an actor's fields and `new` parameters for now.
+// error: 13:9: `val` goes only on an actor's fields and `new` parameters for now
+
+struct Window {
+    start: u64
+    size: u64
+
+    mut fn grow() {
+        .size += 1
+    }
+}
+
+fn f(w: val Window) {
+}
