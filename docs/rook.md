@@ -526,6 +526,40 @@ actor Worker {
 Forgetting to `watch` is silent: the compiler cannot know which clients keep state
 in a server, so a server whose interface stores a client's reference should say so.
 
+### 4.4 How long a handler may run
+
+*Planned (decisions 121 and 122).*
+
+- A handler runs from its first line to its return and is never paused. Other actors
+  on the core wait their turn.
+- Each handler has a **time budget**. A handler that exceeds it has failed, like a
+  panic, and its domain is restarted by its supervisor. A handler that loops forever
+  is therefore a failure, not a hung core.
+- **Long work is written in steps**: do a bounded amount, then send a message to
+  oneself for the next. A step that must not be lost is a `reliable` handler whose
+  send is checked.
+- **Messages from one sender to one receiver arrive in the order sent.** Messages from
+  different senders may interleave in any order. A `lossy` drop removes a message but
+  never reorders the ones that remain.
+
+```rook
+reliable on checksum(data: val Buffer, from_byte: u64, sum: u32) {
+    to_byte: u64 = if from_byte + 4096 < data.len() { from_byte + 4096 } else { data.len() }
+    mut acc: u32 = sum
+    adding: loop i: u64 in from_byte..to_byte {
+        acc = update(acc, data.at(i))
+    }
+    if to_byte < data.len() {
+        match self.checksum(data, to_byte, acc) {      // the next step: others run first
+            Ok(value: _) => { }
+            Err(error: _) => panic("checksum step lost")
+        }
+    } else {
+        discard .reply.done(acc)
+    }
+}
+```
+
 ## 5. Replies: pass a reference
 
 There is no hidden request/response machinery. To get an answer, send a reference

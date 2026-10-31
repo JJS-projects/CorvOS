@@ -223,6 +223,30 @@ kind of send instead of two (principle 6) and a smaller part of Raven to audit
 tables are written as one core's own from the start, which is cheap now and costly
 to retrofit.
 
+### 6.4 Scheduling
+
+Each core's Raven schedules the actors in its own domains (section 6.3).
+
+- **A handler runs to completion.** Once Raven starts a handler on a core it is never
+  paused; it runs on the core's own stack, so an actor with no handler running needs
+  no stack at all (decision 121). Raven's interrupt code still runs at any time: it
+  puts a message in the driver actor's mailbox and returns to what was running.
+- **A handler has a time budget.** Raven sets a one-shot timer when a handler starts
+  and clears it when the handler returns. If the timer fires first, the handler has
+  failed, exactly as if it had panicked: its domain is restarted by its supervisor.
+  So a handler that never returns is an ordinary failure, not a hung core.
+- **Long work is written in steps**, each ending by sending a message to oneself
+  (`rook.md` section 4.4).
+- **Order.** Runnable actors take turns, one message per turn, with no priorities to
+  begin with. Messages from one sender to one receiver arrive in the order sent
+  (decision 122).
+- **Why not pause handlers?** Pausing needs a stack for every actor that is partway
+  through a handler, and Raven has to save and restore full register state and cope
+  with an interrupt landing on any instruction: more memory, and a larger part of
+  the kernel to trust (principle 7). It is not ruled out. Code written for run to
+  completion stays valid if pausing is added later, so it waits until a real program
+  needs it.
+
 ## 7. Supervision
 
 Erlang-style supervision trees. Supervisors are actors that hold references to their
@@ -273,8 +297,11 @@ How failure and ending look to other actors (decisions 117 to 120):
   for a different size, whether one sender can fill a mailbox so that every other
   sender gets `MailboxFull` (per-sender quotas), and whether a receiver is told how
   many messages it lost.
-- **Scheduling policy** within a core: round robin, priorities, fairness.
-  (Run queues are per core and a domain stays on its core: decision 111.)
+- **Scheduling policy details** (the start is settled, section 6.4): the value of the
+  handler time budget, whether it can differ per actor, whether interrupt-driven
+  drivers need priority over others, whether a busy actor should drain its whole
+  mailbox in one turn (the fast path of section 6.2), and when pausing handlers
+  becomes worth its cost. Decide with measurements, from milestone 3 on.
 - **Details of one Raven per core** (the structure itself is settled, section 6.3):
   how a domain is given a core; whether a domain can ever move to another core, and
   how; per-core memory pools and how memory moves between them; which core takes

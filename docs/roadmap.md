@@ -75,8 +75,10 @@ that PC.
 
 - `actor`, `spawn`, `new`, `on` handlers (each `lossy` or `reliable`, decision 112),
   bounded mailboxes.
-- Cooperative scheduler in Raven (there is no separate runtime), on core 0 only,
-  with Raven's tables written as one core's own (decision 111).
+- Scheduler in Raven (there is no separate runtime), on core 0 only, with Raven's
+  tables written as one core's own (decision 111). Handlers run to completion, and a
+  handler that exceeds its time budget is a failure (decision 121); until supervision
+  exists, that is reported like a panic.
 - Every send goes through Raven; a mailbox belongs to one core and is laid out so a
   same-domain fast path can be added later.
 - Ownership and moves in the compiler; freezing plus refcounted frozen data.
