@@ -61,7 +61,10 @@ of test:
   causes one on purpose says so in its header:
   `// expect-qemu-log: pl011_write: Bad offset 0x100`. Other optional headers:
   `// machines: raspi3b` (run only there) and
-  `// expect-fault: FAR_EL1:  0x0000000030000000` (must end in a reported CPU fault). An error test can have `// alone`: it is compiled
+  `// expect-fault: FAR_EL1:  0x0000000030000000` (must end in a reported CPU fault),
+  and `// input: hello` with `// expect-echo: hello` (type "hello" and a newline into
+  the program's serial input once it starts; pass when it writes the line back, for a
+  program that never returns; not run against a real board). An error test can have `// alone`: it is compiled
   without Raven's code.
   `MACHINES=raspi3b make test` runs one machine only. `CORVOS_SERIAL=pty` reads
   QEMU's serial port through a pseudo-terminal, as a board's will be read;

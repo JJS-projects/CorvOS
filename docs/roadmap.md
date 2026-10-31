@@ -90,8 +90,9 @@ that PC.
    sends; mailboxes, run queue and `run_until_idle` in Raven.
 2. *Reliable sends* (3b, done): `reliable on` handlers; a send to one returns `Sent` (`Delivered` or `MailboxFull`).
 3. *Interfaces and `narrow`* (3c, done): `interface`, `actor Name: Interface`, `narrow(x, Interface)`; not yet generic.
-4. A polling UART actor, a harness that feeds QEMU serial input, two actors
-   echoing it, and the cost per send measured (3d).
+4. *The echo demo* (3d, done): a polling `UartReader` and a `UartWriter` in
+   `raven/pl011.rook`, an `Echo` between them, a harness that types into QEMU's serial
+   input, and the cost per send measured on QEMU (not a real time).
 5. Later: UART interrupts as messages and the handler time budget; then ownership
    (`iso`, `val`, `consume`, `freeze`).
 
