@@ -1,0 +1,10 @@
+// An interface is not an actor, so it can't be spawned.
+// error: 9:15: `Sink` is an interface: `spawn` creates actors that implement it
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+fn f() {
+    s: Sink = spawn Sink()
+}

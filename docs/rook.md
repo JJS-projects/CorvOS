@@ -35,8 +35,8 @@ pub actor Main {
         shell: Shell = spawn Shell(uart)
         editor: LineEditor = spawn LineEditor(uart, narrow(shell, LineSink))
         match uart.subscribe(narrow(editor, ByteSink)) {   // editor can only receive `byte`
-            Ok(value: _) => { }
-            Err(error: _) => panic("uart mailbox full at start-up")
+            Delivered => { }
+            MailboxFull => panic("uart mailbox full at start-up")
         }
 } Main
 
@@ -552,8 +552,8 @@ reliable on checksum(data: val Buffer, from_byte: u64, sum: u32) {
     }
     if to_byte < data.len() {
         match self.checksum(data, to_byte, acc) {      // the next step: others run first
-            Ok(value: _) => { }
-            Err(error: _) => panic("checksum step lost")
+            Delivered => { }
+            MailboxFull => panic("checksum step lost")
         }
     } else {
         discard .reply.done(acc)
@@ -574,8 +574,8 @@ pub interface Reply<T> {
 actor Client: Reply<u64> {
     reliable on start(counter: Counter) {
         match counter.read(narrow(self, Reply<u64>)) {
-            Ok(value: _) => { }
-            Err(error: _) => log_busy()
+            Delivered => { }
+            MailboxFull => log_busy()
         }
     }
 
@@ -717,7 +717,7 @@ later if this becomes painful.
 
 Fledgling (milestone 2) compiles only what is needed to write the real compiler and
 the first kernel code. No generics or interfaces at first; actors arrive in
-milestone 3 (step 3a is done), interfaces and the rest after. It is being built in three steps:
+milestone 3 (steps 3a to 3c are done), the rest after. It is being built in three steps:
 
 | Step | Adds | Status |
 |---|---|---|
@@ -728,7 +728,8 @@ milestone 3 (step 3a is done), interfaces and the rest after. It is being built 
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 | Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
 | Reliable sends (3b) | `reliable on` handlers; a send to one returns `Sent` | done |
-| Interfaces (3c), the echo demo (3d) | see the roadmap | planned |
+| Interfaces (3c) | `interface`, `actor Name: Interface`, `narrow(x, Interface)` (not generic) | done |
+| The echo demo (3d) | see the roadmap | planned |
 
 ### 11.1 Rules settled while building the core
 
@@ -844,7 +845,7 @@ milestone 3 (step 3a is done), interfaces and the rest after. It is being built 
 
 - **What is accepted.** `actor Name { fields, new(...), [pub] lossy on name(...) { } }`,
   `spawn Name(args)`, `self`, and a send `ref.handler(args)` or `self.handler(args)`.
-  Interfaces, `narrow`, `watch` and `stop` are not accepted yet.
+  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet.
 - **Fields** hold numbers, bools and actor references, are private to the actor's own
   handlers (`pub` is an error) and are changed only if written `mut`.
 - **`new`** sets every field exactly once, in any order, with `=` at the top level of its
@@ -862,7 +863,7 @@ milestone 3 (step 3a is done), interfaces and the rest after. It is being built 
 - **An actor reference is one word**: the address of the actor's fields. Raven's
   header and the mailbox sit just below it, so handlers reach fields exactly as methods
   reach a struct's. References are copied freely, have no `==`, and are not numbers.
-- **The runtime** is `raven/trusted/actors.rook`: one fixed 64 KB arena, a mailbox of
+- **Raven's actor code** is `raven/trusted/actors.rook`: one fixed 64 KB arena, a mailbox of
   16 messages per actor (a handler number and 4 words each), a run queue, and
   `run_until_idle()`, which takes turns one message at a time. A send to a full mailbox
   is dropped and counted (`dropped_messages()`). Actors are never freed: running out
@@ -884,6 +885,29 @@ milestone 3 (step 3a is done), interfaces and the rest after. It is being built 
   `raven_send_reliable` leaves the queue alone, does not count, and returns
   `MailboxFull`. Both use one routine to place a message.
 - **`match` on a call that returns nothing** says there is nothing to match.
+
+### 11.8 Rules settled while building interfaces (step 3c)
+
+- **Declaring.** `interface Name { [lossy|reliable] on name(params) ... }` lists
+  handlers with no bodies, no result, and no `pub` (whoever holds the interface can send
+  them). An interface is `pub` or private to its file like any type. Its handlers
+  take the same parameter types as an actor's (numbers, bools, actor and interface
+  references, at most 4).
+- **Implementing.** `actor Name: Interface` (several: `actor Name: A, B`) promises
+  every handler of each interface, with the same modifier and parameter types
+  (names may differ). Nothing else is needed: the actor's handler need not be `pub`.
+- **Narrowing.** `narrow(x, Interface)` is the only way to get an interface
+  reference. It works on an actor reference (including `self`) whose actor declares the
+  interface. It costs nothing: the value is the same one word. An interface
+  reference is a type for fields, parameters, locals and handler arguments; an
+  actor reference is never accepted in its place, and it can't be narrowed again.
+- **Sending** through an interface follows the interface's modifier (decision 113):
+  a `reliable` handler returns `Sent`, a `lossy` one returns nothing. Only the
+  interface's own handlers can be sent; the actor's others are out of reach.
+- **Handler numbers** are chosen by name, program-wide (decision 128), so a message
+  carries the same number whether it was sent through an actor or an interface.
+- **Not yet.** Generic interfaces (`Reply<T>`, which wait for generics), narrowing
+  an interface to a smaller one, and `==` on references.
 
 ## 12. Open questions
 

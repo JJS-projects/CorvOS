@@ -1,0 +1,8 @@
+// An interface's name can't be one an actor already has.
+// error: 7:1: `Sink` is already defined
+
+actor Sink {
+}
+
+interface Sink {
+}

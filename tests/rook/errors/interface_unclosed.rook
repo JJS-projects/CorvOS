@@ -1,0 +1,5 @@
+// An interface's brace is closed.
+// error: 4:1: unclosed `{`
+
+interface Sink {
+    lossy on put(n: u64)

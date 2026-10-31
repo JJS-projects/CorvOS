@@ -36,7 +36,7 @@ import re
 
 from .errors import CompileError
 from . import syntax as S
-from .rtypes import (BOOL, UNIT, U8, U64, INT_TYPES, NAMED_TYPES, ActorType, EnumType, IntType,
+from .rtypes import (BOOL, UNIT, U8, U64, INT_TYPES, NAMED_TYPES, ActorType, EnumType, InterfaceType, IntType,
                      StructType, Variant, is_actor, is_aggregate, is_enum, is_int, is_struct,
                      lossless, words)
 
@@ -110,6 +110,7 @@ class Checker:
         self.trusted = False     # ... and whether it is in a trusted directory
         self.unsafe_depth = 0    # inside `unsafe { }`
         self.actors = {}         # name -> ActorType
+        self.interfaces = {}     # name -> InterfaceType
         self.in_new = False      # checking an actor's `new`
         self.assigned = set()    # fields `new` has set so far
 
@@ -137,6 +138,10 @@ class Checker:
                 require_camel(item.name, "actor", item.pos)
                 self.declare_unique(item.name, item.pos)
                 self.actors[item.name] = item.ty = ActorType(item.name, item)
+            elif isinstance(item, S.InterfaceDecl):
+                require_camel(item.name, "interface", item.pos)
+                self.declare_unique(item.name, item.pos)
+                self.interfaces[item.name] = item.ty = InterfaceType(item.name, item)
         for st in self.structs.values():
             self.enter_file(st.decl)
             st.fields = self.field_list(st.decl.fields, f"`{st.name}`")
@@ -174,9 +179,16 @@ class Checker:
                 if m.name in st.methods:
                     raise CompileError(f"`{st.name}` already has a method `{m.name}`", m.pos)
                 st.methods[m.name] = self.signature(m, st)
+        for iface in self.interfaces.values():
+            self.enter_file(iface.decl)
+            self.interface_signatures(iface)
         for actor in self.actors.values():
             self.enter_file(actor.decl)
             self.actor_signatures(actor)
+        self.number_handlers(prog)
+        for actor in self.actors.values():
+            self.enter_file(actor.decl)
+            self.implements(actor)
         # Constants in order: each may use the ones before it.
         for item in prog.items:
             if isinstance(item, S.ConstDecl):
@@ -247,6 +259,52 @@ class Checker:
             actor.methods[h.name] = self.actor_signature(
                 actor, h, MESSAGE_PARAMS, f"handler `{h.name}`")
 
+    def interface_signatures(self, iface):
+        for h in iface.decl.handlers:
+            h.file, h.trusted = iface.decl.file, iface.decl.trusted
+            require_snake(h.name, "handler", h.pos)
+            if h.name in iface.methods:
+                raise CompileError(f"`{iface.name}` already has a handler `{h.name}`", h.pos)
+            iface.methods[h.name] = self.actor_signature(
+                iface, h, MESSAGE_PARAMS, f"handler `{h.name}`")
+
+    def number_handlers(self, prog):
+        """A handler's number in a message is chosen by its name, program-wide
+        (decision 128): the same name is the same number in every actor and
+        interface, so a send through an interface needs no translation."""
+        numbers = {}
+        for item in prog.items:
+            if isinstance(item, (S.ActorDecl, S.InterfaceDecl)):
+                for h in item.handlers:
+                    h.number = numbers.setdefault(h.name, len(numbers))
+
+    def implements(self, actor):
+        """`actor Name: Interface` promises every handler of the interface, with the
+        same modifier and parameter types."""
+        for name, pos in actor.decl.implements:
+            iface = self.interfaces.get(name)
+            if iface is None:
+                if name in self.actors or name in self.structs or name in self.enums:
+                    raise CompileError(f"`{name}` is not an interface", pos)
+                raise CompileError(f"unknown interface `{name}`", pos)
+            self.require_visible(iface.decl, iface.name, pos)
+            if iface in actor.implements:
+                raise CompileError(f"`{actor.name}` already implements `{name}`", pos)
+            for hname, want in iface.methods.items():
+                have = actor.methods.get(hname)
+                if have is None:
+                    raise CompileError(
+                        f"`{actor.name}` implements `{name}`, so it needs a handler `{hname}`", pos)
+                if have.decl.handler != want.decl.handler:
+                    raise CompileError(
+                        f"`{name}` declares `{hname}` as `{want.decl.handler}`, so "
+                        f"`{actor.name}` must too", have.decl.pos)
+                if [t for t, _ in have.params] != [t for t, _ in want.params]:
+                    raise CompileError(
+                        f"`{actor.name}.{hname}` must take the same parameter types as "
+                        f"`{name}.{hname}`", have.decl.pos)
+            actor.implements.append(iface)
+
     def actor_signature(self, actor, decl, limit, what):
         params = []
         for p in decl.params:
@@ -286,12 +344,13 @@ class Checker:
             raise CompileError(
                 f"`{name}` is already a variant of `{self.variants[name].enum}`", pos)
         if (name in self.fns or name in self.consts or name in self.structs
-                or name in self.enums or name in self.actors):
+                or name in self.enums or name in self.actors or name in self.interfaces):
             raise CompileError(f"`{name}` is already defined", pos)
 
     def resolve_type(self, ref):
         ty = (NAMED_TYPES.get(ref.name) or self.structs.get(ref.name)
-              or self.enums.get(ref.name) or self.actors.get(ref.name))
+              or self.enums.get(ref.name) or self.actors.get(ref.name)
+              or self.interfaces.get(ref.name))
         if is_aggregate(ty) or is_actor(ty):
             self.require_visible(ty.decl, ty.name, ref.pos)
         if ty is None:
@@ -562,6 +621,11 @@ class Checker:
         ty = self.infer(e, expected if expected is not None else hint)
         e.ty = ty
         if expected is not None and ty != expected:
+            if (is_actor(expected) and expected.is_interface and is_actor(ty)
+                    and not ty.is_interface):
+                raise CompileError(
+                    f"expected {expected}, found {ty}: hand out only what the interface allows "
+                    f"with `narrow(..., {expected})`", e.pos)
             raise CompileError(f"expected {expected}, found {ty}", e.pos)
         return ty
 
@@ -780,10 +844,35 @@ class Checker:
                     "`self` can't be used in `new` until every field is set", e.pos)
             return self.receiver[0]
 
+        if isinstance(e, S.Narrow):
+            if self.fn is None:
+                raise CompileError("constants can't narrow references", e.pos)
+            iface = self.interfaces.get(e.interface)
+            if iface is None:
+                if e.interface in self.actors or e.interface in self.structs \
+                        or e.interface in self.enums:
+                    raise CompileError(f"`{e.interface}` is not an interface", e.interface_pos)
+                raise CompileError(f"unknown interface `{e.interface}`", e.interface_pos)
+            self.require_visible(iface.decl, iface.name, e.interface_pos)
+            src = self.expr(e.value)
+            if not is_actor(src):
+                raise CompileError(f"`narrow` works on actor references, not {src}", e.value.pos)
+            if src.is_interface:
+                raise CompileError(
+                    f"this is already a `{src}` reference: it can't be narrowed again", e.value.pos)
+            if iface not in src.implements:
+                raise CompileError(
+                    f"`{src.name}` doesn't implement `{iface.name}`: declare it as "
+                    f"`actor {src.name}: {iface.name}`", e.value.pos)
+            return iface
+
         if isinstance(e, S.Spawn):
             if self.fn is None:
                 raise CompileError("constants can't spawn actors", e.pos)
             actor = self.actors.get(e.name)
+            if actor is None and e.name in self.interfaces:
+                raise CompileError(
+                    f"`{e.name}` is an interface: `spawn` creates actors that implement it", e.pos)
             if actor is None:
                 if e.name in self.structs or e.name in self.enums:
                     raise CompileError(f"`{e.name}` is not an actor: `spawn` creates actors", e.pos)
@@ -1030,7 +1119,7 @@ class Checker:
                 f"`{e.name}` is private to {os.path.basename(actor.decl.file)}; "
                 f"mark the handler `pub` to send it from another file", e.pos)
         e.sig, e.send = sig, True
-        e.handler_index = list(actor.methods).index(e.name)
+        e.handler_index = sig.decl.number
         self.check_args(f"`{actor.name}.{e.name}`", sig.params, e.args, e.pos)
         if sig.decl.handler != "reliable":
             return UNIT

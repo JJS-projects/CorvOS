@@ -1,0 +1,11 @@
+// An implementing handler takes the interface's parameter types.
+// error: 9:11: `Plain.put` must take the same parameter types as `Sink.put`
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+    lossy on put(n: bool) {
+    }
+}

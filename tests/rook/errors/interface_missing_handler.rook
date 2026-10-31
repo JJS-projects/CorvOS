@@ -1,0 +1,9 @@
+// An actor that implements an interface has every one of its handlers.
+// error: 8:14: `Plain` implements `Sink`, so it needs a handler `put`
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+}

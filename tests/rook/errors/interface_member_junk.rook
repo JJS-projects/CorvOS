@@ -1,0 +1,6 @@
+// An interface holds handlers only.
+// error: 5:5: expected a handler, found `n`
+
+interface Sink {
+    n: u64
+}

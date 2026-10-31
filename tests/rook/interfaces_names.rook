@@ -1,0 +1,41 @@
+// An actor can implement several interfaces. A handler's number depends only on
+// its name, so two actors may have a handler with the same name and different
+// parameters, and one that no interface mentions is still reachable directly.
+// expect: 4
+// expect: 1
+// expect: 5
+
+interface Left {
+    lossy on tick(n: u64)
+}
+
+interface Right {
+    lossy on tock()
+}
+
+actor Both: Left, Right {
+    lossy on tick(n: u64) {
+        print_u64(n)
+    }
+
+    lossy on tock() {
+        print_u64(5)
+    }
+}
+
+actor Flag {
+    pub lossy on tick(up: bool) {
+        if up {
+            print_u64(1)
+        }
+    }
+}
+
+fn test_main() {
+    both: Both = spawn Both()
+    flag: Flag = spawn Flag()
+    narrow(both, Left).tick(4)
+    narrow(both, Right).tock()
+    flag.tick(true)
+    run_until_idle()
+}

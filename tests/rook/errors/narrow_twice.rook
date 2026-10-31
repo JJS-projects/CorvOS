@@ -1,0 +1,16 @@
+// A narrowed reference can't be narrowed again.
+// error: 15:22: this is already a `Sink` reference: it can't be narrowed again
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+actor Plain: Sink {
+    lossy on put(n: u64) {
+    }
+}
+
+fn f(p: Plain) {
+    s: Sink = narrow(p, Sink)
+    t: Sink = narrow(s, Sink)
+}

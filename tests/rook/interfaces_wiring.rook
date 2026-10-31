@@ -1,0 +1,58 @@
+// References are handed to other actors as interface types: stored in a field,
+// passed in a message, and made from `self`. A chain of actors forwards
+// through the interface; an asker hands out `narrow(self, Reply)` and the server
+// answers it (rook.md section 5).
+// expect: 20
+// expect: 99
+
+interface Sink {
+    lossy on put(n: u64)
+}
+
+interface Reply {
+    lossy on answer(n: u64)
+}
+
+actor Printer: Sink {
+    lossy on put(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Doubler: Sink {
+    out: Sink
+
+    new(out: Sink) {
+        .out = out
+    }
+
+    lossy on put(n: u64) {
+        .out.put(n * 2)
+    }
+}
+
+actor Server {
+    pub lossy on question(to: Reply) {
+        to.answer(99)
+    }
+}
+
+actor Asker: Reply {
+    pub lossy on ask(server: Server) {
+        server.question(narrow(self, Reply))
+    }
+
+    lossy on answer(n: u64) {
+        print_u64(n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    first: Doubler = spawn Doubler(narrow(printer, Sink))
+    second: Doubler = spawn Doubler(narrow(first, Sink))
+    narrow(second, Sink).put(5)         // 5 -> 10 -> 20
+    asker: Asker = spawn Asker()
+    asker.ask(spawn Server())
+    run_until_idle()
+}

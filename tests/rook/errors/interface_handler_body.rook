@@ -1,0 +1,7 @@
+// An interface's handlers have no bodies.
+// error: 5:26: an interface only declares handlers: the actor that implements it writes the body
+
+interface Sink {
+    lossy on put(n: u64) {
+    }
+}

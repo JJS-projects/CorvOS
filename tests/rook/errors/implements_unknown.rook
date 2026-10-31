@@ -1,0 +1,5 @@
+// An actor implements interfaces that exist.
+// error: 4:14: unknown interface `Nope`
+
+actor Plain: Nope {
+}

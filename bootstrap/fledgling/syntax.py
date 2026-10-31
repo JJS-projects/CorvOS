@@ -146,6 +146,15 @@ class Spawn(Expr):
 
 
 @dataclass
+class Narrow(Expr):
+    """`narrow(actor, Interface)`: the same reference, good only for the
+    interface's handlers."""
+    value: Expr
+    interface: str
+    interface_pos: Pos
+
+
+@dataclass
 class SelfRef(Expr):
     """`self` inside an actor: a reference to the actor itself."""
 
@@ -339,6 +348,7 @@ class FnDecl:
         self.nslots = 0         # set by checker: number of 8-byte local slots
         self.self_slot = None   # set by checker: methods' pointer to their struct
         self.result_slot = None  # set by checker: where a struct result goes (x8)
+        self.number = None      # set by checker: a handler's number in messages
 
     @property
     def symbol(self):
@@ -390,11 +400,27 @@ class ActorDecl:
     handlers: list              # [FnDecl], each with `handler` set
     pos: Pos
     public: bool = False
+    implements: list = field(default_factory=list)   # [(interface name, Pos)]
 
     def __post_init__(self):
         self.file = None
         self.trusted = False
         self.ty = None          # set by checker: the ActorType
+
+
+@dataclass
+class InterfaceDecl:
+    """`interface Name { [lossy|reliable] on name(params) ... }`: handlers
+    with no bodies."""
+    name: str
+    handlers: list              # [FnDecl] with no body, each with `handler` set
+    pos: Pos
+    public: bool = False
+
+    def __post_init__(self):
+        self.file = None
+        self.trusted = False
+        self.ty = None          # set by checker: the InterfaceType
 
 
 @dataclass

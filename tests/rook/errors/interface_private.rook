@@ -1,0 +1,7 @@
+// Without `pub`, an interface can only be used in its own file.
+// error: 4:14: `Hidden` is private to visibility.rook; mark it `pub` to use it in another file
+
+actor Plain: Hidden {
+    lossy on poke() {
+    }
+}

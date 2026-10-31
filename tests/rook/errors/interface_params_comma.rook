@@ -1,0 +1,6 @@
+// An interface's parameters are separated by commas.
+// error: 5:25: expected `,` or `)`, found `m`
+
+interface Sink {
+    lossy on put(n: u64 m: u64)
+}
