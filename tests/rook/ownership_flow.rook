@@ -6,6 +6,9 @@
 // expect: 13
 // expect: 4
 // expect: 3
+// expect: 0
+// expect: 20
+// expect: 21
 
 struct Reading {
     temp: i32
@@ -51,10 +54,23 @@ fn spent() -> u32 {
     return total
 }
 
+fn early(flag: bool) -> u32 {
+    r: Reading = Reading(temp: 1, seq: 20)
+    if flag {
+        print_u64(0)
+    } else {
+        gone: Reading = consume(r)
+        return gone.seq + 1                 // the path that consumed r leaves here
+    }
+    return r.seq                            // so r still has its value on this path
+}
+
 fn test_main() {
     print_u64(pick(true) as u64)        // 10 + 1
     print_u64(pick(false) as u64)       // untouched: 10
     print_u64(grow() as u64)            // 10 + 3
     print_u64(search() as u64)          // 4
     print_u64(spent() as u64)           // 3
+    print_u64(early(true) as u64)       // prints 0, then 20
+    print_u64(early(false) as u64)      // 21
 }
