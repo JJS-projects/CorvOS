@@ -90,6 +90,12 @@ class Gen:
             elif isinstance(item, (S.StructDecl, S.EnumDecl)):
                 for method in item.methods:
                     self.function(method)
+            elif isinstance(item, S.ActorDecl):
+                if item.new is not None:
+                    self.function(item.new)
+                for handler in item.handlers:
+                    self.function(handler)
+                self.dispatcher(item)
         self.lines.append("")
         self.lines.append("    .section .rodata")
         for key, text in PANIC_MESSAGES.items():
@@ -105,6 +111,27 @@ class Gen:
             else:
                 self.lines.append(f"{label}_data:")
         return "\n".join(self.lines) + "\n"
+
+    def dispatcher(self, actor):
+        """`Name__dispatch(self, handler, a0, a1, a2, a3)`: Raven's scheduler calls
+        this with a message taken from the mailbox. It jumps to the handler
+        whose number the message carries, moving the arguments down one register
+        so the handler sees `self` in x0 and its arguments from x1."""
+        symbol = f"{actor.name}__dispatch"
+        self.lines.append("")
+        self.lines.append(f"// dispatcher for actor {actor.name} (line {actor.pos.line})")
+        self.emit(f".global {symbol}")
+        self.emit(".balign 4")
+        self.label(symbol)
+        for number, handler in enumerate(actor.handlers):
+            skip = self.new_label("handler")
+            self.emit(f"cmp x1, #{number}")
+            self.emit(f"b.ne {skip}")
+            for i in range(1, 5):
+                self.emit(f"mov x{i}, x{i + 1}")
+            self.emit(f"b {handler.symbol}")
+            self.label(skip)
+        self.emit("brk #0x53")          # no message carries a handler number the actor lacks
 
     def file_label(self, path):
         path = path or "<input>"
@@ -432,6 +459,10 @@ class Gen:
             self.call(e.callee, None, e.args, e.ty, e.temp)
         elif isinstance(e, S.SelfValue):
             self.load_slot(self.fn.self_slot)
+        elif isinstance(e, S.SelfRef):
+            self.load_slot(self.fn.self_slot)       # the actor's reference is its fields' address
+        elif isinstance(e, S.Spawn):
+            self.spawn(e)
         elif isinstance(e, S.MatchExpr):
             self.match(e)
         else:
@@ -554,8 +585,44 @@ class Gen:
         self.region_addr(e.temp, st.words)
 
     def method_call(self, e):
+        if e.send:
+            self.send(e)
+            return
         self.call(e.sig.decl.symbol, e.obj if e.obj is not None else "self",
                   e.args, e.ty, e.temp)
+
+    def spawn(self, e):
+        """Raven makes room for the actor (`raven_spawn_actor(fields, dispatcher)`
+        gives its reference), then `new` runs on it. The reference is the value."""
+        self.emit(f"mov x0, #{len(e.actor.fields)}")
+        self.emit(f"adr x1, {e.actor.name}__dispatch")
+        self.emit("bl raven_spawn_actor")
+        self.store_slot(e.temp)
+        if e.sig is not None:
+            for arg in e.args:
+                self.expr(arg)
+                self.push()
+            for i in reversed(range(len(e.args))):
+                self.pop(f"x{i + 1}")
+            self.load_slot(e.temp)                  # x0: the new actor, `new`'s self
+            self.emit(f"bl {e.actor.name}__new")
+        self.load_slot(e.temp)
+
+    def send(self, e):
+        """`raven_send(target, handler number, a0, a1, a2, a3)`: Raven puts the
+        message in the target's mailbox, or drops it if the mailbox is full."""
+        self.expr(e.obj)
+        self.push()
+        for arg in e.args:
+            self.expr(arg)
+            self.push()
+        n = 1 + len(e.args)
+        for i in reversed(range(n)):
+            self.pop("x0" if i == 0 else f"x{i + 1}")
+        self.emit(f"mov x1, #{e.handler_index}")
+        for i in range(len(e.args), 4):
+            self.emit(f"mov x{i + 2}, #0")
+        self.emit("bl raven_send")
 
     def call(self, symbol, receiver, args, ret, temp):
         """Call a function or method. Struct arguments are passed by address."""

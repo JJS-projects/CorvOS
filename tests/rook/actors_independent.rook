@@ -1,0 +1,44 @@
+// Each spawned actor has its own fields, and `new` can take any number of
+// numbers, bools and references.
+// expect: 111
+// expect: 401
+// expect: 112
+// expect: 402
+// expect: -8
+
+actor Cell {
+    id: u64
+    mut value: i32
+    loud: bool
+
+    new(id: u64, value: i32, loud: bool) {
+        .id = id
+        .value = value
+        .loud = loud
+    }
+
+    pub lossy on bump(by: i32) {
+        .value += by
+        if .loud {
+            print_u64(.id * 100 + (.value wrap u64))
+        }
+    }
+
+    pub lossy on show() {
+        print_i64(.value as i64)
+    }
+}
+
+fn test_main() {
+    quiet: Cell = spawn Cell(1, 10, true)
+    other: Cell = spawn Cell(2, 200, true)
+    quiet.bump(1)
+    other.bump(1)
+    quiet.bump(1)
+    other.bump(1)
+    run_until_idle()
+    third: Cell = spawn Cell(3, -3, false)
+    third.bump(-5)
+    third.show()
+    run_until_idle()
+}

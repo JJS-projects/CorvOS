@@ -18,3 +18,9 @@ pub extern fn counter_frequency() -> u64
 /// True in the test builds, where nobody watches the activity LED, so
 /// kernel_main skips the waits of its LED signals (kernel/test_hooks.s).
 pub extern fn quiet_build() -> bool
+
+/// Support for Raven's actors (kernel/arch/aarch64/actors.s): the memory they
+/// live in, and the jump into an actor's dispatcher with a message's words.
+pub extern fn actor_arena_base() -> u64
+pub extern fn actor_arena_limit() -> u64
+pub extern fn call_dispatch(dispatcher: u64, target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64)

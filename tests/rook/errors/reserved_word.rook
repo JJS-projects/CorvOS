@@ -1,5 +1,5 @@
 // Words reserved for later milestones are rejected with a clear message.
-// error: 4:1: `actor` is reserved for a later milestone
+// error: 4:1: `interface` is reserved for a later milestone
 
-actor Counter {
+interface Counter {
 }

@@ -1,0 +1,21 @@
+// A panic in a handler ends the program and reports the handler's line, as
+// a panic anywhere does.
+// expect: 1
+// expect-panic: handler gave up at actors_panic.rook:12
+
+actor Fussy {
+    pub lossy on first() {
+        print_u64(1)
+    }
+
+    pub lossy on second() {
+        panic("handler gave up")
+    }
+}
+
+fn test_main() {
+    fussy: Fussy = spawn Fussy()
+    fussy.first()
+    fussy.second()
+    run_until_idle()
+}

@@ -1,0 +1,33 @@
+// An actor can send to itself, so long work is written in steps: do a bit,
+// queue the next step, and let the other actors have a turn in between.
+// expect: 11
+// expect: 21
+// expect: 12
+// expect: 22
+// expect: 13
+// expect: 23
+
+actor Stepper {
+    id: u64
+    last: u64
+
+    new(id: u64, last: u64) {
+        .id = id
+        .last = last
+    }
+
+    pub lossy on step(n: u64) {
+        print_u64(.id * 10 + n)
+        if n < .last {
+            self.step(n + 1)
+        }
+    }
+}
+
+fn test_main() {
+    left: Stepper = spawn Stepper(1, 3)
+    right: Stepper = spawn Stepper(2, 3)
+    left.step(1)
+    right.step(1)
+    run_until_idle()
+}

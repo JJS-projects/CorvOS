@@ -103,7 +103,9 @@ class Parser:
             if self.at("pub"):
                 self.advance()
                 public = True
-            if self.at("struct"):
+            if self.at("actor"):
+                prog.items.append(self.actor_decl(public))
+            elif self.at("struct"):
                 prog.items.append(self.struct_decl(public))
             elif self.at("enum"):
                 prog.items.append(self.enum_decl(public))
@@ -121,7 +123,7 @@ class Parser:
             else:
                 tok = self.peek()
                 raise CompileError(
-                    f"expected `fn`, `extern fn`, `struct`, `enum` or a constant at top level, "
+                    f"expected `fn`, `extern fn`, `struct`, `enum`, `actor` or a constant at top level, "
                     f"found {describe_tok(tok)}", tok.pos)
             self.skip_newlines()
         return prog
@@ -165,6 +167,84 @@ class Parser:
         self.open_blocks.pop()
         self.end_statement()
         return S.StructDecl(name, fields, methods, start.pos, public)
+
+    def actor_decl(self, public):
+        start = self.expect("actor")
+        name = self.expect("ident", "actor name").text
+        self.expect("{")
+        self.open_blocks.append({name})
+        fields, handlers, new = [], [], None
+        while True:
+            self.skip_newlines()
+            if self.at("}"):
+                self.close_block({name}, start)
+                break
+            if self.at("eof"):
+                raise CompileError("unclosed `{`", start.pos)
+            member_public = False
+            if self.at("pub"):
+                self.advance()
+                member_public = True
+            if self.at("ident") and self.peek().text == "new" and self.peek(1).kind == "(":
+                if member_public:
+                    raise CompileError("`new` is not marked `pub`: it runs when the actor is "
+                                       "spawned", self.peek().pos)
+                if new is not None:
+                    raise CompileError(f"`{name}` already has a `new`", self.peek().pos)
+                new = self.actor_fn(name, handler=None)
+            elif self.at("lossy") or self.at("reliable") or self.at("on"):
+                handlers.append(self.actor_fn(name, handler=True, public=member_public))
+            elif self.at("mut") or (self.at("ident") and self.peek(1).kind == ":"):
+                mutable = False
+                if self.at("mut"):
+                    self.advance()
+                    mutable = True
+                ftok = self.expect("ident", "a field name")
+                self.expect(":", "`:` and the field's type")
+                field = S.Field(ftok.text, self.type_ref(), ftok.pos, member_public, mutable)
+                fields.append(field)
+                self.end_statement()
+            else:
+                tok = self.peek()
+                raise CompileError(
+                    f"expected a field, `new` or a handler, found {describe_tok(tok)}", tok.pos)
+        self.open_blocks.pop()
+        self.end_statement()
+        return S.ActorDecl(name, fields, new, handlers, start.pos, public)
+
+    def actor_fn(self, owner, handler, public=False):
+        """`new(params) { }` or `[lossy|reliable] on name(params) { }` in an actor."""
+        kind = None
+        if handler:
+            if self.at("on"):
+                raise CompileError(
+                    "a handler is `lossy` or `reliable`: write one of them before `on`",
+                    self.peek().pos)
+            kind = self.advance().kind
+            if not self.at("on"):
+                raise CompileError(f"`{kind}` goes before `on`, as in `{kind} on name(...)`",
+                                   self.peek().pos)
+            start = self.advance()
+            name_tok = self.expect("ident", "handler name")
+        else:
+            start = name_tok = self.advance()       # the word `new`
+        self.expect("(")
+        params = []
+        while not self.at(")"):
+            ptok = self.expect("ident", "parameter name")
+            self.expect(":")
+            params.append(S.Param(ptok.text, self.type_ref(allow_mut=True), ptok.pos))
+            if not self.at(")"):
+                self.expect(",", "`,` or `)`")
+        self.expect(")")
+        ret = None
+        if self.at("->"):
+            raise CompileError(
+                "a handler has no result: to answer, send a message to a reference you were given",
+                self.peek().pos)
+        body = self.block({name_tok.text})
+        self.end_statement()
+        return S.FnDecl(name_tok.text, params, ret, body, start.pos, public, True, owner, kind)
 
     def enum_decl(self, public):
         start = self.expect("enum")
@@ -583,6 +663,16 @@ class Parser:
         if tok.kind == "match":
             start, subject, open_ = self.match_head()
             return S.MatchExpr(start.pos, subject, self.match_arms(True, start, open_))
+        if tok.kind == "spawn":
+            self.advance()
+            name = self.expect("ident", "an actor name")
+            if not self.at("("):
+                raise CompileError(f"write `spawn {name.text}(...)` with its arguments",
+                                   self.peek().pos)
+            return S.Spawn(tok.pos, name.text, self.positional_args(name.text))
+        if tok.kind == "self":
+            self.advance()
+            return S.SelfRef(tok.pos)
         if tok.kind == "copy":
             self.advance()
             if not self.at("("):

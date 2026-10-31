@@ -1,0 +1,44 @@
+// Actors send to each other: references travel in messages, and a handler can
+// send while it runs. Two actors that name each other's types are fine.
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 4
+// expect: 5
+// expect: 6
+
+actor Pinger {
+    partner: Ponger
+    limit: u64
+
+    new(partner: Ponger, limit: u64) {
+        .partner = partner
+        .limit = limit
+    }
+
+    pub lossy on go(n: u64) {
+        print_u64(n)
+        .partner.hit(n + 1, self)
+    }
+
+    pub lossy on back(n: u64) {
+        print_u64(n)
+        if n < .limit {
+            self.go(n + 1)
+        }
+    }
+}
+
+actor Ponger {
+    pub lossy on hit(n: u64, sender: Pinger) {
+        print_u64(n)
+        sender.back(n + 1)
+    }
+}
+
+fn test_main() {
+    ponger: Ponger = spawn Ponger()
+    pinger: Pinger = spawn Pinger(ponger, 6)
+    pinger.go(1)
+    run_until_idle()
+}
