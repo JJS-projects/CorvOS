@@ -79,6 +79,7 @@ class Call(Expr):
     def __post_init__(self):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot for a struct result
+        self.number = None      # set by checker: `handler_number("name")`'s value
 
 
 @dataclass

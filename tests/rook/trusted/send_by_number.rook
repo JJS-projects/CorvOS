@@ -1,0 +1,22 @@
+// Raven can send a message to a reference it holds as a number: `actor_address` gives
+// the number and `handler_number("name")` the handler's number in messages. The
+// handler reached is the one named, not another.
+// expect: 2
+
+actor Pair {
+    pub lossy on first() {
+        print_u64(1)
+    }
+
+    pub lossy on second() {
+        print_u64(2)
+    }
+}
+
+fn test_main() {
+    pair: Pair = spawn Pair()
+    unsafe {
+        raven_send(actor_address(pair), handler_number("second"), 0, 0, 0, 0)
+    }
+    run_until_idle()
+}

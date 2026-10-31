@@ -1,0 +1,12 @@
+// An interrupt taken while code is running gives back the registers it used: here the
+// UART's interrupt is switched on while x0 to x3 hold known values, with input
+// waiting, and they are checked afterwards.
+// input: hello
+// expect: true
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    console.listen()                    // ask the UART to interrupt for what is typed
+    wait_ms(500)                        // the input has arrived by now
+    print_bool(probe_irq_registers())
+}

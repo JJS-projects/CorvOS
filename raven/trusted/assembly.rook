@@ -33,6 +33,9 @@ pub extern fn call_dispatch(dispatcher: u64, target: u64, handler: u64, a0: u64,
 pub extern fn irq_init()
 pub extern fn timer_arm(ticks: u64)
 pub extern fn timer_disarm()
+pub extern fn irq_enable_source(line: u64)
+pub extern fn irq_take_pending() -> u64
+pub extern fn idle_until_interrupt()
 pub extern fn handler_table_start() -> u64
 pub extern fn handler_table_end() -> u64
 pub extern fn rook_budget_panic(name: u64, budget_ms: u64, file: u64, line: u64)

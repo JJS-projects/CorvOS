@@ -246,6 +246,12 @@ Each core's Raven schedules the actors in its own domains (section 6.3).
   So a handler that never returns is an ordinary failure, not a hung core.
 - **Long work is written in steps**, each ending by sending a message to oneself
   (`rook.md` section 4.4).
+- **Interrupts are messages, delivered by the scheduler** (built in step 3f, decision
+  134). Raven's interrupt code only notes which source fired and switches it off; the
+  scheduler turns that into a message to the actor that routed it, between turns, and
+  switches the source on again. So an interrupt never touches a mailbox or the run
+  queue while Raven is changing them. When nothing is runnable the core sleeps until an
+  interrupt arrives.
 - **Order.** Runnable actors take turns, one message per turn, with no priorities to
   begin with. Messages from one sender to one receiver arrive in the order sent
   (decision 122).

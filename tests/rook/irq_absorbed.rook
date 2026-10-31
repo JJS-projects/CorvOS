@@ -1,0 +1,47 @@
+// An interrupt for a handler that already has one waiting is absorbed, not queued
+// twice. `fired` is queued by hand first; the real interrupt arrives while it waits.
+// Worked out: the delivery finds one queued and adds none, and switches the source
+// back on, so the still-asserting UART fires again before the handler has read
+// anything; the handler runs once for the hand-queued message (reading all 6 bytes),
+// then once for that second interrupt (finding none). Two calls, 6 bytes. Without
+// absorption the first delivery would queue a third.
+// input: hello
+// expect: 2
+// expect: 6
+
+actor Tap: Interrupt {
+    console: val Pl011
+    mut calls: u64
+    mut bytes: u64
+
+    new(console: val Pl011, irq: val Irq) {
+        .console = console
+        .calls = 0
+        .bytes = 0
+        console.listen()
+        irq.route(narrow(self, Interrupt))
+    }
+
+    pub lossy on report() {
+        print_u64(.calls)
+        print_u64(.bytes)
+    }
+
+    lossy on fired() {
+        .calls += 1
+        draining: loop .console.has_byte() {
+            discard .console.take()
+            .bytes += 1
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    tap: Tap = spawn Tap(console, make_irq(peripherals, 57))
+    wait_ms(500)                        // "hello" and a newline arrive: the interrupt fires
+    narrow(tap, Interrupt).fired()      // one already waiting when it is delivered
+    run_until_idle()
+    tap.report()
+    run_until_idle()
+}

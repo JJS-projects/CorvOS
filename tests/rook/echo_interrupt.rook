@@ -1,0 +1,26 @@
+// The echo demo with the UART's interrupt in place of polling. Raven turns the
+// interrupt into the message `fired` for the `UartListener`, which passes the bytes on
+// to `Echo`, then the `UartWriter`. Between bytes the core sleeps (`run_forever`).
+// input: hello
+// expect-echo: hello
+
+actor Echo: ByteSink {
+    out: ByteSink
+
+    new(out: ByteSink) {
+        .out = out
+    }
+
+    lossy on byte(b: u8) {
+        .out.byte(b)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    writer: UartWriter = spawn UartWriter(console)
+    echo: Echo = spawn Echo(narrow(writer, ByteSink))
+    listener: UartListener = spawn UartListener(console, make_irq(peripherals, 57),
+                                                narrow(echo, ByteSink))
+    run_forever()
+}

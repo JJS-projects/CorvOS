@@ -1,5 +1,5 @@
 // Registers are read 4 bytes at a time, at 4-byte boundaries.
-// expect-panic: register not 4-byte aligned at devices.rook:48
+// expect-panic: register not 4-byte aligned at devices.rook:54
 
 fn test_main(peripherals: Mmio) {
     uart: Mmio = peripherals.part(0x201000, 0x1000)

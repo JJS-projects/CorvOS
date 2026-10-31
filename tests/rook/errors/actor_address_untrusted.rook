@@ -1,0 +1,9 @@
+// `actor_address` is for Raven's own code.
+// error: 8:14: `actor_address` touches memory the compiler can't check, so it is only allowed in files under a trusted directory, inside `unsafe { }`
+
+actor Thing {
+}
+
+fn f(t: Thing) {
+    n: u64 = actor_address(t)
+}

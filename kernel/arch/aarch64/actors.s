@@ -47,6 +47,44 @@ irq_init:
     isb
     ret
 
+// void irq_enable_source(u64 line): lets peripheral interrupt `line` (32 to 63) through
+// the Pi's interrupt controller (IRQ enable 2, 0x3F00B214).
+    .global irq_enable_source
+irq_enable_source:
+    sub     x0, x0, #32
+    mov     w1, #1
+    lsl     w1, w1, w0
+    ldr     x2, =0x3F00B214
+    str     w1, [x2]
+    ret
+
+// u64 irq_take_pending(void): the sources that have fired since the last call (bit
+// n is line 32 + n), and clears them. IRQs are masked meanwhile, so one landing
+// halfway can't be lost.
+    .global irq_take_pending
+irq_take_pending:
+    msr     daifset, #2
+    adrp    x1, actor_arena
+    add     x1, x1, :lo12:actor_arena
+    ldr     x0, [x1, #48]
+    str     xzr, [x1, #48]
+    msr     daifclr, #2
+    ret
+
+// void idle_until_interrupt(void): sleeps until an interrupt arrives, unless one
+// already has. Masks IRQs while it looks, because `wfi` wakes for a pending
+// interrupt even when it is masked, so none can slip between the look and the sleep.
+    .global idle_until_interrupt
+idle_until_interrupt:
+    msr     daifset, #2
+    adrp    x1, actor_arena
+    add     x1, x1, :lo12:actor_arena
+    ldr     x0, [x1, #48]
+    cbnz    x0, 1f
+    wfi
+1:  msr     daifclr, #2
+    ret
+
 // void timer_arm(u64 ticks): interrupt after `ticks` counts of the generic timer.
     .global timer_arm
 timer_arm:
@@ -79,6 +117,7 @@ actor_arena_limit:
 
     .section .bss
     .balign 4096
+    .global actor_arena                 // vectors.s notes interrupts in its pending word
 actor_arena:
     .space  65536                       // 64 KB; zeroed at boot with the rest of .bss
 actor_arena_end:

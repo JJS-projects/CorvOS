@@ -1,0 +1,27 @@
+// The interrupt works more than once: after the first line has been echoed the source
+// is switched on again, and a second line typed later is echoed too.
+// input: first
+// expect-echo: first
+// input: second
+// expect-echo: second
+
+actor Echo: ByteSink {
+    out: ByteSink
+
+    new(out: ByteSink) {
+        .out = out
+    }
+
+    lossy on byte(b: u8) {
+        .out.byte(b)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    writer: UartWriter = spawn UartWriter(console)
+    echo: Echo = spawn Echo(narrow(writer, ByteSink))
+    listener: UartListener = spawn UartListener(console, make_irq(peripherals, 57),
+                                                narrow(echo, ByteSink))
+    run_forever()
+}

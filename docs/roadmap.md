@@ -95,7 +95,9 @@ that PC.
    input, and the cost per send measured on QEMU (not a real time).
 5. *The handler time budget* (3e, done): the generic timer interrupts a handler that runs
    over 100 ms and Raven reports it by name and line.
-6. Later: UART interrupts as messages; then ownership (`iso`, `val`, `consume`, `freeze`).
+6. *UART interrupts as messages* (3f, done): `Irq`, `irq.route(narrow(self, Interrupt))`, a
+   `UartListener`, and a scheduler that sleeps when idle.
+7. Later: ownership (`iso`, `val`, `consume`, `freeze`).
 
 **Done when:** two actors echo UART input to each other by message passing, and
 the cost per send is measured.

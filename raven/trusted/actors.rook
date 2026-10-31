@@ -29,8 +29,11 @@ ACTOR_S_RUNQ_COUNT: u64 = 16
 ACTOR_S_DROPPED: u64 = 24           // messages dropped because a mailbox was full
 ACTOR_S_CURRENT_DISPATCHER: u64 = 32  // the handler now running: its actor's dispatcher ...
 ACTOR_S_CURRENT_HANDLER: u64 = 40     // ... and its number
+ACTOR_S_IRQ_PENDING: u64 = 48       // bit n: peripheral interrupt 32 + n has fired (vectors.s)
 ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
 ACTOR_RUNQ_SLOTS: u64 = 128
+ACTOR_IRQ_ROUTES: u64 = 1152        // where each interrupt goes: 32 records of (actor, handler number)
+ACTOR_IRQ_FIRST: u64 = 32           // the interrupts handled: peripheral IRQs 32 to 63
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
 
 // A handler may run this long before it counts as failed (decisions 121, 133).
@@ -119,13 +122,113 @@ pub fn dropped_messages() -> u64 {
     }
 }
 
-/// Runs actors until none has a message waiting. Each turn delivers one
-/// message to the actor at the front of the run queue; an actor with more
-/// waiting goes to the back (decision 122, d).
+/// Runs actors until none has a message waiting and no interrupt is waiting to be
+/// delivered. Each turn delivers one message to the actor at the front of the run
+/// queue; an actor with more waiting goes to the back (decision 122, d).
 pub fn run_until_idle() {
-    scheduling: loop actors_waiting() != 0 {
+    scheduling: loop {
+        deliver_interrupts()
+        if actors_waiting() == 0 {
+            break scheduling
+        }
         run_one_turn()
     }
+}
+
+/// Runs actors for ever. When none has a message waiting, the core sleeps until an
+/// interrupt arrives (decision 134).
+pub fn run_forever() {
+    scheduling: loop true {
+        deliver_interrupts()
+        if actors_waiting() != 0 {
+            run_one_turn()
+        } else {
+            idle_until_interrupt()
+        }
+    }
+}
+
+/// What an interrupt becomes: a message to the handler `fired` of the actor that
+/// routed it. It is `lossy` with no arguments, so one already queued absorbs a
+/// new one (decision 113, f).
+pub interface Interrupt {
+    lossy on fired()
+}
+
+/// The right to receive one peripheral interrupt, made only from the peripherals
+/// (`make_irq`). Whoever holds it chooses where the interrupt goes.
+pub struct Irq {
+    line: u64
+
+    /// From now on interrupt `line` is delivered to `to` as the message `fired`.
+    /// Routing it again replaces the route.
+    pub fn route(to: Interrupt) {
+        unsafe {
+            rt_slot: u64 = actor_arena_base() + ACTOR_IRQ_ROUTES + (.line - ACTOR_IRQ_FIRST) * 16
+            store64(rt_slot, actor_address(to))
+            store64(rt_slot + 8, handler_number("fired"))
+        }
+        irq_enable_source(.line)
+    }
+} Irq
+
+/// An `Irq` for peripheral interrupt `line` (32 to 63; the PL011 UART is 57). Only
+/// the whole peripherals can make one, so a driver that was given just its registers
+/// can't give itself an interrupt.
+pub fn make_irq(peripherals: Mmio, line: u64) -> Irq {
+    if not peripherals.is_root() {
+        panic("an Irq is made from the whole peripherals")
+    }
+    if line < ACTOR_IRQ_FIRST or line >= ACTOR_IRQ_FIRST + 32 {
+        panic("peripheral interrupts 32 to 63 only")
+    }
+    return Irq(line: line)
+}
+
+/// Turns the interrupts that have fired into messages, and switches each source back
+/// on (vectors.s switched it off). A source still asserting fires again at once, so
+/// a handler can be called with nothing left to do and must cope with that.
+fn deliver_interrupts() {
+    mut rt_pending: u64 = irq_take_pending()
+    mut rt_bit: u64 = 0
+    delivering: loop rt_pending != 0 {
+        if (rt_pending and 1) != 0 {
+            deliver_interrupt(ACTOR_IRQ_FIRST + rt_bit)
+        }
+        rt_pending = rt_pending shr 1
+        rt_bit += 1
+    }
+}
+
+fn deliver_interrupt(line: u64) {
+    unsafe {
+        rt_slot: u64 = actor_arena_base() + ACTOR_IRQ_ROUTES + (line - ACTOR_IRQ_FIRST) * 16
+        rt_target: u64 = load64(rt_slot)
+        if rt_target != 0 {
+            rt_number: u64 = load64(rt_slot + 8)
+            if not rt_queued(rt_target, rt_number) {
+                discard rt_enqueue(rt_target, rt_number, 0, 0, 0, 0)    // full: the source fires again
+            }
+        }
+    }
+    irq_enable_source(line)
+}
+
+/// Is a message for `handler` already waiting in `target`'s mailbox?
+fn rt_queued(target: u64, handler: u64) -> bool {
+    rt_header: u64 = target - ACTOR_BEFORE_FIELDS
+    unsafe {
+        rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
+        rt_count: u64 = load64(rt_header + ACTOR_H_COUNT)
+        looking: loop i: u64 in 0..rt_count {
+            rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 +
+                           ((rt_first + i) % ACTOR_SLOTS) * ACTOR_SLOT_WORDS * 8
+            if load64(rt_slot) == handler {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 fn actors_waiting() -> u64 {
