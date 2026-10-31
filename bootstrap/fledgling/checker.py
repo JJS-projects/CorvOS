@@ -244,10 +244,6 @@ class Checker:
                 raise CompileError(f"`{h.name}` is already a field of `{actor.name}`", h.pos)
             if h.name in actor.methods:
                 raise CompileError(f"`{actor.name}` already has a handler `{h.name}`", h.pos)
-            if h.handler == "reliable":
-                raise CompileError(
-                    "`reliable` handlers are not supported by Fledgling yet: only `lossy` "
-                    "ones, whose sends return nothing", h.pos)
             actor.methods[h.name] = self.actor_signature(
                 actor, h, MESSAGE_PARAMS, f"handler `{h.name}`")
 
@@ -885,6 +881,9 @@ class Checker:
         elif is_int(ty) or ty == BOOL:
             self.value_patterns(m, ty)
         else:
+            if ty == UNIT:
+                raise CompileError(
+                    "there is nothing to match: this call returns no value", m.subject.pos)
             raise CompileError(
                 f"can't match a {ty}: `match` works on enums, integers and bools", m.subject.pos)
 
@@ -1018,7 +1017,8 @@ class Checker:
     # ---- structs, places and lending ----------------------------------
 
     def send(self, e, actor):
-        """`ref.handler(args)`: a message to an actor. It returns nothing."""
+        """`ref.handler(args)`: a message to an actor. A send to a `lossy` handler
+        returns nothing; a send to a `reliable` one returns Raven's `Sent`."""
         if e.obj is None:
             raise CompileError(
                 f"to send a message to yourself, write `self.{e.name}(...)`", e.pos)
@@ -1032,7 +1032,15 @@ class Checker:
         e.sig, e.send = sig, True
         e.handler_index = list(actor.methods).index(e.name)
         self.check_args(f"`{actor.name}.{e.name}`", sig.params, e.args, e.pos)
-        return UNIT
+        if sig.decl.handler != "reliable":
+            return UNIT
+        sent = self.enums.get("Sent")
+        if sent is None:
+            raise CompileError(
+                "a send to a `reliable` handler returns Raven's enum `Sent`, "
+                "which this program doesn't declare", e.pos)
+        e.temp = self.alloc(sent.words)
+        return sent
 
     def named_fields(self, owner, fields, given, pos):
         """`given` [(name, pos)] must name every field once, in declared order."""

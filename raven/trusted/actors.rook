@@ -50,16 +50,43 @@ pub fn raven_spawn_actor(fields: u64, dispatcher: u64) -> u64 {
     }
 }
 
-/// Sends a message to `target`: puts it in the mailbox, or drops it if the
-/// mailbox is full. Used by every send of a `lossy` handler.
+/// What a send to a `reliable` handler tells the sender (decision 126).
+pub enum Sent {
+    Delivered
+    MailboxFull
+}
+
+/// Sends a message to `target`: puts it in the mailbox, or drops it and
+/// counts the drop if the mailbox is full. Used by every send of a `lossy`
+/// handler.
 pub fn raven_send(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64) {
-    rt_base: u64 = actor_arena_base()
+    if not rt_enqueue(target, handler, a0, a1, a2, a3) {
+        unsafe {
+            rt_base: u64 = actor_arena_base()
+            store64(rt_base + ACTOR_S_DROPPED, load64(rt_base + ACTOR_S_DROPPED) + 1)
+        }
+    }
+}
+
+/// Sends a message to a `reliable` handler: the same, except that a full
+/// mailbox is not a drop. The sender is told and decides what the message is
+/// worth (decision 126).
+pub fn raven_send_reliable(target: u64, handler: u64, a0: u64, a1: u64, a2: u64,
+                           a3: u64) -> Sent {
+    if rt_enqueue(target, handler, a0, a1, a2, a3) {
+        return Delivered
+    }
+    return MailboxFull
+}
+
+/// Puts a message in `target`'s mailbox and queues the actor to run. Returns
+/// false, changing nothing, if the mailbox is full.
+fn rt_enqueue(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> bool {
     rt_header: u64 = target - ACTOR_BEFORE_FIELDS
     unsafe {
         rt_count: u64 = load64(rt_header + ACTOR_H_COUNT)
         if rt_count == ACTOR_SLOTS {
-            store64(rt_base + ACTOR_S_DROPPED, load64(rt_base + ACTOR_S_DROPPED) + 1)
-            return
+            return false
         }
         rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
         rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 +
@@ -74,6 +101,7 @@ pub fn raven_send(target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64)
             store64(rt_header + ACTOR_H_QUEUED, 1)
             run_queue_push(target)
         }
+        return true
     }
 }
 

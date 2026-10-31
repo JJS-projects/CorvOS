@@ -1,0 +1,69 @@
+// A send to a `reliable` handler returns `Sent`: Delivered when the message was
+// queued, MailboxFull when the 16-message mailbox had no room. A full mailbox
+// is not a drop: Raven's count stays at 0 and the queued messages keep their order.
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 4
+// expect: 5
+// expect: 6
+// expect: 7
+// expect: 8
+// expect: 9
+// expect: 10
+// expect: 11
+// expect: 12
+// expect: 13
+// expect: 14
+// expect: 15
+// expect: 0
+// expect: 1
+// expect: 99
+// expect: 0
+
+actor Sink {
+    pub reliable on take(n: u64) {
+        print_u64(n)
+    }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(0)
+    }
+}
+
+fn test_main() {
+    sink: Sink = spawn Sink()
+    sent: loop i: u64 in 0..20 {
+        report(sink.take(i))
+    }
+    run_until_idle()
+    print_u64(dropped_messages())
+    report(sink.take(99))               // room again once the mailbox has drained
+    run_until_idle()
+    discard sink.take(98)               // thrown away on purpose
+    print_u64(dropped_messages())
+}

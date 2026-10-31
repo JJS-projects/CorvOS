@@ -1,7 +1,0 @@
-// `reliable` handlers are not supported yet, and say so.
-// error: 5:14: `reliable` handlers are not supported by Fledgling yet: only `lossy` ones, whose sends return nothing
-
-actor Counter {
-    reliable on add(n: u64) {
-    }
-}

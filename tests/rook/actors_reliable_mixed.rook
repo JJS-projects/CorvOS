@@ -1,0 +1,58 @@
+// One actor can have both kinds of handler. A full mailbox drops a `lossy`
+// message and counts it; a `reliable` send into the same full mailbox is
+// refused with MailboxFull and is not counted.
+// expect: 1
+// expect: 0
+// expect: 1
+// expect: 0
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 4
+// expect: 5
+// expect: 6
+// expect: 7
+// expect: 8
+// expect: 9
+// expect: 10
+// expect: 11
+// expect: 12
+// expect: 13
+// expect: 14
+// expect: 15
+// expect: 2
+// expect: 1
+// expect: 7
+
+actor Mix {
+    pub lossy on soft(n: u64) {
+        print_u64(n)
+    }
+
+    pub reliable on firm(n: u64) {
+        print_u64(n)
+    }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(0)
+    }
+}
+
+fn test_main() {
+    mix: Mix = spawn Mix()
+    filling: loop i: u64 in 0..16 {
+        mix.soft(i)
+    }
+    mix.soft(16)                        // dropped and counted
+    print_u64(dropped_messages())       // 1
+    report(mix.firm(100))               // refused, not counted
+    print_u64(dropped_messages())       // 1
+    mix.soft(17)                        // dropped and counted
+    run_until_idle()
+    print_u64(dropped_messages())       // 2
+    report(mix.firm(7))
+    run_until_idle()
+}
