@@ -1,0 +1,6 @@
+// `self` is the actor itself, so only an actor has one.
+// error: 5:14: `self` is the actor itself, so it only works inside an actor
+
+fn f() {
+    x: u64 = self
+}

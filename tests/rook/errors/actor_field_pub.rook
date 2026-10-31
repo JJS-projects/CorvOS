@@ -1,0 +1,10 @@
+// An actor's fields are private, so they can't be `pub`.
+// error: 5:9: an actor's fields are private: other actors reach it with messages
+
+actor Counter {
+    pub total: u64
+
+    new() {
+        .total = 0
+    }
+}

@@ -1,0 +1,13 @@
+// An actor's fields hold numbers, bools and actor references for now.
+// error: 9:12: an actor's field holds a number, a bool or an actor reference for now, not Point
+
+struct Point {
+    x: u64
+}
+
+actor Counter {
+    where: Point
+
+    new(p: u64) {
+    }
+}

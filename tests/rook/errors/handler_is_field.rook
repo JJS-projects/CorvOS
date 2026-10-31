@@ -1,0 +1,13 @@
+// A handler can't reuse the name of a field.
+// error: 11:11: `add` is already a field of `Counter`
+
+actor Counter {
+    add: u64
+
+    new() {
+        .add = 0
+    }
+
+    lossy on add() {
+    }
+}

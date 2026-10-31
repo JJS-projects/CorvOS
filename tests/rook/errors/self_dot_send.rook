@@ -1,0 +1,17 @@
+// A message to oneself is written `self.handler(...)`.
+// error: 15:10: to send a message to yourself, write `self.a(...)`
+
+actor Counter {
+    mut n: u64
+
+    new() {
+        .n = 0
+    }
+
+    pub lossy on a() {
+    }
+
+    lossy on b() {
+        .a()
+    }
+}

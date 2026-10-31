@@ -40,3 +40,16 @@ pub enum Gate {
         return 1
     }
 }
+
+pub actor Door {
+    pub lossy on open() {
+    }
+
+    lossy on lock() {
+    }
+}
+
+actor Vault {
+    pub lossy on peek() {
+    }
+}

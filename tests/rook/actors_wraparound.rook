@@ -1,0 +1,43 @@
+// A mailbox is a ring: after some messages have been taken, new ones go in
+// the slots at its start, and order is kept across the wrap. An actor that
+// has gone idle is queued again by its next message.
+// expect: 0
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 4
+// expect: 5
+// expect: 6
+// expect: 7
+// expect: 8
+// expect: 9
+// expect: 10
+// expect: 11
+// expect: 12
+// expect: 13
+// expect: 14
+// expect: 15
+// expect: 16
+// expect: 17
+// expect: 18
+// expect: 19
+// expect: 0
+
+actor Sink {
+    pub lossy on take(n: u64) {
+        print_u64(n)
+    }
+}
+
+fn test_main() {
+    sink: Sink = spawn Sink()
+    first: loop i: u64 in 0..10 {
+        sink.take(i)
+    }
+    run_until_idle()
+    second: loop j: u64 in 10..20 {
+        sink.take(j)                // goes in slots 10..15, then wraps to 0..3
+    }
+    run_until_idle()
+    print_u64(dropped_messages())
+}

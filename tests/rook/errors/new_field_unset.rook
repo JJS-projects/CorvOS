@@ -1,0 +1,11 @@
+// `new` sets every field.
+// error: 8:5: `new` must set every field: `.b` is never set
+
+actor Counter {
+    a: u64
+    b: u64
+
+    new() {
+        .a = 1
+    }
+}

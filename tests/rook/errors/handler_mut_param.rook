@@ -1,0 +1,7 @@
+// A message can't carry a borrow.
+// error: 5:18: a message can't carry a borrow: a `mut` parameter is lent to a call, not sent
+
+actor Counter {
+    lossy on add(n: mut u64) {
+    }
+}

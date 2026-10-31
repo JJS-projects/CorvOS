@@ -1,0 +1,20 @@
+// `spawn`'s arguments have the types `new` takes.
+// error: 19:32: expected u64, found bool
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f() {
+    c: Counter = spawn Counter(true)
+}

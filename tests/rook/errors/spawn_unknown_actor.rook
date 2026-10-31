@@ -1,0 +1,6 @@
+// `spawn` names an actor that exists.
+// error: 5:14: unknown actor `Nothing`
+
+fn f() {
+    x: u64 = spawn Nothing()
+}

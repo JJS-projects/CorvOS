@@ -1,0 +1,7 @@
+// Handler names are snake_case.
+// error: 5:11: handler names are snake_case, like `add`: `Add`
+
+actor Counter {
+    lossy on Add() {
+    }
+}

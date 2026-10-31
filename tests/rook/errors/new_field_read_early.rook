@@ -1,0 +1,12 @@
+// A field can't be read in `new` before it is set.
+// error: 9:15: `.b` is read before `new` sets it
+
+actor Counter {
+    a: u64
+    b: u64
+
+    new() {
+        .a = .b
+        .b = 1
+    }
+}

@@ -1,0 +1,11 @@
+// A handler can only read fields its actor has.
+// error: 9:19: `Counter` has no field `nope`
+
+actor Counter {
+    new() {
+    }
+
+    lossy on add() {
+        x: u64 = .nope
+    }
+}

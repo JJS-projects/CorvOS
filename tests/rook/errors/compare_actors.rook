@@ -1,0 +1,20 @@
+// Actor references have no `==`: they only send.
+// error: 19:14: can't compare values of type Counter
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f(a: Counter, b: Counter) -> bool {
+    return a == b
+}

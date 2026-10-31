@@ -1,0 +1,9 @@
+// An actor can't reuse the name of a struct.
+// error: 8:1: `Counter` is already defined
+
+struct Counter {
+    x: u64
+}
+
+actor Counter {
+}

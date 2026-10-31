@@ -1,0 +1,10 @@
+// An actor has one `new`.
+// error: 8:5: `Counter` already has a `new`
+
+actor Counter {
+    new() {
+    }
+
+    new() {
+    }
+}

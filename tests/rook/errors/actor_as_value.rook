@@ -1,0 +1,20 @@
+// An actor's name is a type, not a value.
+// error: 19:14: `Counter` is a type, not a value
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f() {
+    x: u64 = Counter
+}

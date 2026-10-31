@@ -1,0 +1,9 @@
+// `spawn` is written with its brackets, even when `new` takes nothing.
+// error: 8:31: write `spawn Counter(...)` with its arguments
+
+actor Counter {
+}
+
+fn f() {
+    c: Counter = spawn Counter
+}

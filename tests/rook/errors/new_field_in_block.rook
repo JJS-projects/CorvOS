@@ -1,0 +1,12 @@
+// `new` sets its fields at the top level, so none is left unset on some path.
+// error: 9:16: `new` sets each field at the top level of its body, not inside an `if`, a loop or a `match`
+
+actor Counter {
+    a: u64
+
+    new(flag: bool) {
+        if flag {
+            .a = 1
+        }
+    }
+}

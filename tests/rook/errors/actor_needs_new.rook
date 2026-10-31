@@ -1,0 +1,6 @@
+// An actor with fields needs a `new` to set them.
+// error: 4:1: `Counter` has fields, so it needs a `new` that sets them
+
+actor Counter {
+    total: u64
+}

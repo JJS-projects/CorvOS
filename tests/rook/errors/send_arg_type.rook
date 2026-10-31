@@ -1,0 +1,20 @@
+// A send's arguments have the handler's types.
+// error: 19:11: expected u64, found bool
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f(c: Counter) {
+    c.add(true)
+}

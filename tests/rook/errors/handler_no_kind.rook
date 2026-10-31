@@ -1,0 +1,7 @@
+// A handler says whether it is `lossy` or `reliable`: there is no default.
+// error: 5:5: a handler is `lossy` or `reliable`: write one of them before `on`
+
+actor Counter {
+    on add(n: u64) {
+    }
+}

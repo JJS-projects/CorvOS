@@ -1,0 +1,16 @@
+// `self` can't be handed out before every field is set.
+// error: 10:9: `self` can't be used in `new` until every field is set
+
+actor Counter {
+    a: u64
+    b: u64
+
+    new() {
+        .a = 1
+        self.add(1)
+        .b = 2
+    }
+
+    pub lossy on add(n: u64) {
+    }
+}

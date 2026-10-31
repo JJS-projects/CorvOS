@@ -1,0 +1,11 @@
+// An actor's field is declared once.
+// error: 6:5: `Counter` already has a field `total`
+
+actor Counter {
+    total: u64
+    total: u64
+
+    new() {
+        .total = 0
+    }
+}

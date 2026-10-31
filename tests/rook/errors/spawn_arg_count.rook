@@ -1,0 +1,20 @@
+// `spawn` passes the arguments `new` takes.
+// error: 19:18: `spawn Counter` takes 1 argument(s), but 0 given
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f() {
+    c: Counter = spawn Counter()
+}

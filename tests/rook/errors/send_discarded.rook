@@ -1,0 +1,20 @@
+// A send returns nothing, so there is nothing to discard.
+// error: 19:15: nothing to discard: the call returns no value
+
+actor Counter {
+    mut count: u64
+    other: u64
+
+    new(start: u64) {
+        .count = start
+        .other = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+}
+
+fn f(c: Counter) {
+    discard c.add(1)
+}

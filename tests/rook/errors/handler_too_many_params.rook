@@ -1,0 +1,7 @@
+// A message holds at most four words for now.
+// error: 5:11: handler `add` takes at most 4 parameters for now
+
+actor Counter {
+    lossy on add(a: u64, b: u64, c: u64, d: u64, e: u64) {
+    }
+}

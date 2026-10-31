@@ -16,7 +16,6 @@ bootstrap/fledgling/codegen.py || else: || raise AssertionError(f"unknown expres
 bootstrap/fledgling/checker.py ||  || if isinstance(e, S.MutArg): || the parser only makes a `mut` argument inside a call's arguments, which the call handles
 bootstrap/fledgling/checker.py || if isinstance(e, S.MutArg): || raise CompileError("`mut` only marks an argument passed to a `mut` parameter", e.pos) || same
 bootstrap/fledgling/checker.py || if op == ">=": return int(a >= b) || raise CompileError("constants must be computed from literals and other constants", e.pos) || every constant expression kind the parser allows is handled above it
-bootstrap/fledgling/checker.py || if not is_int(lty) and lty != BOOL: || raise CompileError(f"can't compare values of type {lty}", e.pos) || only integers, bools, structs and enums exist, and the earlier branches take the last two
 bootstrap/fledgling/parser.py || if e.op in SHIFT_OPS and unbracketed(child, ARITH_OPS): || raise CompileError( || shifts bind tighter than arithmetic, so a shift never has an unbracketed arithmetic child; `shift_arith` reaches the mirror case
 #
 # Unused or debugging code.
@@ -24,4 +23,5 @@ bootstrap/fledgling/__init__.py || """Compile one untrusted file of Rook source 
 bootstrap/fledgling/checker.py || return f"`{source_text(e)}`" || return "this value" || describe_place is only called with a place, since the parser rejects other assignment targets
 bootstrap/fledgling/checker.py || if isinstance(node, tuple): || return any(breaks_to(item, label) for item in node) || the syntax tree holds no tuples
 bootstrap/fledgling/rtypes.py || def __repr__(self): || return f"{type(self).__name__}({self.name})" || only for debugging
+bootstrap/fledgling/rtypes.py || def __repr__(self): || return f"ActorType({self.name})" || only for debugging
 bootstrap/fledgling/rtypes.py || at += words(ty) || raise KeyError(field) || the checker has already checked every field it asks for

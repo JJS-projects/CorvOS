@@ -1,0 +1,14 @@
+// `.` alone is a struct's own value; an actor is `self`.
+// error: 12:22: `.` on its own is a struct's own value: an actor refers to itself as `self`
+
+actor Counter {
+    mut n: u64
+
+    new() {
+        .n = 0
+    }
+
+    lossy on a() {
+        x: Counter = .
+    }
+}
