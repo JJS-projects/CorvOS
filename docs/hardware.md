@@ -54,6 +54,8 @@ then a fault is only visible on the serial port.
 
 | 17 | Receiving works by polling: `FR_RXFE` (bit 4 of the flag register) is clear when a byte waits, and reading the data register takes it; polling once per scheduler turn is faster than 115200 baud fills the 16-byte FIFO (`raven/pl011.rook`, `UartReader`) | Manual, UART_FR "RXFE, Receive FIFO empty", UART_DR. QEMU's PL011 model accepts typed bytes and the echo demo passes on both machines | **Verified** the bit. **Untested on a board**: receive overruns, framing errors (the error bits in the data register are ignored), and whether the polling loop keeps up when other actors are busy. The send-cost numbers in docs/design.md 6.2 come from QEMU's timer and are not real times |
 
+| 18 | The handler time budget works through the ARM local interrupt controller: bit 1 of `CORE0_TIMER_IRQCNTL` (0x40000040) sends the EL1 physical timer (`CNTP_*`) to core 0 as an IRQ, which Raven takes at EL1 (`kernel/arch/aarch64/actors.s`, `vectors.s`) | The BCM2836 ARM-local peripherals document (the same block the Pi 3 and the Zero 2 W's BCM2710A1 use, per mainline Linux's `bcm2836-l1-intc`); QEMU's `bcm2836_control` model, on which both test machines pass | **Partly**. The register and bit are from the documents and QEMU agrees; **untested on a board**: that the firmware leaves the timer unmasked for EL1, and that 100 ms is 1.92 million ticks of whatever `CNTFRQ_EL0` really is (item 12). If the interrupt never arrives, a runaway handler hangs the core as it did before; if it arrives early, ordinary handlers are reported as failed |
+
 ## Reading the board's serial port with the test harness
 
 `tests/run_tests.py` can read boot output from a serial port instead of QEMU's

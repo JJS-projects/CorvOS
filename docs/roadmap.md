@@ -93,8 +93,9 @@ that PC.
 4. *The echo demo* (3d, done): a polling `UartReader` and a `UartWriter` in
    `raven/pl011.rook`, an `Echo` between them, a harness that types into QEMU's serial
    input, and the cost per send measured on QEMU (not a real time).
-5. Later: UART interrupts as messages and the handler time budget; then ownership
-   (`iso`, `val`, `consume`, `freeze`).
+5. *The handler time budget* (3e, done): the generic timer interrupts a handler that runs
+   over 100 ms and Raven reports it by name and line.
+6. Later: UART interrupts as messages; then ownership (`iso`, `val`, `consume`, `freeze`).
 
 **Done when:** two actors echo UART input to each other by message passing, and
 the cost per send is measured.

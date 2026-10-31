@@ -24,3 +24,15 @@ pub extern fn quiet_build() -> bool
 pub extern fn actor_arena_base() -> u64
 pub extern fn actor_arena_limit() -> u64
 pub extern fn call_dispatch(dispatcher: u64, target: u64, handler: u64, a0: u64, a1: u64, a2: u64, a3: u64)
+
+/// Interrupts and the handler time budget (kernel/arch/aarch64/actors.s,
+/// kernel/panic.s, decision 133). `irq_init` lets the physical timer interrupt the
+/// core; `timer_arm` interrupts after that many counter ticks and `timer_disarm`
+/// cancels it. `handler_table_*` bound the table Fledgling writes of every handler,
+/// five words each. `rook_budget_panic` takes the addresses of two `Bytes` values.
+pub extern fn irq_init()
+pub extern fn timer_arm(ticks: u64)
+pub extern fn timer_disarm()
+pub extern fn handler_table_start() -> u64
+pub extern fn handler_table_end() -> u64
+pub extern fn rook_budget_panic(name: u64, budget_ms: u64, file: u64, line: u64)

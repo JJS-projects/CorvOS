@@ -36,6 +36,7 @@ pub fn kernel_main(entry_el: u64, peripherals: Mmio) {
     console.write("Raven: running at EL")
     console.write_dec(current_el())
     console.write("\n")
+    irq_init()                          // the handler time budget needs the timer interrupt
     run_test_hooks(peripherals)
     console.write("Raven: boot complete, idling\n")
     led.turn_on()

@@ -27,9 +27,16 @@ ACTOR_S_NEXT: u64 = 0               // next free byte (0 until the first spawn)
 ACTOR_S_RUNQ_FIRST: u64 = 8
 ACTOR_S_RUNQ_COUNT: u64 = 16
 ACTOR_S_DROPPED: u64 = 24           // messages dropped because a mailbox was full
+ACTOR_S_CURRENT_DISPATCHER: u64 = 32  // the handler now running: its actor's dispatcher ...
+ACTOR_S_CURRENT_HANDLER: u64 = 40     // ... and its number
 ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
 ACTOR_RUNQ_SLOTS: u64 = 128
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
+
+// A handler may run this long before it counts as failed (decisions 121, 133).
+ACTOR_BUDGET_MS: u64 = 100
+BUDGET_DEFAULT_HZ: u64 = 19200000   // the timer's rate if the firmware didn't set it (hardware.md 12)
+HANDLER_RECORD_BYTES: u64 = 40      // one record of Fledgling's handler table
 
 /// Makes room for an actor with `fields` words of fields and returns its
 /// reference. `dispatcher` is the address of the actor's dispatcher.
@@ -166,7 +173,41 @@ fn run_one_turn() {
         } else {
             store64(rt_header + ACTOR_H_QUEUED, 0)
         }
-        call_dispatch(load64(rt_header + ACTOR_H_DISPATCHER), rt_actor, rt_handler,
-                      rt_a0, rt_a1, rt_a2, rt_a3)
+        rt_dispatcher: u64 = load64(rt_header + ACTOR_H_DISPATCHER)
+        store64(rt_base + ACTOR_S_CURRENT_DISPATCHER, rt_dispatcher)
+        store64(rt_base + ACTOR_S_CURRENT_HANDLER, rt_handler)
+        timer_arm(budget_ticks())
+        call_dispatch(rt_dispatcher, rt_actor, rt_handler, rt_a0, rt_a1, rt_a2, rt_a3)
+        timer_disarm()
     }
+}
+
+/// The handler budget in ticks of the generic timer.
+fn budget_ticks() -> u64 {
+    mut rt_hz: u64 = counter_frequency()
+    if rt_hz == 0 {
+        rt_hz = BUDGET_DEFAULT_HZ
+    }
+    return ACTOR_BUDGET_MS * (rt_hz / 1000)
+}
+
+/// Called by the IRQ vector (kernel/arch/aarch64/vectors.s) when the budget timer
+/// fires: the handler that was running has failed. Until supervision exists that is
+/// reported like a panic, naming the handler, and the core halts.
+pub fn raven_budget_overrun() {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_dispatcher: u64 = load64(rt_base + ACTOR_S_CURRENT_DISPATCHER)
+        rt_handler: u64 = load64(rt_base + ACTOR_S_CURRENT_HANDLER)
+        mut rt_record: u64 = handler_table_start()
+        rt_end: u64 = handler_table_end()
+        searching: loop rt_record < rt_end {
+            if load64(rt_record) == rt_dispatcher and load64(rt_record + 8) == rt_handler {
+                rook_budget_panic(load64(rt_record + 16), ACTOR_BUDGET_MS,
+                                  load64(rt_record + 24), load64(rt_record + 32))
+            }
+            rt_record = rt_record + HANDLER_RECORD_BYTES
+        }
+    }
+    panic("a handler ran past its time budget")
 }

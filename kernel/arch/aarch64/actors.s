@@ -19,6 +19,50 @@ call_dispatch:
     mov     x5, x6
     br      x16
 
+// u64 handler_table_start(void), u64 handler_table_end(void): the table Fledgling
+// writes of every handler (see Gen.handler_table), to name one that overran.
+    .global handler_table_start
+handler_table_start:
+    adrp    x0, rook_handler_table
+    add     x0, x0, :lo12:rook_handler_table
+    ret
+
+    .global handler_table_end
+handler_table_end:
+    adrp    x0, rook_handler_table_end
+    add     x0, x0, :lo12:rook_handler_table_end
+    ret
+
+// void irq_init(void): lets the physical timer interrupt the core, and unmasks IRQs.
+// The Pi's per-core interrupt controller (ARM local peripherals, 0x40000000) routes
+// the non-secure physical timer, bit 1 of CORE0_TIMER_IRQCNTL (0x40000040), to the
+// core's IRQ. Only core 0 runs Raven for now (decision 111).
+    .global irq_init
+irq_init:
+    msr     cntp_ctl_el0, xzr           // the timer starts disarmed
+    ldr     x0, =0x40000040
+    mov     w1, #2                      // nCNTPNSIRQ -> IRQ
+    str     w1, [x0]
+    msr     daifclr, #2                 // unmask IRQ
+    isb
+    ret
+
+// void timer_arm(u64 ticks): interrupt after `ticks` counts of the generic timer.
+    .global timer_arm
+timer_arm:
+    msr     cntp_tval_el0, x0
+    mov     x1, #1                      // ENABLE, interrupt not masked
+    msr     cntp_ctl_el0, x1
+    isb
+    ret
+
+// void timer_disarm(void)
+    .global timer_disarm
+timer_disarm:
+    msr     cntp_ctl_el0, xzr
+    isb
+    ret
+
 // u64 actor_arena_base(void), u64 actor_arena_limit(void): the memory every
 // actor, mailbox and Raven's actor tables are carved from.
     .global actor_arena_base

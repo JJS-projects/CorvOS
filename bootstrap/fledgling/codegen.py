@@ -67,6 +67,7 @@ class Gen:
         self.labels = 0
         self.files = {}         # source path -> label of its name, for panics
         self.strings = {}       # bytes -> label of the Bytes value
+        self.handlers = []      # (dispatcher symbol, number, "Actor.handler", file, line)
 
     def emit(self, text):
         self.lines.append("    " + text)
@@ -96,6 +97,7 @@ class Gen:
                 for handler in item.handlers:
                     self.function(handler)
                 self.dispatcher(item)
+        self.handler_table()
         self.lines.append("")
         self.lines.append("    .section .rodata")
         for key, text in PANIC_MESSAGES.items():
@@ -112,6 +114,28 @@ class Gen:
                 self.lines.append(f"{label}_data:")
         return "\n".join(self.lines) + "\n"
 
+    def handler_table(self):
+        """`rook_handler_table`: one record of five words for every handler, so that
+        Raven can name the handler that ran over its time budget: the dispatcher's
+        address, the handler's number, the `Bytes` "Actor.handler", the `Bytes` file
+        name, and the line of the declaration."""
+        self.lines.append("")
+        self.lines.append("    .section .rodata")
+        self.emit(".balign 8")
+        self.emit(".global rook_handler_table, rook_handler_table_end")
+        self.label("rook_handler_table")
+        for symbol, number, name, path, line in self.handlers:
+            name_label = self.string_label(name.encode())
+            file_label = self.string_label(os.path.basename(path or "<input>").encode())
+            self.emit(f".quad {symbol}, {number}, {name_label}, {file_label}, {line}")
+        self.label("rook_handler_table_end")
+
+    def string_label(self, data):
+        """The label of a `Bytes` value holding `data` (made once)."""
+        if data not in self.strings:
+            self.strings[data] = f".Lbytes_{len(self.strings)}"
+        return self.strings[data]
+
     def dispatcher(self, actor):
         """`Name__dispatch(self, handler, a0, a1, a2, a3)`: Raven's scheduler calls
         this with a message taken from the mailbox. It jumps to the handler
@@ -125,6 +149,8 @@ class Gen:
         self.label(symbol)
         for handler in actor.handlers:
             number = handler.number
+            self.handlers.append((symbol, number, f"{actor.name}.{handler.name}",
+                                  handler.file, handler.pos.line))
             skip = self.new_label("handler")
             self.emit(f"cmp x1, #{number}")
             self.emit(f"b.ne {skip}")
