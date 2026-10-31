@@ -239,7 +239,8 @@ Each core's Raven schedules the actors in its own domains (section 6.3).
   paused; it runs on the core's own stack, so an actor with no handler running needs
   no stack at all (decision 121). Raven's interrupt code still runs at any time: it
   puts a message in the driver actor's mailbox and returns to what was running.
-- **A handler has a time budget.** Raven sets a one-shot timer when a handler starts
+- **A handler has a time budget** (built in step 3e, decision 133: 100 ms for every
+  handler). Raven sets a one-shot timer when a handler starts
   and clears it when the handler returns. If the timer fires first, the handler has
   failed, exactly as if it had panicked: its domain is restarted by its supervisor.
   So a handler that never returns is an ordinary failure, not a hung core.

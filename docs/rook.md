@@ -529,7 +529,7 @@ in a server, so a server whose interface stores a client's reference should say 
 
 ### 4.4 How long a handler may run
 
-*Planned (decisions 121 and 122).*
+*Decisions 121 and 122; the budget itself is built (step 3e, decision 133), supervision is not.*
 
 - A handler runs from its first line to its return and is never paused. Other actors
   on the core wait their turn.
@@ -845,7 +845,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 
 - **What is accepted.** `actor Name { fields, new(...), [pub] lossy on name(...) { } }`,
   `spawn Name(args)`, `self`, and a send `ref.handler(args)` or `self.handler(args)`.
-  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet. Read-only `val` fields arrived in step 3d (11.9).
+  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet. Read-only `val` fields arrived in step 3d (11.9), and the handler time budget in step 3e (11.10).
 - **Fields** hold numbers, bools, actor references and (from step 3d) read-only `val` data (11.9), are private to the actor's own
   handlers (`pub` is an error) and are changed only if written `mut`.
 - **`new`** sets every field exactly once, in any order, with `=` at the top level of its
@@ -870,8 +870,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   of arena is a panic.
 - **Panics.** A panic in a handler reports its line and halts the whole system, as
   any panic does for now; restarting just the actor's domain waits for milestone 7.
-- **Known gaps.** No time budget yet (decision 121): a handler that never returns
-  hangs the core. No `Main`, `Boot`, interrupts as messages, ownership (`iso`, `val`),
+- **Known gaps.** No `Main`, `Boot`, interrupts as messages, ownership (`iso`, `val`),
   or messages that carry structs.
 
 ### 11.7 Rules settled while building reliable sends (step 3b)
@@ -925,6 +924,21 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **Not ownership.** This is the first use of `val`, not the freezing and reference
   counting of section 7: nothing here is shared between actors, because each actor holds
   its own copy.
+
+### 11.10 Rules settled while building the handler time budget (step 3e)
+
+- **Every handler has 100 ms.** One number for all handlers (decision 122a), chosen as
+  generous and not yet measured against real handlers. Raven arms the core's timer when
+  it starts a handler and disarms it when the handler returns; an interrupt in between
+  means the handler has failed.
+- **The report** is the owner's choice (decision 133) and has the shape of a panic:
+  `Raven: panic: Counter.spin ran for over 100 ms at counter.rook:14`. The line is where
+  the handler is declared. The core halts, as for any panic, until supervision exists
+  (milestone 7). A test expects it with `// expect-panic: Counter.spin ran for over 100 ms
+  at counter.rook:14`.
+- **A handler that waits is also over budget.** `wait_ms` inside a handler counts. Long
+  work belongs in steps (section 4.4).
+- **Nothing else interrupts yet.** The timer is the only interrupt source enabled.
 
 ## 12. Open questions
 
