@@ -97,7 +97,10 @@ that PC.
    over 100 ms and Raven reports it by name and line.
 6. *UART interrupts as messages* (3f, done): `Irq`, `irq.route(narrow(self, Interrupt))`, a
    `UartListener`, and a scheduler that sleeps when idle.
-7. Later: ownership (`iso`, `val`, `consume`, `freeze`).
+7. Ownership, in three steps (decisions 135 to 137):
+   *4a* (done): `consume`, `iso` parameters and fields, move checking in the compiler.
+   *4b*: handlers take `iso` and `val` structs and enums; small ones are copied into
+   the message. *4c*: `freeze`, reference-counted `val` data, and a pool for larger data.
 
 **Done when:** two actors echo UART input to each other by message passing, and
 the cost per send is measured.

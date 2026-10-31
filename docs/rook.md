@@ -618,6 +618,10 @@ building an `iso` then freezing it into a `val` covers `trn`.
 
 ### 7.1 Ownership in practice
 
+*Step 4a (decisions 135 to 137) builds `consume`, `iso` parameters and fields, and the
+move checking, in the compiler only. Messages that carry structs (4b) and `freeze`
+(4c) are still to come; section 11.12 says what is accepted today.*
+
 - `consume(x)` moves `x`; the compiler forbids using `x` afterwards.
 - `freeze(x)`, where `x` is `iso T`, takes it like `consume` and returns it as
   `val T`: immutable, shareable, and reference counted from then on. Freezing
@@ -727,6 +731,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 | Hardware (2c) | trusted files, `unsafe { }`, `load`/`store`, text, `panic`, programs of several files | done |
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 | Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
+| Ownership (4a) | `consume`, `iso` parameters and fields, move checking; no run-time change | done |
 | Reliable sends (3b) | `reliable on` handlers; a send to one returns `Sent` | done |
 | Interfaces (3c) | `interface`, `actor Name: Interface`, `narrow(x, Interface)` (not generic) | done |
 | The echo demo (3d) | see the roadmap | planned |
@@ -963,10 +968,39 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   reference as a `u64`) and `handler_number("fired")` (the number messages use for
   handlers of that name).
 
+### 11.12 Rules settled while building ownership (step 4a)
+
+- **`iso`** (owned, the only reference) is written on an actor's field or a function's
+  parameter of struct or enum type: `mut latest: iso Reading`, `fn keep(r: iso Reading)`.
+  A plain local is owned without a word; a bare parameter is a read-only lend (unchanged).
+  A `new` parameter may be `iso` (or `val`). On a handler parameter `iso` is an error
+  until messages carry structs (step 4b), and on a local, a number, or a `mut` parameter
+  it is an error.
+- **`consume(x)`** gives away an owned variable (a local, or an `iso` parameter) or a
+  `mut iso` field of the actor. It is a new value nothing else holds, so it can be
+  assigned, returned, or passed to an `iso` parameter. Not a lent parameter, a `val`
+  field, a part of something, or a number.
+- **After `consume(x)`, `x` has no value** until it is assigned again, which needs it to
+  be `mut` for a variable. Using it, lending it or consuming it again is an error that
+  says where it was consumed.
+- **Branches and loops.** After an `if` or `match`, `x` is consumed if it was on any path
+  that continues; paths that `return`, `break`, `continue` or `panic` don't count. In a
+  loop, a variable from outside that is consumed must be assigned again before the end
+  of the body and before any `continue`; after a `break` it stays consumed.
+- **A consumed `iso` field must be assigned again** before the handler ends and before
+  any `return`. `new` gives every field its first value, so it may not consume.
+- **An `iso` parameter takes ownership**: the argument is a new value, `consume(x)` or
+  `copy(x)` (the error names both when `consume` would be allowed). `consume(x)` to a
+  parameter that only borrows is an error.
+- **Messages copy small data** (decision 135, built in 4b): a struct up to about 8 words is
+  copied into the mailbox slot; a pool comes with `freeze`.
+- **No run-time cost or change.** `consume(x)` generates no code beyond reading `x`.
+
 ## 12. Open questions
 
-- **Default capabilities**: how much can be inferred for locals, and which caps must
-  always be written (fields, parameters, handler arguments)?
+- **Default capabilities**: settled for `iso` and `val` on fields and parameters, and
+  for plain locals (owned) by decisions 130 and 136. Still open: handler arguments
+  (step 4b), `val` results and locals (step 4c).
 - **Message ordering**: guaranteed order between one sender and one receiver (as in
   Pony) is the likely answer.
 - **Wrapping arithmetic**: overflow panics (section 11.1); do we need explicit
