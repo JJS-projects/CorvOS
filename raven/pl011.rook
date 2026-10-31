@@ -15,6 +15,7 @@ UART_CR: u64 = 0x30                 // control
 UART_IMSC: u64 = 0x38               // interrupt mask
 UART_ICR: u64 = 0x44                // interrupt clear
 FR_TXFF: u32 = 0x20                 // flag: transmit FIFO full
+FR_RXFE: u32 = 0x10                 // flag: receive FIFO empty
 
 // GPIO registers, as offsets into the GPIO `Mmio`.
 GPFSEL1: u64 = 0x04                 // function of pins 10-19, 3 bits each
@@ -57,6 +58,17 @@ pub struct Pl011 {
         .regs.write32(UART_DR, b as u32)
     }
 
+    /// Is a received byte waiting?
+    pub fn has_byte() -> bool {
+        return (.regs.read32(UART_FR) and FR_RXFE) == 0
+    }
+
+    /// Takes the oldest received byte. Only call it when `has_byte()` is true:
+    /// on an empty FIFO the data register reads as zero.
+    pub fn take() -> u8 {
+        return .regs.read32(UART_DR) wrap u8
+    }
+
     /// Sends text, with each `\n` sent as `\r\n` for terminals.
     pub fn write(text: Bytes) {
         sending: loop i: u64 in 0..text.len() {
@@ -81,4 +93,44 @@ pub struct Pl011 {
 /// written; an optimising compiler would need to be told to keep it.
 fn settle(cycles: u64) {
     spinning: loop i: u64 in 0..cycles { }
+}
+
+/// Anything that can be sent bytes, one message each. The UART's writer, and the
+/// actors that pass bytes along, implement it.
+pub interface ByteSink {
+    lossy on byte(b: u8)
+}
+
+/// The receiving half of a UART as an actor: it polls for received bytes (there are
+/// no interrupts yet) and sends each to `out`. Start it with one `poll()`; it asks
+/// itself again after every look, so the scheduler is never idle while it lives.
+/// It holds the console by `val`: it can only read from it.
+pub actor UartReader {
+    console: val Pl011
+    out: ByteSink
+
+    new(console: val Pl011, out: ByteSink) {
+        .console = console
+        .out = out
+    }
+
+    pub lossy on poll() {
+        if .console.has_byte() {
+            .out.byte(.console.take())
+        }
+        self.poll()
+    }
+}
+
+/// The sending half: writes every byte it is sent to the UART.
+pub actor UartWriter: ByteSink {
+    console: val Pl011
+
+    new(console: val Pl011) {
+        .console = console
+    }
+
+    lossy on byte(b: u8) {
+        .console.put(b)
+    }
 }

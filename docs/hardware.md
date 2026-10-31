@@ -52,6 +52,8 @@ then a fault is only visible on the serial port.
 | 15 | The board has 512 MB of RAM | Tests run on `raspi3ap` (512 MB) as well as `raspi3b`. The Zero 2 W's memory size is from its product page, which I did not re-read | **Partly** |
 | 16 | The serial adapter is 3.3 V, with its RX on pin 8 (GPIO 14, TX), TX on pin 10 (GPIO 15, RX) and GND on pin 6 | `tools/sdcard/README.md` (written from the Pi header pinout; not checked against a schematic) | **Partly** |
 
+| 17 | Receiving works by polling: `FR_RXFE` (bit 4 of the flag register) is clear when a byte waits, and reading the data register takes it; polling once per scheduler turn is faster than 115200 baud fills the 16-byte FIFO (`raven/pl011.rook`, `UartReader`) | Manual, UART_FR "RXFE, Receive FIFO empty", UART_DR. QEMU's PL011 model accepts typed bytes and the echo demo passes on both machines | **Verified** the bit. **Untested on a board**: receive overruns, framing errors (the error bits in the data register are ignored), and whether the polling loop keeps up when other actors are busy. The send-cost numbers in docs/design.md 6.2 come from QEMU's timer and are not real times |
+
 ## Reading the board's serial port with the test harness
 
 `tests/run_tests.py` can read boot output from a serial port instead of QEMU's

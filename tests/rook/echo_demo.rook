@@ -1,0 +1,30 @@
+// The milestone 3 demo: input typed on the serial port is
+// read by a polling `UartReader`, passed by message to `Echo`, passed on to a
+// `UartWriter`, and written back. Neither driver can do the other's job: the
+// reader is never given anything to write with, nor the writer to read. The
+// test_main below never returns (the reader polls for ever), so the harness
+// passes it when the line comes back.
+// input: hello
+// expect-echo: hello
+// machines: raspi3b raspi3ap
+
+actor Echo: ByteSink {
+    out: ByteSink
+
+    new(out: ByteSink) {
+        .out = out
+    }
+
+    lossy on byte(b: u8) {
+        .out.byte(b)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    writer: UartWriter = spawn UartWriter(console)
+    echo: Echo = spawn Echo(narrow(writer, ByteSink))
+    reader: UartReader = spawn UartReader(console, narrow(echo, ByteSink))
+    reader.poll()
+    run_until_idle()
+}

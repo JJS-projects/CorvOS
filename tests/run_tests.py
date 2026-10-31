@@ -20,6 +20,13 @@ Four kinds of test:
              kernel/arch/aarch64/vectors.s) has a line containing this text.
                  // machines: raspi3b
              Run only on the listed machines (for tests of the machine itself).
+                 // input: hello
+                 // expect-echo: hello
+             Type "hello" and a newline into the program's serial input once it
+             has printed `Raven: running Rook test`, and pass when the program has
+             written a line "hello" back, even if test_main never returns (a
+             polling driver doesn't). At most 15 bytes, so the UART's FIFO holds
+             them. Not run against a real board: this harness doesn't type into one.
 
   error/...  Programs in tests/rook/errors/*.rook (or errors/trusted/, compiled
              as trusted) that Fledgling must reject:
@@ -102,9 +109,9 @@ TRUSTED_DIRS = [os.path.join(ROOT, *d.split("/")) for d in
 # Booting an image in QEMU
 
 def open_serial(path):
-    """Open a serial port (or a pseudo-terminal) for reading: raw, so that no
+    """Open a serial port (or a pseudo-terminal): raw, so that no
     byte is changed on its way in, at 115200 baud, 8N1."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     attrs = termios.tcgetattr(fd)
     tty.setraw(fd)
     attrs = termios.tcgetattr(fd)
@@ -131,7 +138,7 @@ def pty_path(proc, timeout=10):
     raise RuntimeError(f"QEMU did not announce a serial pty: {seen!r}")
 
 
-def boot(image, finished, timeout, machine, log_path):
+def boot(image, finished, timeout, machine, log_path, feed=None):
     """Boot `image` on `machine` until `finished(lines)` is true or `timeout` passes.
 
     Returns (output, timed_out, qemu_log). `lines` passed to `finished` are
@@ -141,6 +148,9 @@ def boot(image, finished, timeout, machine, log_path):
     Where the output comes from depends on CORVOS_SERIAL: QEMU's own output
     (the default), QEMU's serial port on a pseudo-terminal read like a real
     port ("pty"), or a real serial port on a board (a device path).
+
+    `feed`, if given, is typed into the program's serial input once the program
+    has started (FEED_AFTER has been printed).
     """
     if SERIAL not in ("stdio", "pty"):
         return read_board(finished, timeout)
@@ -155,7 +165,8 @@ def boot(image, finished, timeout, machine, log_path):
         cmd += ["-S", "-monitor", "stdio"]
     else:
         cmd += ["-monitor", "none"]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if SERIAL == "pty" else subprocess.DEVNULL,
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if SERIAL == "pty" or feed
+                            else subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     sel = selectors.DefaultSelector()
     port = None
@@ -167,7 +178,14 @@ def boot(image, finished, timeout, machine, log_path):
             proc.stdin.flush()
         else:
             sel.register(proc.stdout, selectors.EVENT_READ)
-        output, timed_out = read_until(sel, finished, timeout, proc)
+        typer = None
+        if feed:
+            if SERIAL == "pty":
+                type_in = lambda data: os.write(port, data)
+            else:
+                type_in = lambda data: (proc.stdin.write(data), proc.stdin.flush())
+            typer = (feed, type_in)
+        output, timed_out = read_until(sel, finished, timeout, proc, typer)
         return output, timed_out, read_qemu_log(proc, log_path)
     finally:
         proc.kill()
@@ -189,12 +207,16 @@ def read_board(finished, timeout):
         os.close(port)
 
 
-def read_until(sel, finished, timeout, proc):
+def read_until(sel, finished, timeout, proc, typer=None):
     """Collect output from `sel` until `finished(lines)`, the timeout, or the
-    process (if any) ends. Returns (output, timed_out)."""
+    process (if any) ends. Returns (output, timed_out). `typer` is (bytes,
+    function): the bytes are passed to the function once, when the program starts."""
     output = ""
     deadline = time.monotonic() + timeout
     while True:
+        if typer and FEED_AFTER in output:
+            typer[1](typer[0])
+            typer = None
         if finished(complete_lines(output)):
             # Catch anything printed straight afterwards.
             return output + read_available(sel, 0.2), False
@@ -348,6 +370,7 @@ BOOT_TESTS = [
 # rook/...: compiled Rook programs
 
 DONE = "Raven: test_main returned"
+FEED_AFTER = "Raven: running Rook test"
 PANIC = "Raven: panic: "
 
 
@@ -361,6 +384,8 @@ class RookTest:
     expect_qemu_log: list = field(default_factory=list)
     expect_fault: str = None
     machines: list = None           # None: every machine in MACHINES
+    input: str = None               # typed (with a newline) into the serial input
+    expect_echo: str = None         # a line the program must write back
     timeout: float = 10.0
 
     @classmethod
@@ -368,7 +393,7 @@ class RookTest:
         rel = os.path.relpath(path, os.path.join(ROOT, "tests", "rook"))
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
-        fault, machines = None, None
+        fault, machines, typed, echo = None, None, None, None
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -384,10 +409,14 @@ class RookTest:
                 machines = text[len("machines:"):].split()
             elif text.startswith("expect-qemu-log:"):
                 qemu_log.append(text[len("expect-qemu-log:"):].strip())
+            elif text.startswith("input:"):
+                typed = text[len("input:"):].strip()
+            elif text.startswith("expect-echo:"):
+                echo = text[len("expect-echo:"):].strip()
             elif not description:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
-                   qemu_log, fault, machines)
+                   qemu_log, fault, machines, input=typed, expect_echo=echo)
 
     def run(self):
         return on_each_machine(self, self.run_on, self.machines)
@@ -397,12 +426,17 @@ class RookTest:
         if not board_mode() and not os.path.exists(image):
             return False, missing_image(image)
 
+        if board_mode() and self.input is not None:
+            return True, "skipped: input is not typed into a board", ""
+
         def finished(lines):
             return any(l.startswith((DONE, PANIC)) or "unhandled exception" in l
+                       or (self.expect_echo is not None and self.expect_echo in lines)
                        for l in lines)
 
+        typed = None if self.input is None else (self.input + "\n").encode()
         output, timed_out, qemu_log = boot(image, finished, self.timeout, machine,
-                                           log_base(self.name, machine) + ".qemu")
+                                           log_base(self.name, machine) + ".qemu", typed)
         save_log(self.name, machine, output, qemu_log)
         lines = complete_lines(output)
         problem = check_qemu_log(qemu_log, self.expect_qemu_log)
@@ -427,6 +461,11 @@ class RookTest:
                 return False, f"expected a panic ({self.expect_panic!r}), but none happened", output
             if panics[0] != self.expect_panic:
                 return False, f"expected panic {self.expect_panic!r}, got {panics[0]!r}", output
+        elif self.expect_echo is not None:
+            if panics:
+                return False, f"unexpected panic: {panics[0]!r}", output
+            if self.expect_echo not in lines:
+                return False, f"expected the program to write back {self.expect_echo!r}", output
         else:
             if panics:
                 return False, f"unexpected panic: {panics[0]!r}", output
@@ -639,6 +678,25 @@ def check_make_deps():
     return None
 
 
+def check_echo_expectations():
+    """An echo test passes only if the program really writes the typed line back."""
+    if board_mode():
+        return None
+    path = os.path.join(ROOT, "tests", "rook", "echo_demo.rook")
+    wrong = {
+        "an echo that is not what was typed": dict(expect_echo="goodbye"),
+        "no input typed": dict(input=None),
+    }
+    for what, change in wrong.items():
+        test = RookTest.from_file(path)
+        test.machines, test.timeout = [MACHINES[0]], 3.0
+        for key, value in change.items():
+            setattr(test, key, value)
+        if test.run()[0]:
+            return f"passed with {what}"
+    return None
+
+
 def check_wrong_expectations_fail():
     """A Rook test whose expectation is wrong must fail, not pass."""
     path = os.path.join(ROOT, "tests", "rook", "trusted", "ram_512mb.rook")
@@ -663,6 +721,8 @@ HARNESS_TESTS = [
                 check_machines),
     HarnessTest("harness/wrong_expectations", "A Rook test with a wrong fault or QEMU-log "
                 "expectation fails", check_wrong_expectations_fail),
+    HarnessTest("harness/echo_expectations", "A Rook test that expects an echo fails unless the "
+                "typed line comes back", check_echo_expectations),
     HarnessTest("harness/serial_pty", "Output is read from QEMU's serial port on a pty, as a "
                 "board's will be", check_serial_pty),
     HarnessTest("harness/serial_raw", "A serial port is read raw: no byte is changed",

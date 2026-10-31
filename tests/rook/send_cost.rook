@@ -1,0 +1,86 @@
+// What a send costs, measured with the ARM generic timer: 64 rounds of 16 sends
+// (a full mailbox), first sending, then letting the scheduler deliver them. The
+// numbers go to the console as "Raven: ..." lines in the test log. On QEMU
+// they are the host's time, not the Pi's, so the test checks only that every
+// message arrived and the timer moved, never what the numbers are. The counter reports 1024 after the lossy sends
+// and 2048 after the reliable ones.
+// expect: 1024
+// expect: 2048
+// expect: true
+// expect: true
+
+actor Counter {
+    mut seen: u64
+
+    new() {
+        .seen = 0
+    }
+
+    pub lossy on soft(n: u64) {
+        .seen += 1
+    }
+
+    pub reliable on firm(n: u64) {
+        .seen += 1
+    }
+
+    pub lossy on report() {
+        print_u64(.seen)
+    }
+}
+
+ROUNDS: u64 = 64
+BATCH: u64 = 16
+
+fn show(console: Pl011, what: Bytes, sent: u64, send_ticks: u64, deliver_ticks: u64) {
+    console.write("Raven: ")
+    console.write(what)
+    console.write(": ")
+    console.write_dec(sent)
+    console.write(" sends, ")
+    console.write_dec(send_ticks)
+    console.write(" timer ticks to send, ")
+    console.write_dec(deliver_ticks)
+    console.write(" to deliver, timer at ")
+    console.write_dec(counter_frequency())
+    console.write(" Hz\n")
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    counter: Counter = spawn Counter()
+
+    mut soft_send: u64 = 0
+    mut soft_deliver: u64 = 0
+    soft_rounds: loop round: u64 in 0..ROUNDS {
+        began: u64 = read_counter()
+        filling: loop i: u64 in 0..BATCH {
+            counter.soft(i)
+        }
+        sent: u64 = read_counter()
+        run_until_idle()
+        soft_send += sent - began
+        soft_deliver += read_counter() - sent
+    }
+    counter.report()
+    run_until_idle()
+    show(console, "lossy", ROUNDS * BATCH, soft_send, soft_deliver)
+
+    mut firm_send: u64 = 0
+    mut firm_deliver: u64 = 0
+    firm_rounds: loop round: u64 in 0..ROUNDS {
+        began: u64 = read_counter()
+        filling: loop i: u64 in 0..BATCH {
+            discard counter.firm(i)
+        }
+        sent: u64 = read_counter()
+        run_until_idle()
+        firm_send += sent - began
+        firm_deliver += read_counter() - sent
+    }
+    show(console, "reliable", ROUNDS * BATCH, firm_send, firm_deliver)
+    counter.report()
+    run_until_idle()
+    print_bool(soft_send > 0 and soft_deliver > 0)
+    print_bool(firm_send > 0 and firm_deliver > 0)
+}

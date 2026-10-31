@@ -193,6 +193,14 @@ scheduler.
   references can't be forged, so the kernel checking each send adds no protection.
 - Measuring kernel-mediated sends against the fast path is a research result in its
   own right (milestone 3).
+- **First measurement (step 3d, QEMU only).** `tests/rook/send_cost.rook` sends 1024
+  messages in rounds of 16 and reads the generic timer around the sending and around
+  the scheduler delivering them; the numbers are in the test log
+  (`build/test-logs/rook__send_cost.*.log`). On QEMU the timer follows the host's clock,
+  not the Pi's pipeline, so the values (tens of ticks of a 62.5 MHz counter per send)
+  say only that nothing is badly wrong, and they vary from run to run. The real figure
+  needs a board (docs/hardware.md, item 17); until then the fast-path question stays
+  open.
 
 ### 6.3 Raven across cores
 
