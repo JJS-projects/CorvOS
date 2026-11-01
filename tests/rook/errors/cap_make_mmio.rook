@@ -1,0 +1,8 @@
+// An untrusted actor can't make the UART's registers: an `Mmio` is made only by Raven, from the peripherals.
+// error: 7:18: `Mmio` has private fields, so it can only be built in devices.rook
+
+import devices: Mmio
+
+fn f() {
+    uart: Mmio = Mmio(base: 0x3F201000, size: 4096)
+}

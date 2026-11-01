@@ -20,6 +20,9 @@ Four kinds of test:
              kernel/arch/aarch64/vectors.s) has a line containing this text.
                  // machines: raspi3b
              Run only on the listed machines (for tests of the machine itself).
+                 // expect-line-count: hello 1
+             The program (which must return) wrote the line "hello" exactly once: a way to
+             test that something did *not* get written.
                  // input: hello
                  // expect-echo: hello
              Type "hello" and a newline into the program's serial input once it
@@ -100,7 +103,8 @@ from fledgling import compile_program, CompileError  # noqa: E402
 # (as test programs are), and the directories trusted with `unsafe`.
 ROOK_LIB = (sorted(glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook")))
             + sorted(glob.glob(os.path.join(ROOT, "raven", "*.rook")))
-            + [os.path.join(ROOT, "tests", "rook", "support", "trusted", "print.rook")])
+            + [os.path.join(ROOT, "tests", "rook", "support", "trusted", "print.rook"),
+               os.path.join(ROOT, "tests", "rook", "support", "shell.rook")])
 # Error tests are also compiled with a file of private items, to test visibility.
 ERROR_LIB = ROOK_LIB + [os.path.join(ROOT, "tests", "rook", "support", "visibility.rook")]
 TRUSTED_DIRS = [os.path.join(ROOT, *d.split("/")) for d in
@@ -408,6 +412,7 @@ class RookTest:
     machines: list = None           # None: every machine in MACHINES
     input: list = field(default_factory=list)        # typed (with a newline) into the input
     expect_echo: list = field(default_factory=list)  # lines the program must write back
+    line_counts: list = field(default_factory=list)  # (line, times) it must write
     timeout: float = 10.0
 
     @classmethod
@@ -415,7 +420,7 @@ class RookTest:
         rel = os.path.relpath(path, os.path.join(ROOT, "tests", "rook"))
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
-        fault, machines, typed, echo = None, None, [], []
+        fault, machines, typed, echo, counts = None, None, [], [], []
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -435,10 +440,14 @@ class RookTest:
                 typed.append(text[len("input:"):].strip())
             elif text.startswith("expect-echo:"):
                 echo.append(text[len("expect-echo:"):].strip())
+            elif text.startswith("expect-line-count:"):
+                line_text, times = text[len("expect-line-count:"):].strip().rsplit(" ", 1)
+                counts.append((line_text, int(times)))
             elif not description:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
-                   qemu_log, fault, machines, input=typed, expect_echo=echo)
+                   qemu_log, fault, machines, input=typed, expect_echo=echo,
+                   line_counts=counts)
 
     def run(self):
         return on_each_machine(self, self.run_on, self.machines)
@@ -500,6 +509,10 @@ class RookTest:
             if not any(l.startswith(DONE) for l in lines):
                 reason = "timed out" if timed_out else "QEMU stopped"
                 return False, f"{reason} before test_main returned", output
+            for text, times in self.line_counts:
+                seen = lines.count(text)
+                if seen != times:
+                    return False, f"expected the line {text!r} {times} time(s), saw it {seen}", output
         return True, "ok", output
 
 
@@ -831,6 +844,19 @@ def check_public_surface():
     return "the public surface of Raven changed (tests/public-surface.txt): " + "; ".join(lines)
 
 
+def check_line_counts():
+    """A test that expects a line written exactly N times fails when it was written more or
+    fewer times (the revocation demo checks the line is NOT written again)."""
+    path = os.path.join(ROOT, "tests", "rook", "capability_revoke.rook")
+    for times in (0, 2):
+        test = RookTest.from_file(path)
+        test.machines = [MACHINES[0]]
+        test.line_counts = [("hello", times)]
+        if test.run()[0]:
+            return f"passed with the line expected {times} times"
+    return None
+
+
 def check_import_ambiguous():
     """A module is a file named without `.rook`; two files of one name can't be imported
     (an error test compiles one file beside Raven's, so it can't make this case)."""
@@ -891,6 +917,8 @@ HARNESS_TESTS = [
                 check_suggest_imports),
     HarnessTest("harness/public_surface", "The names application code can reach in Raven "
                 "are the ones listed, and a new one is looked at first", check_public_surface),
+    HarnessTest("harness/line_count", "A test that expects a line a number of times fails when "
+                "it was written another number of times", check_line_counts),
     HarnessTest("harness/import_ambiguous", "Two files of one name can't be imported",
                 check_import_ambiguous),
     HarnessTest("harness/idle_sleeps", "A core with nothing to run sleeps instead of spinning",

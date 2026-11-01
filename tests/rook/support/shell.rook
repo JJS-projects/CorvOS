@@ -1,0 +1,23 @@
+// An untrusted actor for the capability demo (docs/capabilities.md). It is an ordinary
+// application module: it imports only the interface it needs, and it is handed one
+// `ByteSink`, a reference that can only send `byte`. That reference is everything it can
+// do to the UART.
+
+import bytes: Bytes
+import pl011: ByteSink
+
+pub actor Shell {
+    out: ByteSink
+
+    new(out: ByteSink) {
+        .out = out
+    }
+
+    /// Says hello through the one reference it was given.
+    pub lossy on greet() {
+        text: Bytes = "hello\n"
+        speaking: loop i: u64 in 0..text.len() {
+            .out.byte(text.at(i))
+        }
+    }
+}

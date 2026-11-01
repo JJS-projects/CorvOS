@@ -1,0 +1,20 @@
+// The writer has a handler `clear` that its owner can send; through the `ByteSink` the shell was given it is out of reach.
+// error: 19:9: `ByteSink` has no handler `clear`
+
+import pl011: ByteSink
+
+actor Console: ByteSink {
+    pub lossy on clear() {
+    }
+
+    lossy on byte(b: u8) {
+    }
+}
+
+fn owner(console: Console) {
+    console.clear()
+}
+
+fn shell(out: ByteSink) {
+    out.clear()
+}

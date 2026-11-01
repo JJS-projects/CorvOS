@@ -1,0 +1,18 @@
+// The capability demo (docs/capabilities.md). The trusted side holds the console and the
+// `UartWriter` that writes to it. The `Shell` is an untrusted actor that was handed one
+// thing: a `ByteSink` narrowed from the writer. It says hello through it, and the line
+// appears on the UART. The shell has no other way to write there.
+// expect-echo: hello
+
+import devices: Mmio
+import actors: run_until_idle
+import pl011: ByteSink, Pl011, UartWriter
+import shell: Shell
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    writer: UartWriter = spawn UartWriter(console)
+    shell: Shell = spawn Shell(narrow(writer, ByteSink))
+    shell.greet()
+    run_until_idle()
+}

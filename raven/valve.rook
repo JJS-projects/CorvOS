@@ -1,0 +1,34 @@
+// A revocable valve: a proxy actor that forwards bytes to a `ByteSink` for as long as it is
+// open. Whoever holds the `Revoke` side can close it; whoever holds only the `ByteSink` side
+// (narrowed from the valve) cannot tell the difference and cannot reopen it. Revocation is
+// not a language feature (rook.md section 6): it is this ordinary actor.
+
+import pl011: ByteSink
+
+/// The right to close a valve. Handed only to whoever is allowed to revoke. It is `reliable`,
+/// so a full mailbox is reported to the sender instead of losing the revocation.
+pub interface Revoke {
+    reliable on revoke()
+}
+
+/// Forwards every byte it is sent to `target` until revoked; then drops them. Bytes sent
+/// before `revoke` arrives are forwarded, because a mailbox keeps its order (decision 122).
+pub actor Valve: ByteSink, Revoke {
+    target: ByteSink
+    mut open: bool
+
+    new(target: ByteSink) {
+        .target = target
+        .open = true
+    }
+
+    lossy on byte(b: u8) {
+        if .open {
+            .target.byte(b)
+        }
+    }
+
+    reliable on revoke() {
+        .open = false
+    }
+}

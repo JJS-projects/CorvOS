@@ -594,7 +594,8 @@ actor Client: Reply<u64> {
 - **Narrowing**: `narrow(self, Reply<u64>)` gives out a reference that can only send the
   handlers in that interface. There is no downcast back, so the compiler enforces
   it at zero runtime cost.
-- **Revocation** is not a language feature: a proxy actor implementing the same
+- **Revocation** is not a language feature (`raven/valve.rook` is the working example,
+  decision 146): a proxy actor implementing the same
   interface, which can be told to stop forwarding, is ordinary library code.
 
 ## 7. Reference capabilities

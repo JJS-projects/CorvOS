@@ -1,0 +1,8 @@
+// A `ByteSink` can't be turned back into the writer it was narrowed from.
+// error: 7:26: expected UartWriter, found ByteSink
+
+import pl011: ByteSink, UartWriter
+
+fn f(out: ByteSink) {
+    writer: UartWriter = out
+}
