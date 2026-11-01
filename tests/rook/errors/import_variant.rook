@@ -1,0 +1,7 @@
+// A variant comes with its enum: import the enum.
+// error: 4:16: module `actors` has no `Delivered`; it is a variant, so import its enum
+
+import actors: Delivered
+
+fn f() {
+}

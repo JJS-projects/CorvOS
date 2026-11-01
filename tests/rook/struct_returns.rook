@@ -6,6 +6,8 @@
 // expect: 6
 // expect: 2
 
+import print: print_u64
+
 struct Size {
     width: u64
     height: u64

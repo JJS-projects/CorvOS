@@ -3,6 +3,12 @@
 // input: hello
 // expect: 1
 
+import actors: Interrupt, Irq, make_irq, run_until_idle
+import devices: Mmio
+import pl011: Pl011
+import print: print_u64
+import time: wait_ms
+
 actor Drain: Interrupt {
     console: val Pl011
 

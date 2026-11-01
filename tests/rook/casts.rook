@@ -12,6 +12,8 @@
 // expect: -128
 // expect: 7
 
+import print: print_i64, print_u64
+
 fn test_main() {
     small: u8 = 200
     print_u64(small as u64)

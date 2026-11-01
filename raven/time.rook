@@ -1,5 +1,7 @@
 // Waiting for a length of real time, from the ARM generic timer.
 
+import assembly: counter_frequency, read_counter
+
 // The rate the firmware is believed to set on the Pi Zero 2 W, used if
 // counter_frequency() reads 0 (docs/hardware.md; unverified on hardware).
 DEFAULT_FREQUENCY: u64 = 19200000

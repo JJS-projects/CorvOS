@@ -1,6 +1,8 @@
 // Shifting by the width of the type or more panics.
 // expect: 9223372036854775808
-// expect-panic: shift amount too large at panic_shift.rook:10
+// expect-panic: shift amount too large at panic_shift.rook:12
+
+import print: print_u64
 
 fn test_main() {
     one: u64 = 1

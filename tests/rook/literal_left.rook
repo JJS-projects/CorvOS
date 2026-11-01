@@ -3,6 +3,8 @@
 // expect: 60
 // expect: 255
 
+import print: print_i64, print_u64
+
 fn test_main() {
     x: u8 = 200
     print_u64((1 + x) as u64)

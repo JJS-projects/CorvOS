@@ -5,6 +5,9 @@
 // expect: 26
 // expect: 769
 
+import devices: Mmio
+import print: print_u64
+
 fn test_main(peripherals: Mmio) {
     uart: Mmio = peripherals.part(0x201000, 0x1000)
     print_u64(uart.read32(0x30) as u64)     // control: 0x301, enabled with TX and RX

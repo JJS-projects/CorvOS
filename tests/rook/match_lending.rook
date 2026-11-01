@@ -6,6 +6,8 @@
 // expect: 2
 // expect: 1
 
+import print: print_u64
+
 struct Point {
     x: u64
     y: u64

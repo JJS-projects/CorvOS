@@ -1,6 +1,8 @@
 // Unsigned subtraction below zero panics.
 // expect: 0
-// expect-panic: integer overflow at panic_sub_u64.rook:8
+// expect-panic: integer overflow at panic_sub_u64.rook:10
+
+import print: print_u64
 
 fn test_main() {
     a: u64 = 1

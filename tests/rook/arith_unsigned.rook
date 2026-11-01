@@ -11,6 +11,8 @@
 // expect: 6
 // expect: 4000000000
 
+import print: print_u64
+
 fn test_main() {
     print_u64(3 + 4)
     a: u8 = 200

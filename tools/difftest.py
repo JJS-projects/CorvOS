@@ -415,7 +415,7 @@ def make_program(seed, name, cases_wanted, out_dir, forced=None):
     header += [f"// expect: {line}" for line in expected]
     if last:
         header.append(f"// expect-panic: {last.panic} at {name}.rook:LINE")
-    header.append("")
+    header += ["", "import print: print_bool, print_i64, print_u64", ""]
     fn = ["fn test_main() {"] + body + ["}"]
     if last:
         # +1 for the `fn` line, +1 because lines count from 1.

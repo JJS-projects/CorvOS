@@ -1,5 +1,11 @@
 // Raven's kernel_main, in Rook.
 
+import assembly: current_el, irq_init, quiet_build, run_test_hooks
+import devices: Mmio
+import led: Led
+import pl011: Pl011
+import time: wait_ms
+
 // Where the devices Raven uses sit within the peripherals.
 UART0_OFFSET: u64 = 0x201000
 GPIO_OFFSET: u64 = 0x200000

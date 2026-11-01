@@ -456,5 +456,18 @@ class EnumDecl:
 
 
 @dataclass
+class Import:
+    """`import module: Name, Name`: brings names defined in another file into this one."""
+    module: str
+    module_pos: Pos
+    names: list                 # [(name, Pos)]
+    pos: Pos
+
+    def __post_init__(self):
+        self.file = None
+        self.trusted = False
+
+
+@dataclass
 class Program:
     items: list = field(default_factory=list)

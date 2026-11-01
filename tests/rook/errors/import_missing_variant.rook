@@ -1,0 +1,14 @@
+// A variant is used only if its enum is imported (`Sent` comes from `actors`).
+// error: 11:9: `Sent` is defined in module `actors`: write `import actors: Sent` at the top of this file
+
+actor Holder {
+    pub reliable on take(n: u64) {
+    }
+}
+
+fn f(h: Holder) {
+    match h.take(1) {
+        Delivered => { }
+        MailboxFull => { }
+    }
+}

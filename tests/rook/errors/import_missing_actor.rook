@@ -1,0 +1,6 @@
+// An actor from another file is spawned only if imported.
+// error: 5:8: `UartWriter` is defined in module `pl011`: write `import pl011: UartWriter` at the top of this file
+
+fn f() {
+    w: UartWriter = spawn UartWriter(Pl011(regs: Mmio(base: 0, size: 0)))
+}

@@ -12,6 +12,9 @@
 // A slot holds a handler number and up to eight payload words: the handler's arguments,
 // a struct or enum counting as its size (decision 135).
 
+import assembly: actor_arena_base, actor_arena_limit, call_dispatch, counter_frequency, handler_table_end, handler_table_start, idle_until_interrupt, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import devices: Mmio
+
 ACTOR_HEADER_WORDS: u64 = 8
 ACTOR_SLOTS: u64 = 16               // messages one mailbox holds (decision 113, g)
 ACTOR_MESSAGE_WORDS: u64 = 8        // payload words in a message

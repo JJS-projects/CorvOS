@@ -1,0 +1,7 @@
+// An import names a module that exists.
+// error: 4:8: unknown module `nowhere`: a module is a file, named without `.rook`
+
+import nowhere: Thing
+
+fn f() {
+}

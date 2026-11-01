@@ -5,6 +5,10 @@
 // default; config.txt must contain dtoverlay=disable-bt
 // (see tools/sdcard/config.txt).
 
+import actors: Interrupt, Irq
+import bytes: Bytes
+import devices: Mmio
+
 // UART registers, as offsets into its `Mmio`.
 UART_DR: u64 = 0x00                 // data
 UART_FR: u64 = 0x18                 // flags

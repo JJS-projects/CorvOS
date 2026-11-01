@@ -1,5 +1,7 @@
 // The fields of `Bytes` are private to bytes.rook.
-// error: 5:17: `length` is private to bytes.rook; mark the field `pub` to use it in another file
+// error: 7:17: `length` is private to bytes.rook; mark the field `pub` to use it in another file
+
+import bytes: Bytes
 
 fn f(text: Bytes) -> u64 {
     return text.length

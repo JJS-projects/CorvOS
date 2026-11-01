@@ -8,6 +8,8 @@
 // expect: false
 // expect: true
 
+import print: print_bool, print_u64
+
 struct Point {
     x: u64
     y: u64

@@ -6,6 +6,9 @@
 // expect: 9
 // expect: 90
 
+import actors: run_until_idle
+import print: print_u64
+
 struct Window {
     start: u64
     size: u64

@@ -28,10 +28,12 @@ def is_trusted(path, trusted_dirs):
     return False
 
 
-def compile_program(files, trusted_dirs=()):
+def compile_program(files, trusted_dirs=(), suggestions=None):
     """Compile [(path, source text)] to one AArch64 assembly text.
 
-    Raises CompileError on the first error found; its position names the file.
+    Raises CompileError on the first error found; its position names the file. With a
+    list as `suggestions`, names used without an import are collected there as
+    (file, module, name) instead of being errors, and nothing is generated.
     """
     program = S.Program()
     for path, source in files:
@@ -39,7 +41,9 @@ def compile_program(files, trusted_dirs=()):
         for item in parse(lex(source, path)).items:
             item.file, item.trusted = path, trusted
             program.items.append(item)
-    check(program)
+    check(program, suggestions)
+    if suggestions is not None:
+        return ""
     return generate(program)
 
 

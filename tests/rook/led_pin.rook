@@ -5,6 +5,10 @@
 // expect: 1
 // expect: 1
 
+import devices: Mmio
+import led: Led
+import print: print_u64
+
 LEVEL_REGISTER: u64 = 0x34       // GPLEV0: the level of pins 0-31
 FUNCTION_REGISTER: u64 = 0x08   // GPFSEL2: the function of pins 20-29
 

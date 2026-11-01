@@ -3,7 +3,9 @@
 // expect: 80
 // expect: -2
 // expect: 64
-// expect-panic: shl lost set bits at panic_shl_lost.rook:15
+// expect-panic: shl lost set bits at panic_shl_lost.rook:17
+
+import print: print_i64, print_u64
 
 fn test_main() {
     x: u8 = 0b1010_0101

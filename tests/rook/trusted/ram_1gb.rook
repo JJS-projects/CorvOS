@@ -2,6 +2,8 @@
 // machines: raspi3b
 // expect: 42
 
+import print: print_u64
+
 fn test_main() {
     unsafe {
         store32(0x30000000, 42)

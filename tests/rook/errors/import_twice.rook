@@ -1,0 +1,8 @@
+// A name is imported once.
+// error: 5:17: `Mmio` is already imported
+
+import devices: Mmio
+import devices: Mmio
+
+fn f() {
+}

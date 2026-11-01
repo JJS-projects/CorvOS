@@ -1,5 +1,8 @@
 // A value sent with `consume` is gone, even if the send is refused.
-// error: 18:34: `r` was consumed at 16:18, so it has no value here; assign it again first
+// error: 21:34: `r` was consumed at 19:18, so it has no value here; assign it again first
+
+import actors: Sent
+import print: print_i64
 
 struct Reading {
     temp: i32

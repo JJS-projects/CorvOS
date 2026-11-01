@@ -1,5 +1,7 @@
 // An interface reference has no fields to read.
-// error: 9:17: an actor's fields are private: send `Sink` a message instead
+// error: 11:17: an actor's fields are private: send `Sink` a message instead
+
+import print: print_u64
 
 interface Sink {
     lossy on put(n: u64)

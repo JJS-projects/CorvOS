@@ -15,6 +15,8 @@
 // expect: 32
 // expect: 12
 
+import print: print_i64, print_u64
+
 fn test_main() {
     count: loop i: u64 in 0..3 {
         print_u64(i)

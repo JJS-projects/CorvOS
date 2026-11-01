@@ -1,5 +1,7 @@
 // Using a variable after consuming it is an error.
-// error: 12:15: `a` was consumed at 11:18, so it has no value here; assign it again first
+// error: 14:15: `a` was consumed at 13:18, so it has no value here; assign it again first
+
+import print: print_i64
 
 struct Reading {
     temp: i32

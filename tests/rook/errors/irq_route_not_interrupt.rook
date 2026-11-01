@@ -1,5 +1,7 @@
 // `route` takes an `Interrupt`, which an actor must implement and `narrow` to.
-// error: 10:15: expected Interrupt, found Thing: hand out only what the interface allows with `narrow(..., Interrupt)`
+// error: 12:15: expected Interrupt, found Thing: hand out only what the interface allows with `narrow(..., Interrupt)`
+
+import actors: Irq
 
 actor Thing {
     pub lossy on tick() {

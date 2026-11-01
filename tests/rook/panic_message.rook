@@ -1,6 +1,8 @@
 // `panic("...")` ends the program with that message and the line it was on.
 // expect: 1
-// expect-panic: queue corrupted at panic_message.rook:9
+// expect-panic: queue corrupted at panic_message.rook:11
+
+import print: print_u64
 
 fn test_main() {
     print_u64(1)

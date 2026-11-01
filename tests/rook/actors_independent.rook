@@ -6,6 +6,9 @@
 // expect: 402
 // expect: -8
 
+import actors: run_until_idle
+import print: print_i64, print_u64
+
 actor Cell {
     id: u64
     mut value: i32

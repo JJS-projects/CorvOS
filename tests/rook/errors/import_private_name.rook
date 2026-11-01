@@ -1,0 +1,7 @@
+// Only a `pub` name can be imported.
+// error: 4:20: `Vault` is private to visibility.rook; mark it `pub` to import it
+
+import visibility: Vault
+
+fn f() {
+}

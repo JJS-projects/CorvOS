@@ -1,0 +1,7 @@
+// An import is `import module: Name`.
+// error: 4:16: expected `:` and the names to import, found `Mmio`
+
+import devices Mmio
+
+fn f() {
+}

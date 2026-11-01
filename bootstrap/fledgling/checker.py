@@ -83,8 +83,15 @@ def to_snake(name):
     return re.sub(r"_+", "_", name).strip("_") or "name"
 
 
-def check(program):
-    Checker().program(program)
+def check(program, suggestions=None):
+    """Check `program`. With `suggestions` (a list), a name used without an import is
+    recorded there as (file, module, name) instead of being an error."""
+    Checker(suggestions).program(program)
+
+
+def module_name(path):
+    """A module is a file, named by the file's name without `.rook`."""
+    return os.path.splitext(os.path.basename(path or "<input>"))[0]
 
 
 class Local:
@@ -104,7 +111,9 @@ class FnSig:
 
 
 class Checker:
-    def __init__(self):
+    def __init__(self, suggestions=None):
+        self.suggestions = suggestions
+        self.imports = {}        # file -> {name: the file it is imported from}
         self.fns = {}
         self.consts = {}         # name -> (type, value)
         self.structs = {}        # name -> StructType
@@ -128,7 +137,45 @@ class Checker:
 
     # ---- top level -----------------------------------------------------
 
+    def register_imports(self, prog):
+        """Work out which names each file imports, and check each import line."""
+        exports, modules = {}, {}
+        for item in prog.items:
+            modules.setdefault(module_name(item.file), set()).add(item.file)
+            if isinstance(item, (S.FnDecl, S.StructDecl, S.EnumDecl, S.ActorDecl,
+                                 S.InterfaceDecl, S.ConstDecl)):
+                exports.setdefault(item.file, {})[item.name] = item
+        variants = {vd.name for item in prog.items if isinstance(item, S.EnumDecl)
+                    for vd in item.variants}
+        for item in prog.items:
+            if not isinstance(item, S.Import):
+                continue
+            files = modules.get(item.module)
+            if not files:
+                raise CompileError(f"unknown module `{item.module}`: a module is a file, "
+                                   f"named without `.rook`", item.module_pos)
+            if len(files) > 1:
+                raise CompileError(f"`{item.module}` names more than one file, so it can't be "
+                                   f"imported", item.module_pos)
+            target = next(iter(files))
+            if target == item.file:
+                raise CompileError("a file doesn't import itself", item.module_pos)
+            seen = self.imports.setdefault(item.file, {})
+            for name, pos in item.names:
+                found = exports.get(target, {}).get(name)
+                if found is None:
+                    hint = (f"; it is a variant, so import its enum" if name in variants else "")
+                    raise CompileError(f"module `{item.module}` has no `{name}`{hint}", pos)
+                if not found.public:
+                    raise CompileError(
+                        f"`{name}` is private to {os.path.basename(target)}; "
+                        f"mark it `pub` to import it", pos)
+                if name in seen:
+                    raise CompileError(f"`{name}` is already imported", pos)
+                seen[name] = target
+
     def program(self, prog):
+        self.register_imports(prog)
         # Type and variant names first, so types can refer to each other in any order.
         for item in prog.items:
             if isinstance(item, (S.StructDecl, S.EnumDecl)):
@@ -382,6 +429,14 @@ class Checker:
             raise CompileError(
                 f"`{name}` is private to {os.path.basename(decl.file)}; "
                 f"mark it `pub` to use it in another file", pos)
+        if decl.file != self.file and self.imports.get(self.file, {}).get(name) != decl.file:
+            module = module_name(decl.file)
+            if self.suggestions is not None:
+                self.suggestions.append((self.file, module, name))
+                return
+            raise CompileError(
+                f"`{name}` is defined in module `{module}`: write "
+                f"`import {module}: {name}` at the top of this file", pos)
 
     def declare_unique(self, name, pos):
         if name in BUILTINS:

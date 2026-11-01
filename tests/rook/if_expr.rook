@@ -6,6 +6,8 @@
 // expect: 3
 // expect: true
 
+import print: print_bool, print_u64
+
 fn sign_class(x: i32) -> u64 {
     return if x < 0 { 1 } else if x == 0 { 2 } else { 3 }
 }

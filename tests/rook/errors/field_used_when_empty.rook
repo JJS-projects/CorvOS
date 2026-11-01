@@ -1,5 +1,7 @@
 // A consumed field can't be read until it is assigned again.
-// error: 18:20: `.latest` was consumed at 17:25, so it has no value here; assign it again first
+// error: 20:20: `.latest` was consumed at 19:25, so it has no value here; assign it again first
+
+import print: print_i64
 
 struct Reading {
     temp: i32

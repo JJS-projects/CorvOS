@@ -8,6 +8,10 @@
 // expect-echo: hello
 // machines: raspi3b raspi3ap
 
+import actors: run_until_idle
+import devices: Mmio
+import pl011: ByteSink, Pl011, UartReader, UartWriter
+
 actor Echo: ByteSink {
     out: ByteSink
 

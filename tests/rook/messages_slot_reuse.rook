@@ -19,6 +19,9 @@
 // expect: 15
 // expect: 99
 
+import actors: run_until_idle
+import print: print_u64
+
 struct Reading {
     temp: u64
     seq: u64

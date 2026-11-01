@@ -774,6 +774,36 @@ def check_idle_sleeps():
         proc.wait()
 
 
+def check_import_ambiguous():
+    """A module is a file named without `.rook`; two files of one name can't be imported
+    (an error test compiles one file beside Raven's, so it can't make this case)."""
+    twin = [("one/shared.rook", "pub fn alpha() {\n}\n"),
+            ("two/shared.rook", "pub fn beta() {\n}\n"),
+            ("main.rook", "import shared: alpha\n\nfn f() {\n    alpha()\n}\n")]
+    try:
+        compile_program(twin)
+    except CompileError as err:
+        if "names more than one file" in err.message:
+            return None
+        return f"wrong error: {err.message}"
+    return "two files named `shared` were accepted"
+
+
+def check_suggest_imports():
+    """The compiler can list the imports a file lacks instead of failing (the hint a script
+    uses to add them), and generates nothing then."""
+    files = [("shared.rook", "pub fn alpha() {\n}\n"),
+             ("main.rook", "fn f() {\n    alpha()\n}\n")]
+    found = []
+    try:
+        asm = compile_program(files, (), found)
+    except CompileError as err:
+        return f"failed instead of suggesting: {err.message}"
+    if found != [("main.rook", "shared", "alpha")] or asm != "":
+        return f"suggested {found!r} and generated {asm!r}"
+    return None
+
+
 def check_wrong_expectations_fail():
     """A Rook test whose expectation is wrong must fail, not pass."""
     path = os.path.join(ROOT, "tests", "rook", "trusted", "ram_512mb.rook")
@@ -800,6 +830,10 @@ HARNESS_TESTS = [
                 "expectation fails", check_wrong_expectations_fail),
     HarnessTest("harness/echo_expectations", "A Rook test that expects an echo fails unless the "
                 "typed line comes back", check_echo_expectations),
+    HarnessTest("harness/suggest_imports", "The compiler can list the imports a file lacks",
+                check_suggest_imports),
+    HarnessTest("harness/import_ambiguous", "Two files of one name can't be imported",
+                check_import_ambiguous),
     HarnessTest("harness/idle_sleeps", "A core with nothing to run sleeps instead of spinning",
                 check_idle_sleeps),
     HarnessTest("harness/serial_pty", "Output is read from QEMU's serial port on a pty, as a "

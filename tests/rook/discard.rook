@@ -3,6 +3,8 @@
 // expect: 2
 // expect: 2
 
+import print: print_u64
+
 fn noisy(n: u64) -> u64 {
     print_u64(n)
     return n * 10

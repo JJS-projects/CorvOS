@@ -3,6 +3,9 @@
 // expect: 104
 // expect-panic: index outside Bytes at bytes.rook:19
 
+import bytes: Bytes
+import print: print_u64
+
 fn test_main() {
     word: Bytes = "hi"
     print_u64(word.at(0) as u64)

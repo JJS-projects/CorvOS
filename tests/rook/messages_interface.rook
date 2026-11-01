@@ -6,6 +6,9 @@
 // expect: true
 // expect: false
 
+import actors: Sent, run_until_idle
+import print: print_bool, print_u64
+
 struct Reading {
     temp: u64
     seq: u64

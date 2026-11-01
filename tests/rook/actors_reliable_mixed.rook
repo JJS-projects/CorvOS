@@ -24,6 +24,9 @@
 // expect: 1
 // expect: 7
 
+import actors: Sent, dropped_messages, run_until_idle
+import print: print_u64
+
 actor Mix {
     pub lossy on soft(n: u64) {
         print_u64(n)

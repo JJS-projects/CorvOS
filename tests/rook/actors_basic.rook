@@ -4,6 +4,9 @@
 // expect: 5
 // expect: 12
 
+import actors: run_until_idle
+import print: print_u64
+
 actor Counter {
     mut total: u64
 

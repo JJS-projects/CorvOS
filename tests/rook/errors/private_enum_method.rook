@@ -1,5 +1,7 @@
 // Without `pub`, an enum's method can only be called in its own file.
-// error: 5:14: `secret` is private to visibility.rook; mark the method `pub` to use it in another file
+// error: 7:14: `secret` is private to visibility.rook; mark the method `pub` to use it in another file
+
+import visibility: Gate
 
 fn f(g: Gate) -> u64 {
     return g.secret()

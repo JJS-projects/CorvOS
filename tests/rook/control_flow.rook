@@ -7,6 +7,8 @@
 // expect: 10
 // expect: 7
 
+import print: print_u64
+
 fn classify(n: u64) -> u64 {
     if n < 10 {
         return 1

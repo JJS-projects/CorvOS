@@ -9,6 +9,12 @@
 // expect: 2
 // expect: 6
 
+import actors: Interrupt, Irq, make_irq, run_until_idle
+import devices: Mmio
+import pl011: Pl011
+import print: print_u64
+import time: wait_ms
+
 actor Tap: Interrupt {
     console: val Pl011
     mut calls: u64

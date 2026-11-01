@@ -99,6 +99,13 @@ class Parser:
         prog = S.Program()
         self.skip_newlines()
         while not self.at("eof"):
+            if self.at("import"):
+                if any(not isinstance(item, S.Import) for item in prog.items):
+                    raise CompileError("imports go at the top of the file, before anything "
+                                       "else", self.peek().pos)
+                prog.items.append(self.import_decl())
+                self.skip_newlines()
+                continue
             public = False
             if self.at("pub"):
                 self.advance()
@@ -129,6 +136,21 @@ class Parser:
                     f"found {describe_tok(tok)}", tok.pos)
             self.skip_newlines()
         return prog
+
+    def import_decl(self):
+        """`import module: Name, Name`: one line."""
+        start = self.expect("import")
+        module = self.expect("ident", "a module name")
+        self.expect(":", "`:` and the names to import")
+        names = []
+        while True:
+            ntok = self.expect("ident", "a name to import")
+            names.append((ntok.text, ntok.pos))
+            if not self.at(","):
+                break
+            self.advance()
+        self.end_statement()
+        return S.Import(module.text, module.pos, names, start.pos)
 
     def struct_decl(self, public):
         start = self.expect("struct")
