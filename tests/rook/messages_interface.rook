@@ -1,0 +1,56 @@
+// An interface can carry structs: two actors implement `put(r: iso Reading)` and a
+// reference narrowed to the interface sends one to each. A reliable one also returns
+// `Sent`, and a refused one has still given the value away.
+// expect: 7
+// expect: 70
+// expect: true
+// expect: false
+
+struct Reading {
+    temp: u64
+    seq: u64
+}
+
+interface Sink {
+    lossy on put(r: iso Reading)
+    reliable on take(r: iso Reading)
+}
+
+actor Plain: Sink {
+    lossy on put(r: iso Reading) {
+        print_u64(r.temp)
+    }
+
+    reliable on take(r: iso Reading) {
+        print_u64(r.temp)
+    }
+}
+
+actor Times10: Sink {
+    lossy on put(r: iso Reading) {
+        print_u64(r.temp * 10)
+    }
+
+    reliable on take(r: iso Reading) {
+    }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_bool(true)
+        MailboxFull => print_bool(false)
+    }
+}
+
+fn test_main() {
+    plain: Sink = narrow(spawn Plain(), Sink)
+    times: Sink = narrow(spawn Times10(), Sink)
+    plain.put(Reading(temp: 7, seq: 0))
+    times.put(Reading(temp: 7, seq: 0))
+    run_until_idle()
+    report(plain.take(Reading(temp: 1, seq: 0)))
+    filling: loop i: u64 in 0..15 {
+        discard plain.take(Reading(temp: 1, seq: 0))
+    }
+    report(plain.take(Reading(temp: 1, seq: 0)))        // the 17th: the mailbox is full
+}

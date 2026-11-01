@@ -1,0 +1,20 @@
+// A value sent with `consume` is gone, even if the send is refused.
+// error: 18:34: `r` was consumed at 16:18, so it has no value here; assign it again first
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    pub reliable on keep(r: iso Reading) {
+    }
+}
+
+fn f(h: Holder) {
+    r: Reading = Reading(temp: 1, seq: 1)
+    match h.keep(consume(r)) {
+        Delivered => { }
+        MailboxFull => print_i64(r.temp as i64)
+    }
+}

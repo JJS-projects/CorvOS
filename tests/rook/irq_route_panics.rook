@@ -1,6 +1,6 @@
 // Only the whole peripherals can make an `Irq`: a driver given just its registers
 // can't give itself an interrupt.
-// expect-panic: an Irq is made from the whole peripherals at actors.rook:180
+// expect-panic: an Irq is made from the whole peripherals at actors.rook:181
 
 fn test_main(peripherals: Mmio) {
     uart: Mmio = peripherals.part(0x201000, 0x1000)

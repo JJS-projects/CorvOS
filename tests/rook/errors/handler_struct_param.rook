@@ -1,5 +1,5 @@
-// A message carries only numbers, bools and actor references for now.
-// error: 9:21: a message carries numbers, bools and actor references for now, not Point
+// A struct in a message is owned (`iso`) or read-only (`val`); a bare one could be either.
+// error: 9:21: a message carries a struct or enum owned or read-only: write `iso Point` or `val Point`
 
 struct Point {
     x: u64

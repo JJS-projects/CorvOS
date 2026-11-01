@@ -1,0 +1,47 @@
+// A message of exactly 8 words, in the order the parameters are written: a number (1
+// word), a struct of 4, a struct of 2 and a bool (1). Each arrives whole, so every offset
+// in the payload and in the dispatcher is right.
+// expect: 11
+// expect: 21
+// expect: 22
+// expect: 23
+// expect: 24
+// expect: 31
+// expect: 32
+// expect: true
+
+struct Quad {
+    a: u64
+    b: u64
+    c: u64
+    d: u64
+}
+
+struct Pair {
+    x: u64
+    y: u64
+}
+
+enum Command {
+    Stop
+    Move(dx: u64, dy: u64)
+}
+
+actor Receiver {
+    pub lossy on fill(n: u64, q: iso Quad, p: iso Pair, flag: bool) {
+        print_u64(n)
+        print_u64(q.a)
+        print_u64(q.b)
+        print_u64(q.c)
+        print_u64(q.d)
+        print_u64(p.x)
+        print_u64(p.y)
+        print_bool(flag)
+    }
+}
+
+fn test_main() {
+    receiver: Receiver = spawn Receiver()
+    receiver.fill(11, Quad(a: 21, b: 22, c: 23, d: 24), Pair(x: 31, y: 32), true)
+    run_until_idle()
+}

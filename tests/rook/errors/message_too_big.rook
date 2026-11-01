@@ -1,0 +1,16 @@
+// A message carries at most 8 words.
+// error: 14:15: handler `big` would carry 9 words, and a message carries at most 8 (larger data waits for the pool that comes with `freeze`)
+
+struct Big {
+    a: u64
+    b: u64
+    c: u64
+    d: u64
+    e: u64
+    f: u64
+}
+
+actor Holder {
+    pub lossy on big(x: iso Big, y: u64, z: u64, w: u64) {
+    }
+}

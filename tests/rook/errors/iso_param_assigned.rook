@@ -1,0 +1,13 @@
+// An `iso` parameter is read-only: copy it to a `mut` variable to change it.
+// error: 11:16: can't assign to `r`: an `iso` parameter is read-only; copy it into a `mut` variable to change it
+
+struct Reading {
+    temp: i32
+    seq: u32
+}
+
+actor Holder {
+    pub lossy on look(r: iso Reading) {
+        r.temp = 5
+    }
+}

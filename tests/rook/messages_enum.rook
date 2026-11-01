@@ -1,0 +1,27 @@
+// An enum travels like a struct: its tag and fields are copied into the message, and the
+// receiver matches it.
+// expect: 0
+// expect: 12
+// expect: 5
+
+enum Command {
+    Stop
+    Move(dx: u64, dy: u64)
+}
+
+actor Robot {
+    pub lossy on obey(c: iso Command) {
+        match c {
+            Stop => print_u64(0)
+            Move(dx: dx, dy: dy) => print_u64(dx * dy)
+        }
+    }
+}
+
+fn test_main() {
+    robot: Robot = spawn Robot()
+    robot.obey(Stop)
+    robot.obey(Move(dx: 3, dy: 4))
+    robot.obey(Move(dx: 5, dy: 1))
+    run_until_idle()
+}

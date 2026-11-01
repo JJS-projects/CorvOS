@@ -1,5 +1,5 @@
 // `new` takes a struct as read-only data, written `val`.
-// error: 14:12: a message carries numbers, bools and actor references for now, not Window; `new` takes read-only data written `val`
+// error: 14:12: `new` takes a struct or enum as owned or read-only data: write `iso Window` or `val Window`
 
 struct Window {
     start: u64
