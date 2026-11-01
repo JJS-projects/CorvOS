@@ -16,7 +16,7 @@ KEYWORDS = {
     "fn", "extern", "pub", "mut", "if", "else", "loop", "in", "break",
     "continue", "return", "true", "false", "as", "wrap", "discard",
     "and", "or", "xor", "not", "shl", "shr", "struct", "copy", "enum", "match",
-    "unsafe", "actor", "on", "spawn", "self", "lossy", "reliable", "interface", "narrow", "consume", "import",
+    "unsafe", "actor", "on", "spawn", "self", "lossy", "reliable", "interface", "narrow", "consume", "import", "module",
 }
 
 # Reserved for later milestones: using them now is an error, so programs

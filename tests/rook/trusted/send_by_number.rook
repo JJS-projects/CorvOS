@@ -3,7 +3,8 @@
 // handler reached is the one named, not another.
 // expect: 2
 
-import actors: raven_send, run_until_idle
+import actors: run_until_idle
+import mailbox: raven_send
 import print: print_u64
 
 actor Pair {

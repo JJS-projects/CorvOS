@@ -456,6 +456,18 @@ class EnumDecl:
 
 
 @dataclass
+class ModuleDecl:
+    """`module public`: the first line of a file in a trusted directory that application
+    code may import. Without it such a file is internal to Raven."""
+    public: bool
+    pos: Pos
+
+    def __post_init__(self):
+        self.file = None
+        self.trusted = False
+
+
+@dataclass
 class Import:
     """`import module: Name, Name`: brings names defined in another file into this one."""
     module: str

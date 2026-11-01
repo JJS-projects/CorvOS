@@ -2,7 +2,7 @@
 // expect: true
 // expect: true
 
-import assembly: counter_frequency, read_counter
+import hardware: counter_frequency, read_counter
 import print: print_bool
 import time: wait_ms
 

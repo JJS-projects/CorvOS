@@ -1,5 +1,5 @@
 // Registers are read 4 bytes at a time, at 4-byte boundaries.
-// expect-panic: register not 4-byte aligned at devices.rook:56
+// expect-panic: register not 4-byte aligned at devices.rook:58
 
 import devices: Mmio
 

@@ -1,0 +1,9 @@
+// Application code can't forge a send: the arena address and `raven_send` are in internal modules.
+// error: 4:8: `assembly` is an internal module of Raven, so application code can't import it (a trusted module opens itself with `module public`)
+
+import assembly: actor_arena_base
+import mailbox: raven_send
+
+fn f() {
+    raven_send(actor_arena_base() + 2048, 0, 0, 0)
+}

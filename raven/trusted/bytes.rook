@@ -1,3 +1,5 @@
+module public
+
 // Bytes: the type of text in quotes.
 
 /// A run of bytes that can't change: the address of the first byte and how

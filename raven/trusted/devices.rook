@@ -1,3 +1,5 @@
+module public
+
 // Where device authority begins.
 //
 // `Mmio` is the capability for a range of device registers. Its fields are

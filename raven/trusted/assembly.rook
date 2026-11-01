@@ -1,25 +1,7 @@
-// Functions written in assembly that Rook calls. Declaring one is a trusted
-// act (decision 90), so they are all here.
-
-import devices: Mmio
-
-/// The exception level Raven is running at (kernel/arch/aarch64/cpu.s).
-pub extern fn current_el() -> u64
-
-/// Runs the test build's extra steps, chosen when the kernel is assembled
-/// (kernel/test_hooks.s): calls a Rook test program's `test_main`, which is
-/// handed `peripherals`, or triggers a deliberate fault. Does nothing in the
-/// normal kernel.
-pub extern fn run_test_hooks(peripherals: Mmio)
-
-/// The ARM generic timer's count, and how many ticks it makes a second
-/// (kernel/arch/aarch64/cpu.s). The frequency is 0 if the firmware didn't set it.
-pub extern fn read_counter() -> u64
-pub extern fn counter_frequency() -> u64
-
-/// True in the test builds, where nobody watches the activity LED, so
-/// kernel_main skips the waits of its LED signals (kernel/test_hooks.s).
-pub extern fn quiet_build() -> bool
+// The dangerous functions written in assembly that Rook calls: the actor arena, the jump
+// into a dispatcher, the timer and the interrupt controller. Each can reach memory or
+// code from a number, so this is an internal module: application code can't import it
+// (decision 142). The harmless ones are in `hardware`.
 
 /// Support for Raven's actors (kernel/arch/aarch64/actors.s): the memory they
 /// live in, and the jump into an actor's dispatcher with a message's words.
@@ -28,11 +10,10 @@ pub extern fn actor_arena_limit() -> u64
 pub extern fn call_dispatch(dispatcher: u64, target: u64, handler: u64, payload: u64)
 
 /// Interrupts and the handler time budget (kernel/arch/aarch64/actors.s,
-/// kernel/panic.s, decision 133). `irq_init` lets the physical timer interrupt the
-/// core; `timer_arm` interrupts after that many counter ticks and `timer_disarm`
-/// cancels it. `handler_table_*` bound the table Fledgling writes of every handler,
-/// five words each. `rook_budget_panic` takes the addresses of two `Bytes` values.
-pub extern fn irq_init()
+/// kernel/panic.s, decisions 133 and 134). `timer_arm` interrupts after that many counter
+/// ticks and `timer_disarm` cancels it; `irq_enable_source` and `irq_take_pending` work
+/// the interrupt controller. `handler_table_*` bound the table Fledgling writes of every
+/// handler, five words each. `rook_budget_panic` takes the addresses of two `Bytes` values.
 pub extern fn timer_arm(ticks: u64)
 pub extern fn timer_disarm()
 pub extern fn irq_enable_source(line: u64)

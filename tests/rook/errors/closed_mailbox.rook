@@ -1,0 +1,7 @@
+// `mailbox` (the arena, the queues, spawning) is internal to Raven.
+// error: 4:8: `mailbox` is an internal module of Raven, so application code can't import it (a trusted module opens itself with `module public`)
+
+import mailbox: raven_spawn_actor
+
+fn f() {
+}
