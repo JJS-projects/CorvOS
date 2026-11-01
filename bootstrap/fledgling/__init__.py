@@ -2,9 +2,9 @@
 
 Pipeline: source -> lexer -> parser -> checker -> codegen -> GNU AArch64 assembly.
 
-A program is one or more files compiled together. Until Rook has modules and
-`import`, every `pub` item of every file is visible in all of them, and items
-without `pub` are private to their file. Files under a trusted directory may
+A program is one or more files compiled together. A file is a module, named by its
+file name without `.rook`. It uses another file's `pub` items only if it imports them
+(`import module: Name`); items without `pub` are private to their file. Files under a trusted directory may
 use `unsafe { }` and `extern fn`; nothing else may (decision 90).
 """
 
