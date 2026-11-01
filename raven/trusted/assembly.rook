@@ -1,6 +1,8 @@
 // Functions written in assembly that Rook calls. Declaring one is a trusted
 // act (decision 90), so they are all here.
 
+import devices: Mmio
+
 /// The exception level Raven is running at (kernel/arch/aarch64/cpu.s).
 pub extern fn current_el() -> u64
 

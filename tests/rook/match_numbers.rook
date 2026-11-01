@@ -19,6 +19,8 @@
 // expect: 100000
 // expect: 26
 
+import print: print_i64, print_u64
+
 ESC: u8 = 27
 NEWLINE: u8 = 1
 PRINTABLE: u8 = 2

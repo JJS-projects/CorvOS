@@ -7,6 +7,9 @@
 // expect: 5
 // expect: 6
 
+import actors: run_until_idle
+import print: print_u64
+
 actor Pinger {
     partner: Ponger
     limit: u64

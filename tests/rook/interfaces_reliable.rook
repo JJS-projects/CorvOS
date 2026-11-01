@@ -36,6 +36,9 @@
 // expect: 15
 // expect: 1
 
+import actors: Sent, dropped_messages, run_until_idle
+import print: print_u64
+
 interface Mailbox {
     reliable on take(n: u64)
     lossy on hint(n: u64)

@@ -8,6 +8,9 @@
 // expect: 203
 // expect: 104
 
+import actors: run_until_idle
+import print: print_u64
+
 actor Tagged {
     id: u64
 

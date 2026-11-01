@@ -8,6 +8,9 @@
 // expect: -123456789
 // expect: 7
 
+import actors: run_until_idle
+import print: print_bool, print_i64, print_u64
+
 actor Reader {
     pub lossy on small(a: i8, b: u8, c: u16, d: u32) {
         print_i64(a as i64)

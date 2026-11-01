@@ -10,6 +10,9 @@
 // expect: 6
 // expect: 8
 
+import actors: run_until_idle
+import print: print_i64, print_u64
+
 struct Reading {
     temp: i32
     seq: u32

@@ -4,6 +4,8 @@
 // private to this file, so this is the only place one can be created
 // (decision 96). Every other `Mmio` is a `part` of the one made here.
 
+import main: kernel_main
+
 /// Every device register on the BCM2837 (Pi Zero 2 W, QEMU raspi3b), as seen
 /// with the MMU off.
 PERIPHERALS_BASE: u64 = 0x3F000000

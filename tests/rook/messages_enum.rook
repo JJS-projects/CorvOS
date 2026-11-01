@@ -4,6 +4,9 @@
 // expect: 12
 // expect: 5
 
+import actors: run_until_idle
+import print: print_u64
+
 enum Command {
     Stop
     Move(dx: u64, dy: u64)

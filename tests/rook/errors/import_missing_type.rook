@@ -1,0 +1,5 @@
+// A type from another file is used only if imported.
+// error: 4:9: `Mmio` is defined in module `devices`: write `import devices: Mmio` at the top of this file
+
+fn f(m: Mmio) {
+}

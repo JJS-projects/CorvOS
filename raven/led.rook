@@ -2,6 +2,9 @@
 // the pin LOW lights it. docs/hardware.md has the sources. It is how a first
 // boot shows how far Raven got when no serial adapter is connected.
 
+import devices: Mmio
+import time: wait_ms
+
 LED_PIN: u32 = 29
 
 // GPIO registers, as offsets into the GPIO `Mmio`.

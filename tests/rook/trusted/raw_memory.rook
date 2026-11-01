@@ -6,6 +6,8 @@
 // expect: 18384312997463357320
 // expect: 31497519104
 
+import print: print_u64
+
 SCRATCH: u64 = 0x1000000                    // 16 MiB: unused RAM in the test kernel
 
 fn test_main() {

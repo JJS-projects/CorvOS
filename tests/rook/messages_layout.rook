@@ -10,6 +10,9 @@
 // expect: 32
 // expect: true
 
+import actors: run_until_idle
+import print: print_bool, print_u64
+
 struct Quad {
     a: u64
     b: u64

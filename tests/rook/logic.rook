@@ -11,6 +11,8 @@
 // expect: true
 // expect: false
 
+import print: print_bool, print_u64
+
 fn noisy(id: u64, result: bool) -> bool {
     print_u64(id)
     return result

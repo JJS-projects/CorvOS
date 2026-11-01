@@ -5,6 +5,8 @@
 // expect: 5
 // expect: 2
 
+import print: print_u64
+
 fn count_pairs(n: u64) -> u64 {
     mut pairs: u64 = 0
     rows: loop i: u64 in 0..n {

@@ -11,6 +11,9 @@
 // expect: 111
 // expect: 82
 
+import bytes: Bytes
+import print: print_u64
+
 GREETING: Bytes = "Hello"
 
 fn count(text: Bytes, wanted: u8) -> u64 {

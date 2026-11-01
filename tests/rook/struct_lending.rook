@@ -7,6 +7,8 @@
 // expect: 7
 // expect: 3
 
+import print: print_u64
+
 struct Counter {
     count: u64
     step: u64

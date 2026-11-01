@@ -1,7 +1,10 @@
 // A panic in a handler ends the program and reports the handler's line, as
 // a panic anywhere does.
 // expect: 1
-// expect-panic: handler gave up at actors_panic.rook:12
+// expect-panic: handler gave up at actors_panic.rook:15
+
+import actors: run_until_idle
+import print: print_u64
 
 actor Fussy {
     pub lossy on first() {

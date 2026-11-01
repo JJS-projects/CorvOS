@@ -2,6 +2,10 @@
 // expect: true
 // expect: true
 
+import assembly: counter_frequency, read_counter
+import print: print_bool
+import time: wait_ms
+
 fn test_main() {
     began_at: u64 = read_counter()
     wait_ms(5)

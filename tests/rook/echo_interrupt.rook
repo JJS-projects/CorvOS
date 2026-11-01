@@ -4,6 +4,10 @@
 // input: hello
 // expect-echo: hello
 
+import actors: make_irq, run_forever
+import devices: Mmio
+import pl011: ByteSink, Pl011, UartListener, UartWriter
+
 actor Echo: ByteSink {
     out: ByteSink
 

@@ -1,5 +1,7 @@
 // A `Bytes` can't be built outside bytes.rook: it could point anywhere.
-// error: 5:12: `Bytes` has private fields, so it can only be built in bytes.rook
+// error: 7:12: `Bytes` has private fields, so it can only be built in bytes.rook
+
+import bytes: Bytes
 
 fn f() -> Bytes {
     return Bytes(address: 0, length: 4096)

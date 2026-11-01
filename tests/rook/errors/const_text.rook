@@ -1,5 +1,7 @@
 // A constant of type `Bytes` is text in quotes.
-// error: 5:17: constants must be numbers, bools or text
+// error: 7:17: constants must be numbers, bools or text
+
+import bytes: Bytes
 
 FIRST: Bytes = "a"
 SECOND: Bytes = FIRST

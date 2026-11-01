@@ -5,6 +5,9 @@
 // expect: 20
 // expect: 99
 
+import actors: run_until_idle
+import print: print_u64
+
 interface Sink {
     lossy on put(n: u64)
 }

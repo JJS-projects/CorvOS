@@ -707,9 +707,10 @@ later if this becomes painful.
   `Bytes` is declared in Rook (`raven/trusted/bytes.rook`), with `len()` and a
   bounds-checked `at(i)`. Escapes are as in character literals: `\n \t \r \0 \\
   \" \' \x41`.
-- **Modules**: one file per module, explicit imports. Everything is private unless
-  marked `pub`, including struct fields and methods. In an object-capability system this is about code organisation,
-  not security: authority comes only from references.
+- **Modules**: one file per module, explicit imports (section 11.14). Everything is
+  private unless marked `pub`, including struct fields and methods. In an object-capability
+  system this is about code organisation, not security: authority comes only from
+  references. (Which modules application code may import at all is step 5b.)
 - **No global mutable state**: no `static mut`, no singletons. A global would be
   authority nobody was handed.
 - **Naming is enforced**: `snake_case` for functions, handlers, variables and
@@ -732,6 +733,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 | Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
 | Ownership (4a) | `consume`, `iso` parameters and fields, move checking; no run-time change | done |
+| Imports (5a) | `import module: Name, Name`; a file uses another file's names only if it imports them | done |
 | Ownership (4b) | handlers take `iso` and `val` structs and enums; up to 8 words are copied into the message | done |
 | Reliable sends (3b) | `reliable on` handlers; a send to one returns `Sent` | done |
 | Interfaces (3c) | `interface`, `actor Name: Interface`, `narrow(x, Interface)` (not generic) | done |
@@ -1017,8 +1019,33 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **An `iso` or `val` parameter is read-only in the handler** (copy it into a `mut` variable
   to change it); an `iso` one can be consumed, for example into an `iso` field.
 
+### 11.14 Rules settled while building imports (step 5a)
+
+- **A module is a file**, named by its file name without `.rook`: `actors.rook` is `actors`.
+  Two files of one name can't both be imported.
+- **`import module: Name, Name`** goes at the top of a file, before anything else, one
+  module per line (several lines may name one module). It brings those names in, bare. A
+  name must be defined in that module and marked `pub`; importing the same name twice, a
+  file importing itself, or a variant by itself are errors (a type brings its variants:
+  import `Sent` to use `Delivered`).
+- **Using a name from another file without importing it** is an error that says which
+  module has it and what to write. Methods, fields and handlers need no import: they come
+  with a value of the type. The compiler's own needs (`Sent` for reliable sends, `Bytes`
+  for text) don't need one either.
+- **Names stay unique across a whole program** (decision 143). Imports decide what a
+  file may *use*, not what it may *define*, so two modules still can't each define `Reader`.
+  This is the limit that namespacing would lift.
+- **Cycles between modules are allowed**: names are global and nothing runs at load time.
+  Unused imports are not an error yet.
+- The compiler can list the imports a file lacks (`python3 -m fledgling FILES
+  --suggest-imports`); that was used once to add them to every file in the repository.
+
 ## 12. Open questions
 
+- **Namespacing**: names are unique across a whole program, so a larger piece of software
+  would collide on common names. The owner expects to want some form of namespacing (for
+  example a module-qualified name or a rename on import, `import actors: Irq as RavenIrq`).
+  The import list was chosen so either can be added without changing existing code.
 - **Default capabilities**: settled for `iso` and `val` on fields and parameters, and
   for plain locals (owned) by decisions 130 and 136. Still open: handler arguments
   (step 4b), `val` results and locals (step 4c).

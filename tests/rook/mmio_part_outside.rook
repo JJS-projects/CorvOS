@@ -1,5 +1,7 @@
 // A part can't reach beyond the `Mmio` it is cut from.
-// expect-panic: part outside Mmio at devices.rook:22
+// expect-panic: part outside Mmio at devices.rook:24
+
+import devices: Mmio
 
 fn test_main(peripherals: Mmio) {
     uart: Mmio = peripherals.part(0x201000, 0x1000)

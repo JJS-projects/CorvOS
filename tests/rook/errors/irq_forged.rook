@@ -1,5 +1,7 @@
 // An `Irq` can't be made by writing its fields: only `make_irq` does, from the peripherals.
-// error: 5:16: `Irq` has private fields, so it can only be built in actors.rook
+// error: 7:16: `Irq` has private fields, so it can only be built in actors.rook
+
+import actors: Irq
 
 fn f() {
     irq: Irq = Irq(line: 57)

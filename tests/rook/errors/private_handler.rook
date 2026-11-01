@@ -1,5 +1,7 @@
 // Without `pub`, a handler can only be sent to from its own file.
-// error: 5:7: `lock` is private to visibility.rook; mark the handler `pub` to send it from another file
+// error: 7:7: `lock` is private to visibility.rook; mark the handler `pub` to send it from another file
+
+import visibility: Door
 
 fn f(d: Door) {
     d.lock()

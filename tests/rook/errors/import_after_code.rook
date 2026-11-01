@@ -1,0 +1,7 @@
+// Imports come first.
+// error: 7:1: imports go at the top of the file, before anything else
+
+fn f() {
+}
+
+import devices: Mmio

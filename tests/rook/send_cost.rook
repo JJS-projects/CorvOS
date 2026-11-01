@@ -9,6 +9,13 @@
 // expect: true
 // expect: true
 
+import actors: run_until_idle
+import assembly: counter_frequency, read_counter
+import bytes: Bytes
+import devices: Mmio
+import pl011: Pl011
+import print: print_bool, print_u64
+
 actor Counter {
     mut seen: u64
 

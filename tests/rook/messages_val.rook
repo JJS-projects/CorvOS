@@ -11,6 +11,10 @@
 // expect: 5
 // expect: 8
 
+import actors: run_until_idle
+import bytes: Bytes
+import print: print_u64
+
 GREETING: Bytes = "hey"
 
 struct Window {

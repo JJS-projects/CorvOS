@@ -22,6 +22,9 @@
 // expect: 98
 // expect: 4
 
+import actors: dropped_messages, run_until_idle
+import print: print_u64
+
 actor Sink {
     pub lossy on take(n: u64) {
         print_u64(n)

@@ -62,6 +62,9 @@ def compile_everything():
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "errors", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "errors", "trusted", "*.rook"))):
         run_tests.ErrorTest.from_file(path).run()
+    # The two import cases a one-file test can't reach.
+    run_tests.check_import_ambiguous()
+    run_tests.check_suggest_imports()
     # Raven itself.
     raven = sorted(glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook"))
                    + glob.glob(os.path.join(ROOT, "raven", "*.rook")))

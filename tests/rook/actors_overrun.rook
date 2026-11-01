@@ -2,7 +2,11 @@
 // exists that is reported like a panic, naming the handler and the line where it is
 // declared, and the core halts. This one is slow, not endless: it waits 300 ms.
 // expect: 1
-// expect-panic: Slow.crawl ran for over 100 ms at actors_overrun.rook:12
+// expect-panic: Slow.crawl ran for over 100 ms at actors_overrun.rook:16
+
+import actors: run_until_idle
+import print: print_u64
+import time: wait_ms
 
 actor Slow {
     pub lossy on quick() {

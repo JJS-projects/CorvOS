@@ -6,6 +6,8 @@
 // expect: 781
 // expect: 520
 
+import print: print_u64
+
 struct Pair {
     first: u64
     second: u64

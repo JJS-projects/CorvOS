@@ -4,6 +4,11 @@
 // input: hello
 // expect: true
 
+import devices: Mmio
+import pl011: Pl011
+import print: print_bool, probe_irq_registers
+import time: wait_ms
+
 fn test_main(peripherals: Mmio) {
     console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
     console.listen()                    // ask the UART to interrupt for what is typed

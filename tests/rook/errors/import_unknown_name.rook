@@ -1,0 +1,7 @@
+// An import names something the module has.
+// error: 4:16: module `actors` has no `Nothing`
+
+import actors: Nothing
+
+fn f() {
+}

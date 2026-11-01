@@ -7,6 +7,9 @@
 // expect: 13
 // expect: 23
 
+import actors: run_until_idle
+import print: print_u64
+
 actor Stepper {
     id: u64
     last: u64

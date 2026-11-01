@@ -1,0 +1,6 @@
+// A function from another file is called only if imported.
+// error: 5:5: `run_until_idle` is defined in module `actors`: write `import actors: run_until_idle` at the top of this file
+
+fn f() {
+    run_until_idle()
+}

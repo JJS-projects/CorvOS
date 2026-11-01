@@ -1,6 +1,8 @@
 // A handler that never returns is a failure, not a hung core: the budget timer
 // interrupts it and Raven reports it.
-// expect-panic: Spinner.spin ran for over 100 ms at actors_endless.rook:12
+// expect-panic: Spinner.spin ran for over 100 ms at actors_endless.rook:14
+
+import actors: run_until_idle
 
 actor Spinner {
     mut count: u64

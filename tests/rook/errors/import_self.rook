@@ -1,0 +1,7 @@
+// A file doesn't import itself.
+// error: 4:8: a file doesn't import itself
+
+import import_self: f
+
+fn f() {
+}
