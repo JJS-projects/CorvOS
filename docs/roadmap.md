@@ -105,7 +105,11 @@ that PC.
 **Done when:** two actors echo UART input to each other by message passing, and
 the cost per send is measured.
 
-## 4. Capability demo (first hypothesis test)
+## 4. Capability demo (first hypothesis test) — done
+
+*Built in decisions 142 to 146: `docs/capabilities.md` is the written argument, with the
+test for every route. Unforgeable references and the closed Raven modules were the
+groundwork; the demo is `tests/rook/capability_demo.rook` and `capability_revoke.rook`.*
 
 - Enforce unforgeable references in the compiler.
 - A trusted actor holds the UART reference; an untrusted actor without it cannot

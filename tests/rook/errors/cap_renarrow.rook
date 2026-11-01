@@ -1,0 +1,12 @@
+// A narrowed reference can't be narrowed again to widen what it can do.
+// error: 11:31: this is already a `ByteSink` reference: it can't be narrowed again
+
+import pl011: ByteSink
+
+interface Control {
+    lossy on clear()
+}
+
+fn f(out: ByteSink) {
+    control: Control = narrow(out, Control)
+}

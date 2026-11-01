@@ -1,0 +1,8 @@
+// A number is not a reference: one can't be made out of an address.
+// error: 7:21: expected ByteSink, found u64
+
+import pl011: ByteSink
+
+fn f() {
+    out: ByteSink = 0x3F201000
+}

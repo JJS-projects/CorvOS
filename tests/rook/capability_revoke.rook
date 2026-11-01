@@ -1,0 +1,27 @@
+// Revocation is an ordinary actor: a `Valve` between the shell and the writer forwards
+// while it is open. The shell holds only a `ByteSink` narrowed from the valve; the owner
+// also holds the `Revoke` side. The shell speaks once (the line appears), the owner
+// revokes, and the shell speaks again: nothing more reaches the UART.
+// expect-line-count: hello 1
+
+import actors: Sent, run_until_idle
+import devices: Mmio
+import pl011: ByteSink, Pl011, UartWriter
+import shell: Shell
+import valve: Revoke, Valve
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    writer: UartWriter = spawn UartWriter(console)
+    valve: Valve = spawn Valve(narrow(writer, ByteSink))
+    shell: Shell = spawn Shell(narrow(valve, ByteSink))
+    shell.greet()
+    run_until_idle()                            // "hello" gets through
+    match narrow(valve, Revoke).revoke() {      // reliable: a full mailbox would be reported
+        Delivered => { }
+        MailboxFull => panic("the revocation was lost")
+    }
+    run_until_idle()
+    shell.greet()
+    run_until_idle()                            // the valve is closed: nothing reaches the UART
+}

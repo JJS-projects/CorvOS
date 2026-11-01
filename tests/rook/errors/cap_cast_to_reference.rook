@@ -1,0 +1,8 @@
+// A number can't be converted to a reference.
+// error: 7:26: can only convert to integer types, not ByteSink
+
+import pl011: ByteSink
+
+fn f() {
+    out: ByteSink = 5 as ByteSink
+}

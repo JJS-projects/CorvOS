@@ -1,0 +1,8 @@
+// A reference can't be converted to a number.
+// error: 7:18: can't convert ByteSink to u64
+
+import pl011: ByteSink
+
+fn f(out: ByteSink) {
+    n: u64 = out as u64
+}

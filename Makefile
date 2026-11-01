@@ -36,7 +36,7 @@ FAULT_KERNEL := $(BUILD)/fault/kernel8.img
 # A test image's Rook code is Raven's plus the test output functions plus the
 # test program, compiled as one program. Test programs that need trust live in
 # tests/rook/trusted/.
-ROOK_TEST_SUPPORT := tests/rook/support/trusted/print.rook
+ROOK_TEST_SUPPORT := tests/rook/support/trusted/print.rook tests/rook/support/shell.rook
 ROOK_TEST_TRUSTED := $(RAVEN_TRUSTED) --trusted tests/rook/support/trusted \
                      --trusted tests/rook/trusted
 
