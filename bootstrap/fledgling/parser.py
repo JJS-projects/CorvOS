@@ -99,8 +99,21 @@ class Parser:
         prog = S.Program()
         self.skip_newlines()
         while not self.at("eof"):
+            if self.at("module"):
+                if prog.items:
+                    raise CompileError("`module public` is the first line of a file",
+                                       self.peek().pos)
+                start = self.advance()
+                word = self.peek()
+                if not (self.at("ident") and word.text == "public"):
+                    raise CompileError("write `module public`", word.pos)
+                self.advance()
+                self.end_statement()
+                prog.items.append(S.ModuleDecl(True, start.pos))
+                self.skip_newlines()
+                continue
             if self.at("import"):
-                if any(not isinstance(item, S.Import) for item in prog.items):
+                if any(not isinstance(item, (S.Import, S.ModuleDecl)) for item in prog.items):
                     raise CompileError("imports go at the top of the file, before anything "
                                        "else", self.peek().pos)
                 prog.items.append(self.import_decl())

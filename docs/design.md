@@ -231,6 +231,14 @@ kind of send instead of two (principle 6) and a smaller part of Raven to audit
 tables are written as one core's own from the start, which is cheap now and costly
 to retrofit.
 
+### 6.3a What application code can reach
+
+Application code gets authority only from references it was handed. Raven's own code has
+functions that could create authority from a number (send to an address, jump to a
+dispatcher, read the arena), so they live in modules application code can't import
+(`mailbox`, `assembly`; decision 142). The few modules it can import contain nothing that
+takes a number as authority, and a test fails if one gains a name unreviewed.
+
 ### 6.4 Scheduling
 
 Each core's Raven schedules the actors in its own domains (section 6.3).

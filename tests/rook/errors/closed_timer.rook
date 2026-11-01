@@ -1,0 +1,7 @@
+// The timer and interrupt controller calls are internal to Raven.
+// error: 4:8: `assembly` is an internal module of Raven, so application code can't import it (a trusted module opens itself with `module public`)
+
+import assembly: timer_arm, irq_enable_source
+
+fn f() {
+}

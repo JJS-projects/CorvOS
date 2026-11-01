@@ -1,0 +1,248 @@
+// Raven's mailboxes and scheduler, on one core: where actors live, their mailboxes, and
+// the scheduler. An internal module: application code can't import it (decision 142);
+// what an application may use is in `actors`. Fledgling compiles `spawn` and every send into calls to
+// `raven_spawn_actor` and `raven_send` here; the scheduler runs one message at
+// a time through the dispatcher Fledgling generates for each actor.
+//
+// Everything lives in one fixed arena (kernel/arch/aarch64/actors.s), so this
+// code keeps no global variables: Raven's own tables are at the start of the
+// arena. Actors are never freed (decision 119).
+//
+// An actor's memory, in 8-byte words, with its reference pointing at the fields:
+//     [ header: 8 ][ mailbox: 16 slots of 9 ][ the actor's fields ... ]
+// A slot holds a handler number and up to eight payload words: the handler's arguments,
+// a struct or enum counting as its size (decision 135).
+
+import actors: Sent
+import assembly: actor_arena_base, actor_arena_limit, call_dispatch, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import hardware: counter_frequency
+
+ACTOR_HEADER_WORDS: u64 = 8
+ACTOR_SLOTS: u64 = 16               // messages one mailbox holds (decision 113, g)
+ACTOR_MESSAGE_WORDS: u64 = 8        // payload words in a message
+ACTOR_SLOT_WORDS: u64 = 9           // a handler number and the payload
+ACTOR_BEFORE_FIELDS: u64 = (ACTOR_HEADER_WORDS + ACTOR_SLOTS * ACTOR_SLOT_WORDS) * 8
+
+// Header, as byte offsets from the start of the actor's memory.
+ACTOR_H_DISPATCHER: u64 = 0         // address of its dispatcher
+ACTOR_H_FIRST: u64 = 8              // slot of the oldest message
+ACTOR_H_COUNT: u64 = 16             // messages waiting
+ACTOR_H_QUEUED: u64 = 24            // 1 if it is in the run queue
+
+// Raven's tables, as byte offsets from the start of the arena.
+ACTOR_S_NEXT: u64 = 0               // next free byte (0 until the first spawn)
+ACTOR_S_RUNQ_FIRST: u64 = 8
+ACTOR_S_RUNQ_COUNT: u64 = 16
+pub ACTOR_S_DROPPED: u64 = 24           // messages dropped because a mailbox was full
+ACTOR_S_CURRENT_DISPATCHER: u64 = 32  // the handler now running: its actor's dispatcher ...
+ACTOR_S_CURRENT_HANDLER: u64 = 40     // ... and its number
+ACTOR_S_IRQ_PENDING: u64 = 48       // bit n: peripheral interrupt 32 + n has fired (vectors.s)
+ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
+ACTOR_RUNQ_SLOTS: u64 = 128
+pub ACTOR_IRQ_ROUTES: u64 = 1152        // where each interrupt goes: 32 records of (actor, handler number)
+pub ACTOR_IRQ_FIRST: u64 = 32           // the interrupts handled: peripheral IRQs 32 to 63
+ACTOR_MSG_BUFFER: u64 = 1664        // the message being handled, copied out of its slot (8 words)
+ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
+
+// A handler may run this long before it counts as failed (decisions 121, 133).
+ACTOR_BUDGET_MS: u64 = 100
+BUDGET_DEFAULT_HZ: u64 = 19200000   // the timer's rate if the firmware didn't set it (hardware.md 12)
+HANDLER_RECORD_BYTES: u64 = 40      // one record of Fledgling's handler table
+
+/// Makes room for an actor with `fields` words of fields and returns its
+/// reference. `dispatcher` is the address of the actor's dispatcher.
+pub fn raven_spawn_actor(fields: u64, dispatcher: u64) -> u64 {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        mut rt_next: u64 = load64(rt_base + ACTOR_S_NEXT)
+        if rt_next == 0 {
+            rt_next = rt_base + ACTOR_FIRST_ACTOR
+        }
+        rt_size: u64 = ACTOR_BEFORE_FIELDS + fields * 8
+        if rt_next + rt_size > actor_arena_limit() {
+            panic("out of memory for actors")
+        }
+        store64(rt_base + ACTOR_S_NEXT, rt_next + rt_size)
+        store64(rt_next + ACTOR_H_DISPATCHER, dispatcher)
+        return rt_next + ACTOR_BEFORE_FIELDS
+    }
+}
+
+/// Sends a message to `target`: puts it in the mailbox, or drops it and
+/// counts the drop if the mailbox is full. Used by every send of a `lossy`
+/// handler. `payload` is the address of `words` words (at most 8) to copy into it.
+pub fn raven_send(target: u64, handler: u64, payload: u64, words: u64) {
+    if not rt_enqueue(target, handler, payload, words) {
+        unsafe {
+            rt_base: u64 = actor_arena_base()
+            store64(rt_base + ACTOR_S_DROPPED, load64(rt_base + ACTOR_S_DROPPED) + 1)
+        }
+    }
+}
+
+/// Sends a message to a `reliable` handler: the same, except that a full
+/// mailbox is not a drop. The sender is told and decides what the message is
+/// worth (decision 126).
+pub fn raven_send_reliable(target: u64, handler: u64, payload: u64, words: u64) -> Sent {
+    if rt_enqueue(target, handler, payload, words) {
+        return Delivered
+    }
+    return MailboxFull
+}
+
+/// Puts a message in `target`'s mailbox and queues the actor to run. Returns
+/// false, changing nothing, if the mailbox is full.
+fn rt_enqueue(target: u64, handler: u64, payload: u64, words: u64) -> bool {
+    rt_header: u64 = target - ACTOR_BEFORE_FIELDS
+    unsafe {
+        rt_count: u64 = load64(rt_header + ACTOR_H_COUNT)
+        if rt_count == ACTOR_SLOTS {
+            return false
+        }
+        rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
+        rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 +
+                       ((rt_first + rt_count) % ACTOR_SLOTS) * ACTOR_SLOT_WORDS * 8
+        store64(rt_slot, handler)
+        copying: loop rt_w: u64 in 0..words {
+            store64(rt_slot + 8 + rt_w * 8, load64(payload + rt_w * 8))
+        }
+        store64(rt_header + ACTOR_H_COUNT, rt_count + 1)
+        if load64(rt_header + ACTOR_H_QUEUED) == 0 {
+            store64(rt_header + ACTOR_H_QUEUED, 1)
+            run_queue_push(target)
+        }
+        return true
+    }
+}
+
+/// Turns the interrupts that have fired into messages, and switches each source back
+/// on (vectors.s switched it off). A source still asserting fires again at once, so
+/// a handler can be called with nothing left to do and must cope with that.
+pub fn deliver_interrupts() {
+    mut rt_pending: u64 = irq_take_pending()
+    mut rt_bit: u64 = 0
+    delivering: loop rt_pending != 0 {
+        if (rt_pending and 1) != 0 {
+            deliver_interrupt(ACTOR_IRQ_FIRST + rt_bit)
+        }
+        rt_pending = rt_pending shr 1
+        rt_bit += 1
+    }
+}
+
+fn deliver_interrupt(line: u64) {
+    unsafe {
+        rt_slot: u64 = actor_arena_base() + ACTOR_IRQ_ROUTES + (line - ACTOR_IRQ_FIRST) * 16
+        rt_target: u64 = load64(rt_slot)
+        if rt_target != 0 {
+            rt_number: u64 = load64(rt_slot + 8)
+            if not rt_queued(rt_target, rt_number) {
+                discard rt_enqueue(rt_target, rt_number, 0, 0)    // full: the source fires again
+            }
+        }
+    }
+    irq_enable_source(line)
+}
+
+/// Is a message for `handler` already waiting in `target`'s mailbox?
+fn rt_queued(target: u64, handler: u64) -> bool {
+    rt_header: u64 = target - ACTOR_BEFORE_FIELDS
+    unsafe {
+        rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
+        rt_count: u64 = load64(rt_header + ACTOR_H_COUNT)
+        looking: loop i: u64 in 0..rt_count {
+            rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 +
+                           ((rt_first + i) % ACTOR_SLOTS) * ACTOR_SLOT_WORDS * 8
+            if load64(rt_slot) == handler {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+pub fn actors_waiting() -> u64 {
+    unsafe {
+        return load64(actor_arena_base() + ACTOR_S_RUNQ_COUNT)
+    }
+}
+
+fn run_queue_push(actor_ref: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_waiting: u64 = load64(rt_base + ACTOR_S_RUNQ_COUNT)
+        if rt_waiting == ACTOR_RUNQ_SLOTS {
+            panic("run queue full")
+        }
+        rt_front: u64 = load64(rt_base + ACTOR_S_RUNQ_FIRST)
+        store64(rt_base + ACTOR_RUNQ_OFFSET + ((rt_front + rt_waiting) % ACTOR_RUNQ_SLOTS) * 8,
+                actor_ref)
+        store64(rt_base + ACTOR_S_RUNQ_COUNT, rt_waiting + 1)
+    }
+}
+
+pub fn run_one_turn() {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_front: u64 = load64(rt_base + ACTOR_S_RUNQ_FIRST)
+        rt_actor: u64 = load64(rt_base + ACTOR_RUNQ_OFFSET + rt_front * 8)
+        store64(rt_base + ACTOR_S_RUNQ_FIRST, (rt_front + 1) % ACTOR_RUNQ_SLOTS)
+        store64(rt_base + ACTOR_S_RUNQ_COUNT, load64(rt_base + ACTOR_S_RUNQ_COUNT) - 1)
+
+        // Take the oldest message out of the actor's mailbox.
+        rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
+        rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
+        rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 + rt_first * ACTOR_SLOT_WORDS * 8
+        rt_handler: u64 = load64(rt_slot)
+        // Copy the payload out of the slot first: the handler may send to its own actor,
+        // and that send can reuse this slot.
+        rt_buffer: u64 = rt_base + ACTOR_MSG_BUFFER
+        copying: loop rt_w: u64 in 0..ACTOR_MESSAGE_WORDS {
+            store64(rt_buffer + rt_w * 8, load64(rt_slot + 8 + rt_w * 8))
+        }
+        rt_left: u64 = load64(rt_header + ACTOR_H_COUNT) - 1
+        store64(rt_header + ACTOR_H_FIRST, (rt_first + 1) % ACTOR_SLOTS)
+        store64(rt_header + ACTOR_H_COUNT, rt_left)
+        if rt_left > 0 {
+            run_queue_push(rt_actor)
+        } else {
+            store64(rt_header + ACTOR_H_QUEUED, 0)
+        }
+        rt_dispatcher: u64 = load64(rt_header + ACTOR_H_DISPATCHER)
+        store64(rt_base + ACTOR_S_CURRENT_DISPATCHER, rt_dispatcher)
+        store64(rt_base + ACTOR_S_CURRENT_HANDLER, rt_handler)
+        timer_arm(budget_ticks())
+        call_dispatch(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
+        timer_disarm()
+    }
+}
+
+/// The handler budget in ticks of the generic timer.
+fn budget_ticks() -> u64 {
+    mut rt_hz: u64 = counter_frequency()
+    if rt_hz == 0 {
+        rt_hz = BUDGET_DEFAULT_HZ
+    }
+    return ACTOR_BUDGET_MS * (rt_hz / 1000)
+}
+
+/// Called by the IRQ vector (kernel/arch/aarch64/vectors.s) when the budget timer
+/// fires: the handler that was running has failed. Until supervision exists that is
+/// reported like a panic, naming the handler, and the core halts.
+pub fn raven_budget_overrun() {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_dispatcher: u64 = load64(rt_base + ACTOR_S_CURRENT_DISPATCHER)
+        rt_handler: u64 = load64(rt_base + ACTOR_S_CURRENT_HANDLER)
+        mut rt_record: u64 = handler_table_start()
+        rt_end: u64 = handler_table_end()
+        searching: loop rt_record < rt_end {
+            if load64(rt_record) == rt_dispatcher and load64(rt_record + 8) == rt_handler {
+                rook_budget_panic(load64(rt_record + 16), ACTOR_BUDGET_MS,
+                                  load64(rt_record + 24), load64(rt_record + 32))
+            }
+            rt_record = rt_record + HANDLER_RECORD_BYTES
+        }
+    }
+    panic("a handler ran past its time budget")
+}

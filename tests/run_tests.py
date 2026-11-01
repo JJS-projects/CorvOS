@@ -774,6 +774,63 @@ def check_idle_sleeps():
         proc.wait()
 
 
+SURFACE_FILE = os.path.join(ROOT, "tests", "public-surface.txt")
+
+
+def public_surface():
+    """What application code can reach in Raven: for each trusted module that says
+    `module public`, its `pub` names, and `Type.name` for the `pub` methods and fields of
+    its types. Closed modules are not listed, because application code can't import them."""
+    from fledgling import syntax as S
+    from fledgling.lexer import lex
+    from fledgling.parser import parse
+    found = {}
+    for directory in (os.path.join(ROOT, "raven", "trusted"),
+                      os.path.join(ROOT, "tests", "rook", "support", "trusted")):
+        for path in sorted(glob.glob(os.path.join(directory, "*.rook"))):
+            items = parse(lex(open(path).read(), path)).items
+            if not any(isinstance(i, S.ModuleDecl) for i in items):
+                continue
+            names = []
+            for item in items:
+                if not getattr(item, "public", False) or isinstance(item, (S.Import, S.ModuleDecl)):
+                    continue
+                names.append(item.name)
+                for method in getattr(item, "methods", []):
+                    if method.public:
+                        names.append(f"{item.name}.{method.name}")
+                for fld in getattr(item, "fields", []):
+                    if getattr(fld, "public", False):
+                        names.append(f"{item.name}.{fld.name}")
+            found[os.path.splitext(os.path.basename(path))[0]] = sorted(names)
+    return found
+
+
+def check_public_surface():
+    """The names application code can reach in Raven are exactly those in
+    tests/public-surface.txt. A new `pub` name in a public module, or a module opened with
+    `module public`, fails this until someone has looked at what it gives away (decision
+    142): is it a number used as authority, or a function that reaches memory or code from
+    one? If not, add it to the file."""
+    wanted = {}
+    for raw in open(SURFACE_FILE):
+        if raw.strip() and not raw.startswith("#"):
+            module, names = raw.split(":", 1)
+            wanted[module.strip()] = sorted(n.strip() for n in names.split(",") if n.strip())
+    found = public_surface()
+    if found == wanted:
+        return None
+    lines = []
+    for module in sorted(set(found) | set(wanted)):
+        added = sorted(set(found.get(module, [])) - set(wanted.get(module, [])))
+        gone = sorted(set(wanted.get(module, [])) - set(found.get(module, [])))
+        if added:
+            lines.append(f"{module}: new public {', '.join(added)}")
+        if gone:
+            lines.append(f"{module}: no longer public {', '.join(gone)}")
+    return "the public surface of Raven changed (tests/public-surface.txt): " + "; ".join(lines)
+
+
 def check_import_ambiguous():
     """A module is a file named without `.rook`; two files of one name can't be imported
     (an error test compiles one file beside Raven's, so it can't make this case)."""
@@ -832,6 +889,8 @@ HARNESS_TESTS = [
                 "typed line comes back", check_echo_expectations),
     HarnessTest("harness/suggest_imports", "The compiler can list the imports a file lacks",
                 check_suggest_imports),
+    HarnessTest("harness/public_surface", "The names application code can reach in Raven "
+                "are the ones listed, and a new one is looked at first", check_public_surface),
     HarnessTest("harness/import_ambiguous", "Two files of one name can't be imported",
                 check_import_ambiguous),
     HarnessTest("harness/idle_sleeps", "A core with nothing to run sleeps instead of spinning",

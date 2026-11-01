@@ -710,7 +710,7 @@ later if this becomes painful.
 - **Modules**: one file per module, explicit imports (section 11.14). Everything is
   private unless marked `pub`, including struct fields and methods. In an object-capability
   system this is about code organisation, not security: authority comes only from
-  references. (Which modules application code may import at all is step 5b.)
+  references. (Which modules application code may import at all is decided by `module public`, section 11.15.)
 - **No global mutable state**: no `static mut`, no singletons. A global would be
   authority nobody was handed.
 - **Naming is enforced**: `snake_case` for functions, handlers, variables and
@@ -733,6 +733,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 | Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
 | Ownership (4a) | `consume`, `iso` parameters and fields, move checking; no run-time change | done |
+| Closed modules (5b) | `module public`; Raven's internals can't be imported by application code | done |
 | Imports (5a) | `import module: Name, Name`; a file uses another file's names only if it imports them | done |
 | Ownership (4b) | handlers take `iso` and `val` structs and enums; up to 8 words are copied into the message | done |
 | Reliable sends (3b) | `reliable on` handlers; a send to one returns `Sent` | done |
@@ -1039,6 +1040,29 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   Unused imports are not an error yet.
 - The compiler can list the imports a file lacks (`python3 -m fledgling FILES
   --suggest-imports`); that was used once to add them to every file in the repository.
+
+### 11.15 Rules settled while closing the forging hole (step 5b)
+
+- **A module in a trusted directory is internal to Raven** unless its first line is
+  `module public`. Application code (any file outside a trusted directory) can't import
+  an internal module: the error names the module and says a trusted module opens itself
+  with `module public`. Trusted files can import any module. `module public` in a file
+  outside a trusted directory is an error (those files are open already), and it must be
+  the first line.
+- **What is public** (`tests/public-surface.txt`, checked by `harness/public_surface`):
+  `actors` (`Sent`, `Interrupt`, `Irq` and `route`, `make_irq`, `run_until_idle`,
+  `run_forever`, `dropped_messages`), `bytes` (`Bytes`, `len`, `at`), `devices` (`Mmio`
+  and its methods), `hardware` (the clock, the exception level, `irq_init`,
+  `quiet_build`, `run_test_hooks`), and the test output functions. Nothing in them takes a
+  raw number as authority: `make_irq` needs the whole peripherals `Mmio`, and `Irq.route`
+  needs an `Irq`.
+- **What is internal:** `mailbox` (the arena, the queues, `raven_send`,
+  `raven_send_reliable`, `raven_spawn_actor`, the scheduler's turns) and `assembly`
+  (`actor_arena_base`, `call_dispatch`, the timer and interrupt controller calls, the handler
+  table). The compiler's generated sends link to `raven_send` by name, which no import
+  checks.
+- **A new public name is looked at first.** `harness/public_surface` fails when a public
+  module gains or loses a name, or a module opens itself, until the list is updated.
 
 ## 12. Open questions
 

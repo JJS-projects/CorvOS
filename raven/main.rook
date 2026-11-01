@@ -1,6 +1,6 @@
 // Raven's kernel_main, in Rook.
 
-import assembly: current_el, irq_init, quiet_build, run_test_hooks
+import hardware: current_el, irq_init, quiet_build, run_test_hooks
 import devices: Mmio
 import led: Led
 import pl011: Pl011

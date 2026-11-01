@@ -1,0 +1,7 @@
+// `call_dispatch` jumps to any address, so its module is internal to Raven.
+// error: 4:8: `assembly` is an internal module of Raven, so application code can't import it (a trusted module opens itself with `module public`)
+
+import assembly: call_dispatch
+
+fn f() {
+}

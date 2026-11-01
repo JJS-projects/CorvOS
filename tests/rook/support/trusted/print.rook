@@ -1,3 +1,5 @@
+module public
+
 // Output for Rook test programs, written in assembly in kernel/test/print.s.
 // Each prints one line starting "out: ", which the test harness reads.
 

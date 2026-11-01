@@ -1,0 +1,6 @@
+// `module public` is the first line of a file.
+// error: 6:1: `module public` is the first line of a file
+
+import devices: Mmio
+
+module public

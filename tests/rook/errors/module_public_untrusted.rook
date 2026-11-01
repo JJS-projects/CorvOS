@@ -1,0 +1,7 @@
+// `module public` is for files in a trusted directory.
+// error: 4:1: `module public` is for files in a trusted directory: other files are open to everyone already
+
+module public
+
+fn f() {
+}

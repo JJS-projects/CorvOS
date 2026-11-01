@@ -1,0 +1,10 @@
+# The names application code can reach in Raven (decision 142), checked by
+# harness/public_surface. A module is listed here if its first line is `module public`.
+# Before adding a name, look at what it gives away: a number used as authority, or a call
+# that reaches memory or code from a number, does not belong here.
+#
+actors: Interrupt, Irq, Irq.route, Sent, dropped_messages, make_irq, run_forever, run_until_idle
+bytes: Bytes, Bytes.at, Bytes.len
+devices: Mmio, Mmio.is_root, Mmio.part, Mmio.read32, Mmio.write32
+hardware: counter_frequency, current_el, irq_init, quiet_build, read_counter, run_test_hooks
+print: print_bool, print_i64, print_u64, probe_irq_registers

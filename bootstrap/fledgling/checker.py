@@ -139,9 +139,17 @@ class Checker:
 
     def register_imports(self, prog):
         """Work out which names each file imports, and check each import line."""
-        exports, modules = {}, {}
+        exports, modules, public, trusted = {}, {}, set(), set()
         for item in prog.items:
             modules.setdefault(module_name(item.file), set()).add(item.file)
+            if item.trusted:
+                trusted.add(item.file)
+            if isinstance(item, S.ModuleDecl):
+                if not item.trusted:
+                    raise CompileError(
+                        "`module public` is for files in a trusted directory: other files "
+                        "are open to everyone already", item.pos)
+                public.add(item.file)
             if isinstance(item, (S.FnDecl, S.StructDecl, S.EnumDecl, S.ActorDecl,
                                  S.InterfaceDecl, S.ConstDecl)):
                 exports.setdefault(item.file, {})[item.name] = item
@@ -160,6 +168,11 @@ class Checker:
             target = next(iter(files))
             if target == item.file:
                 raise CompileError("a file doesn't import itself", item.module_pos)
+            if target in trusted and target not in public and not item.trusted:
+                raise CompileError(
+                    f"`{item.module}` is an internal module of Raven, so application code "
+                    f"can't import it (a trusted module opens itself with `module public`)",
+                    item.module_pos)
             seen = self.imports.setdefault(item.file, {})
             for name, pos in item.names:
                 found = exports.get(target, {}).get(name)

@@ -10,7 +10,7 @@
 // expect: true
 
 import actors: run_until_idle
-import assembly: counter_frequency, read_counter
+import hardware: counter_frequency, read_counter
 import bytes: Bytes
 import devices: Mmio
 import pl011: Pl011

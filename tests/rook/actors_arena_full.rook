@@ -1,8 +1,8 @@
 // Actors live in a fixed arena. Running out is a panic that says so, not a
 // silent overwrite of someone else's memory. (The line is the panic in
-// raven/trusted/actors.rook: update it if that file's lines above it move.)
+// raven/trusted/mailbox.rook: update it if that file's lines above it move.)
 // expect: 1
-// expect-panic: out of memory for actors at actors.rook:61
+// expect-panic: out of memory for actors at mailbox.rook:63
 
 import print: print_u64
 

@@ -1,0 +1,7 @@
+// It is written `module public`.
+// error: 4:8: write `module public`
+
+module internal
+
+fn f() {
+}
