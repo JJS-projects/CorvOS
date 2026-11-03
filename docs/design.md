@@ -280,14 +280,15 @@ How failure and ending look to other actors (decisions 117 to 120):
 
 - **Built so far (step 7a):** a panic or an overrun in a handler abandons it and restarts the
   actor in place; the children it made in `new` restart with it in the same places
-  (decision 148). `watch`, `stop` and supervisors are next.
+  (decision 148). Step 7b adds `watch` (decision 149); `stop` and supervisors are next.
 - **A reference names a place, not an instance.** After a restart, references others
   hold reach the new instance, so clients that keep no state in the server carry on
   with no recovery code. The new instance starts from `new`; its mailbox starts empty
   and counts as full while it starts.
 - **`watch` is how a client that does keep state finds out.** Raven sends it
   `restarted()` once the new instance is ready, and it rebuilds what the restart
-  lost. Forgetting to `watch` is silent; the compiler cannot know.
+  lost. Forgetting to `watch` is silent; the compiler cannot know. Watches live in a small
+  fixed table in the arena (14 for the whole system, decision 149), so Raven allocates nothing.
 - **Actors end explicitly.** An actor can `stop()` itself, and the actor that spawned
   one holds the authority to stop it: an authority of its own, separate from the
   send-only reference, so no holder of a reference can kill an actor (Erlang's `exit`

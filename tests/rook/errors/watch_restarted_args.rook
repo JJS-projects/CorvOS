@@ -1,0 +1,20 @@
+// `restarted` takes no arguments.
+// error: 18:22: `restarted` must be `lossy on restarted()`, with no arguments: one already waiting stands for a second restart
+
+interface Restarts {
+    lossy on restarted()
+}
+
+interface Counted {
+    lossy on restarted(count: u64)
+}
+
+actor Watcher: Counted {
+    new() { }
+
+    lossy on restarted(count: u64) { }
+
+    pub lossy on go(other: Watcher) {
+        watch(other, narrow(self, Counted))
+    }
+}

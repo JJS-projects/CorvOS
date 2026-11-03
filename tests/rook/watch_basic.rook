@@ -1,0 +1,67 @@
+// An actor that watches another is told when it restarts. The client watches the server
+// in its `new`; each time the server fails and restarts, the client's `restarted` runs
+// once, after the server is back (and the server's state is what `new` made).
+//
+// Worked out: bump, bump print 1 and 2. boom fails: the server restarts (hits back to 0,
+// expect-failure below), and the client is told, printing 100. A new bump prints 1: the
+// state is rebuilt. A second boom and restart print 100 again, and the last bump prints 1.
+// expect-failure: server bug at watch_basic.rook:36 x2
+// expect: 1
+// expect: 2
+// expect: 100
+// expect: 1
+// expect: 100
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Server {
+    mut hits: u64
+
+    new() {
+        .hits = 0
+    }
+
+    pub lossy on bump() {
+        .hits += 1
+        print_u64(.hits)
+    }
+
+    pub lossy on boom() {
+        panic("server bug")
+    }
+}
+
+actor Client: Restarts {
+    server: Server
+
+    new(server: Server) {
+        .server = server
+        watch(server, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(100)
+    }
+}
+
+fn test_main() {
+    server: Server = spawn Server()
+    client: Client = spawn Client(server)
+    server.bump()
+    server.bump()
+    run_until_idle()
+    server.boom()
+    run_until_idle()
+    server.bump()
+    run_until_idle()
+    server.boom()
+    run_until_idle()
+    server.bump()
+    run_until_idle()
+}

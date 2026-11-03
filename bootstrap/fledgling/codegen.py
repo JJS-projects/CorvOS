@@ -507,6 +507,14 @@ class Gen:
         elif isinstance(e, S.Call) and e.callee in LOAD_INSNS:
             self.expr(e.args[0])
             self.emit(f"{LOAD_INSNS[e.callee]}, [x0]")         # exactly one access
+        elif isinstance(e, S.Call) and e.callee == "watch":
+            self.expr(e.args[0])
+            self.push()
+            self.expr(e.args[1])
+            self.emit("mov x1, x0")                 # who to tell
+            self.pop("x0")                          # the actor watched
+            self.emit(f"mov x2, #{e.number}")       # the number of `restarted`
+            self.emit("bl raven_watch")
         elif isinstance(e, S.Call) and e.callee == "actor_address":
             self.expr(e.args[0])                    # a reference already is its address
         elif isinstance(e, S.Call) and e.callee == "handler_number":

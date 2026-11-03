@@ -56,7 +56,7 @@ STORES = {f"store{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
 # reference it holds: `actor_address(reference)` is the reference as a number, and
 # `handler_number("fired")` is the number messages use for the handlers of that name.
 # Both are allowed only inside `unsafe { }` in trusted files, like loads and stores.
-BUILTINS = set(LOADS) | set(STORES) | {"panic", "actor_address", "handler_number"}
+BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "actor_address", "handler_number"}
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -1092,6 +1092,8 @@ class Checker:
                 raise CompileError("`panic` takes one argument: a message", e.pos)
             self.expr(e.args[0], self.bytes_type(e.pos))
             return UNIT
+        if name == "watch":
+            return self.watch_call(e)
         if self.unsafe_depth == 0:
             where = "inside `unsafe { }`" if self.trusted else \
                 "in files under a trusted directory, inside `unsafe { }`"
@@ -1127,6 +1129,31 @@ class Checker:
             raise CompileError(f"`{name}` takes two arguments: an address and a value", e.pos)
         self.expr(e.args[0], U64)
         self.expr(e.args[1], STORES[name])
+        return UNIT
+
+    def watch_call(self, e):
+        """`watch(actor, narrow(self, Restarts))`: when `actor` restarts, Raven sends the
+        interface's `restarted()` (decision 149). Anyone holding a reference may watch;
+        it gives no authority over the actor."""
+        if len(e.args) != 2:
+            raise CompileError("write `watch(actor, narrow(self, Restarts))`: the actor to "
+                               "watch, and who to tell", e.pos)
+        target = self.expr(e.args[0])
+        if not is_actor(target):
+            raise CompileError(f"`watch` takes an actor reference to watch, not {target}",
+                               e.args[0].pos)
+        who = self.expr(e.args[1])
+        if not is_actor(who) or not who.is_interface:
+            raise CompileError("`watch` tells an interface reference: write "
+                               "`narrow(self, Restarts)`", e.args[1].pos)
+        sig = who.methods.get("restarted")
+        if sig is None:
+            raise CompileError(f"`{who.name}` has no handler `restarted`, so it can't be told "
+                               f"when an actor restarts", e.args[1].pos)
+        if sig.decl.handler != "lossy" or sig.params:
+            raise CompileError("`restarted` must be `lossy on restarted()`, with no arguments: "
+                               "one already waiting stands for a second restart", e.args[1].pos)
+        e.number = self.handler_numbers["restarted"]
         return UNIT
 
     def bytes_type(self, pos):

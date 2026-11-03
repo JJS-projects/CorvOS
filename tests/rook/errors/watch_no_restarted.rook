@@ -1,0 +1,20 @@
+// An interface without a `restarted` handler can't be told about restarts.
+// error: 18:22: `Ping` has no handler `restarted`, so it can't be told when an actor restarts
+
+interface Restarts {
+    lossy on restarted()
+}
+
+interface Ping {
+    lossy on ping()
+}
+
+actor Watcher: Ping {
+    new() { }
+
+    lossy on ping() { }
+
+    pub lossy on go(other: Watcher) {
+        watch(other, narrow(self, Ping))
+    }
+}

@@ -50,6 +50,7 @@ ACTOR_S_CURRENT_HANDLER: u64 = 40     // ... and its number
 ACTOR_S_IRQ_PENDING: u64 = 48       // bit n: peripheral interrupt 32 + n has fired (vectors.s)
 ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
 ACTOR_RUNQ_SLOTS: u64 = 128
+ACTOR_S_RESTARTED: u64 = 1128       // the number of the handler `restarted`, kept by `watch`
 pub ACTOR_IRQ_ROUTES: u64 = 1152        // where each interrupt goes: 32 records of (actor, handler number)
 pub ACTOR_IRQ_FIRST: u64 = 32           // the interrupts handled: peripheral IRQs 32 to 63
 ACTOR_MSG_BUFFER: u64 = 1664        // the message being handled, copied out of its slot (8 words)
@@ -58,6 +59,8 @@ ACTOR_S_CURRENT_ACTOR: u64 = 1096   // the actor whose handler or `new` is runni
 ACTOR_S_IN_NEW: u64 = 1104          // 1 while that actor's `new` is running
 pub ACTOR_S_LOST: u64 = 1112            // messages lost because the actor they were for failed or ended
 pub ACTOR_S_RESTARTS: u64 = 1120        // actors restarted so far
+ACTOR_WATCHES: u64 = 1824           // who watches whom: 14 records of (actor watched, watcher)
+ACTOR_WATCH_MAX: u64 = 14           // ends at 2048, where the actors start (decision 149)
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
 
 // A handler may run this long before it counts as failed (decisions 121, 133).
@@ -80,6 +83,7 @@ pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u
         rt_parent: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
         rt_was_in_new: u64 = load64(rt_base + ACTOR_S_IN_NEW)
         mut rt_actor: u64 = 0
+        mut rt_reused: bool = false
         if rt_parent != 0 and rt_was_in_new != 0 {
             rt_old: u64 = load64(rt_parent - ACTOR_BEFORE_FIELDS + ACTOR_H_PENDING)
             if rt_old != 0 {
@@ -88,6 +92,7 @@ pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u
                         load64(rt_old_header + ACTOR_H_NEXT_SIBLING))
                 if load64(rt_old_header + ACTOR_H_DISPATCHER) == dispatcher {
                     rt_actor = rt_old
+                    rt_reused = true
                     rerun_begin(rt_actor)
                 } else {
                     end_actor(rt_old)           // a different kind of actor is spawned here now
@@ -136,6 +141,9 @@ pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u
             store64(rt_base + ACTOR_S_IN_NEW, rt_was_in_new)
         }
         rerun_end(rt_actor)
+        if rt_reused {
+            notify_restarted(rt_actor)         // restarted in place with its parent
+        }
         return rt_actor
     }
 }
@@ -158,6 +166,7 @@ fn end_actor(rt_who: u64) {
     unsafe {
         rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
         store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED)
+        drop_watches(rt_who)
         clear_mailbox(rt_who)
         end_list(load64(rt_header + ACTOR_H_FIRST_CHILD))
         end_list(load64(rt_header + ACTOR_H_PENDING))
@@ -209,6 +218,7 @@ fn rerun_begin(rt_who: u64) {
         store64(rt_header + ACTOR_H_FIRST_CHILD, 0)
         store64(rt_header + ACTOR_H_LAST_CHILD, 0)
         store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) and ACTOR_F_IN_NEW)
+        drop_watches(rt_who)
         clear_mailbox(rt_who)
         rt_fields_end: u64 = load64(rt_header + ACTOR_H_ARGS)
         mut rt_at: u64 = rt_who
@@ -254,6 +264,66 @@ fn restart_actor(rt_who: u64) {
             }
         }
         rerun_end(rt_who)
+    }
+    notify_restarted(rt_who)
+}
+
+/// `watch(watched, watcher)`, which the compiler turns into a call of this: from now on
+/// `watcher` is sent its handler number `number` (`restarted`) each time `watched` restarts.
+/// Watching twice is the same as once. A watch ends when the watcher restarts or ends,
+/// so its `new` sets it up again. The table is small (14); one more panics.
+pub fn raven_watch(watched: u64, watcher: u64, number: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        store64(rt_base + ACTOR_S_RESTARTED, number)
+        mut rt_free: u64 = 0
+        scanning: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
+            rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
+            if load64(rt_record) == watched and load64(rt_record + 8) == watcher {
+                return
+            }
+            if rt_free == 0 and load64(rt_record) == 0 {
+                rt_free = rt_record
+            }
+        }
+        if rt_free == 0 {
+            panic("too many watches")
+        }
+        store64(rt_free, watched)
+        store64(rt_free + 8, watcher)
+    }
+}
+
+/// Forgets what `rt_who` watches (it restarts or ends).
+fn drop_watches(rt_who: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        dropping: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
+            rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
+            if load64(rt_record + 8) == rt_who {
+                store64(rt_record, 0)
+                store64(rt_record + 8, 0)
+            }
+        }
+    }
+}
+
+/// `rt_who` has restarted and its `new` has run again: tell each watcher with the message
+/// `restarted`. It is lossy: one already waiting stands for this one, and a full mailbox
+/// drops it.
+fn notify_restarted(rt_who: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_number: u64 = load64(rt_base + ACTOR_S_RESTARTED)
+        telling: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
+            rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
+            if load64(rt_record) == rt_who {
+                rt_watcher: u64 = load64(rt_record + 8)
+                if not rt_queued(rt_watcher, rt_number) {
+                    discard rt_enqueue(rt_watcher, rt_number, 0, 0)
+                }
+            }
+        }
     }
 }
 

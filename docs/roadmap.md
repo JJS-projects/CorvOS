@@ -138,7 +138,7 @@ and a domain cannot read another's memory.
 
 ## 7. Drivers as actors, and supervision
 
-*Step 7a (restarts: a failure restarts the actor, children keep their places) is built; `watch`, `stop` and the demo follow.*
+*Steps 7a (restarts: a failure restarts the actor, children keep their places) and 7b (`watch`) are built; `stop` and the demo follow.*
 
 - Interrupts delivered as messages to driver actors in their own domains.
 - Supervision trees; a domain restarts as a unit. Supervisors are ordinary actors

@@ -1,0 +1,60 @@
+// A child made in its parent's `new` is restarted with the parent, in place, and its
+// watchers are told: the client watches the child (it was handed the child's reference
+// by the parent), not the parent. When the parent fails, the client is told once, for
+// the child.
+//
+// Worked out: the parent makes a child in `new`. `introduce` sends the child to the
+// client, which watches it. The parent's `boom` fails (expect-failure): the parent
+// restarts, and its new `new` makes the child again in the same place, which counts as
+// the child's restart: the client prints 100 once. Nobody watches the parent, so no
+// second notice.
+// expect-failure: parent bug at watch_child.rook:49
+// expect: 100
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Child {
+    new() { }
+}
+
+actor Client: Restarts {
+    new() { }
+
+    pub lossy on watch_it(child: Child) {
+        watch(child, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(100)
+    }
+}
+
+actor Parent {
+    child: Child
+
+    new() {
+        .child = spawn Child()
+    }
+
+    pub lossy on introduce(client: Client) {
+        client.watch_it(.child)
+    }
+
+    pub lossy on boom() {
+        panic("parent bug")
+    }
+}
+
+fn test_main() {
+    parent: Parent = spawn Parent()
+    client: Client = spawn Client()
+    parent.introduce(client)
+    run_until_idle()
+    parent.boom()
+    run_until_idle()
+}
