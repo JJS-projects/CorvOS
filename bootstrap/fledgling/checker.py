@@ -56,7 +56,7 @@ STORES = {f"store{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
 # reference it holds: `actor_address(reference)` is the reference as a number, and
 # `handler_number("fired")` is the number messages use for the handlers of that name.
 # Both are allowed only inside `unsafe { }` in trusted files, like loads and stores.
-BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "actor_address", "handler_number"}
+BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "stop", "actor_address", "handler_number"}
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -1094,6 +1094,8 @@ class Checker:
             return UNIT
         if name == "watch":
             return self.watch_call(e)
+        if name == "stop":
+            return self.stop_call(e)
         if self.unsafe_depth == 0:
             where = "inside `unsafe { }`" if self.trusted else \
                 "in files under a trusted directory, inside `unsafe { }`"
@@ -1154,6 +1156,30 @@ class Checker:
             raise CompileError("`restarted` must be `lossy on restarted()`, with no arguments: "
                                "one already waiting stands for a second restart", e.args[1].pos)
         e.number = self.handler_numbers["restarted"]
+        e.stopped = 0                               # 0, or the number of `stopped` plus one
+        ends = who.methods.get("stopped")
+        if ends is not None:
+            if ends.decl.handler != "lossy" or ends.params:
+                raise CompileError("`stopped` must be `lossy on stopped()`, with no arguments: "
+                                   "one already waiting stands for a second notice",
+                                   e.args[1].pos)
+            e.stopped = self.handler_numbers["stopped"] + 1
+        return UNIT
+
+    def stop_call(self, e):
+        """`stop()` ends the actor whose handler this is; `stop(actor)` ends one this actor (or
+        this code, outside any actor) spawned (decisions 147 and 150)."""
+        if len(e.args) > 1:
+            raise CompileError("write `stop()` to end this actor, or `stop(actor)` to end one "
+                               "you spawned", e.pos)
+        if not e.args:
+            if self.receiver is None or not is_actor(self.receiver[0]) or self.in_new:
+                raise CompileError("`stop()` ends the actor it is in, so it only works in one of "
+                                   "its handlers (not in `new`)", e.pos)
+            return UNIT
+        ty = self.expr(e.args[0])
+        if not is_actor(ty):
+            raise CompileError(f"`stop` takes an actor reference, not {ty}", e.args[0].pos)
         return UNIT
 
     def bytes_type(self, pos):

@@ -9,8 +9,8 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
   `bootstrap/fledgling/`), actors and Raven (`raven/`, trusted parts in `raven/trusted/`),
   ownership, imports, the capability demo.
 - Milestone 7 (supervision) is in progress: step 7a (a failed handler restarts its
-  actor, decision 148) and 7b (`watch`/`restarted`, decision 149) are done. Next: 7c `stop`/`Gone`
-  (decision 147), 7d a supervisor actor. Ownership 4c (`freeze`/pool) is deferred.
+  actor, decision 148) and 7b (`watch`/`restarted`, decision 149) are done, and 7c (`stop`/`Gone`/`stopped`, decision 150). Next: 7d a supervisor actor
+  Ownership 4c (`freeze`/pool) is deferred.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
 - The latest decision number is in [decisions-index.md](decisions-index.md).

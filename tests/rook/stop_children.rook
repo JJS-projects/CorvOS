@@ -1,0 +1,71 @@
+// When an actor ends, the actors it spawned end with it: sends to them answer `Gone`.
+//
+// Worked out: the parent makes a child in `new` and, on `give`, hands the child's reference to
+// the keeper, which stores it. `quit` makes the parent call stop(). The keeper's `try_child`
+// then sends to the child and gets Gone (3); the test's own send to the parent gets Gone too (3).
+// expect: 3
+// expect: 3
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+actor Child {
+    new() { }
+
+    pub reliable on work() { }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(2)
+        Gone => print_u64(3)
+    }
+}
+
+actor Keeper {
+    mut child: Child
+
+    new(spare: Child) {
+        .child = spare
+    }
+
+    pub lossy on take(child: Child) {
+        .child = child
+    }
+
+    pub lossy on try_child() {
+        report(.child.work())
+    }
+}
+
+actor Parent {
+    child: Child
+
+    new() {
+        .child = spawn Child()
+    }
+
+    pub lossy on give(keeper: Keeper) {
+        keeper.take(.child)
+    }
+
+    pub reliable on work() { }
+
+    pub lossy on quit() {
+        stop()
+    }
+}
+
+fn test_main() {
+    parent: Parent = spawn Parent()
+    spare: Child = spawn Child()
+    keeper: Keeper = spawn Keeper(spare)
+    parent.give(keeper)
+    run_until_idle()
+    parent.quit()
+    run_until_idle()
+    keeper.try_child()
+    run_until_idle()
+    report(parent.work())
+}

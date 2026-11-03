@@ -10,10 +10,11 @@ import assembly: actor_arena_base, idle_until_interrupt, irq_enable_source
 import devices: Mmio
 import mailbox: ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, run_one_turn
 
-/// What a send to a `reliable` handler tells the sender (decision 126).
+/// What a send to a `reliable` handler tells the sender (decisions 126 and 150).
 pub enum Sent {
     Delivered
-    MailboxFull
+    MailboxFull         // no room now: it may fit later
+    Gone                // the actor has ended: it never will (decision 150)
 }
 
 /// The number of messages dropped so far because a mailbox was full.

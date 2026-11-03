@@ -1,0 +1,51 @@
+// An actor stops one it spawned with `stop(ref)`; so does code outside any actor
+// (`test_main`) for what it spawned. A send to the stopped actor answers `Gone`.
+//
+// Worked out: the boss makes a worker in `new`. `fire` stops it and sends it `work`,
+// which answers Gone (3). `test_main` spawned `loner` itself and stops it: its `work`
+// answers Gone too (3). Stopping an ended actor again does nothing (no failure line).
+// expect: 3
+// expect: 3
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+actor Worker {
+    new() { }
+
+    pub reliable on work() {
+        print_u64(100)
+    }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(2)
+        Gone => print_u64(3)
+    }
+}
+
+actor Boss {
+    worker: Worker
+
+    new() {
+        .worker = spawn Worker()
+    }
+
+    pub lossy on fire() {
+        stop(.worker)
+        stop(.worker)
+        report(.worker.work())
+    }
+}
+
+fn test_main() {
+    boss: Boss = spawn Boss()
+    loner: Worker = spawn Worker()
+    boss.fire()
+    run_until_idle()
+    stop(loner)
+    stop(loner)
+    report(loner.work())
+}

@@ -1,0 +1,8 @@
+// `stop()` is for handlers, not `new`.
+// error: 6:9: `stop()` ends the actor it is in, so it only works in one of its handlers (not in `new`)
+
+actor Worker {
+    new() {
+        stop()
+    }
+}

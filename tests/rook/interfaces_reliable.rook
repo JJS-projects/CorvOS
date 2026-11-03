@@ -58,6 +58,7 @@ fn report(result: Sent) {
     match result {
         Delivered => print_u64(1)
         MailboxFull => print_u64(0)
+        Gone => print_u64(0)
     }
 }
 

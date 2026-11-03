@@ -1,0 +1,80 @@
+// A watcher whose interface also has `lossy on stopped()` is told when the watched actor ends,
+// once. One whose interface has only `restarted` is told about restarts and nothing else.
+//
+// Worked out: (1) `a` stops itself with `quit`: its watcher prints 200. Stopping `a` again
+// from `test_main` (it spawned it) does nothing, so no second 200. (2) `b` is stopped by
+// `test_main`: its watcher prints 200. (3) `c` fails and restarts (expect-failure): its watcher
+// prints 100, a restart, not an end. (4) `d` has a restart-only watcher and stops: nothing.
+// expect-failure: service bug at watch_stopped.rook:33
+// expect: 200
+// expect: 200
+// expect: 100
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Service {
+    new() { }
+
+    pub lossy on quit() {
+        stop()
+    }
+
+    pub lossy on boom() {
+        panic("service bug")
+    }
+}
+
+actor Watcher: Lifecycle {
+    new(service: Service) {
+        watch(service, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        print_u64(100)
+    }
+
+    lossy on stopped() {
+        print_u64(200)
+    }
+}
+
+actor RestartsOnly: Restarts {
+    new(service: Service) {
+        watch(service, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(300)
+    }
+}
+
+fn test_main() {
+    a: Service = spawn Service()
+    wa: Watcher = spawn Watcher(a)
+    a.quit()
+    run_until_idle()
+    stop(a)
+    run_until_idle()
+    b: Service = spawn Service()
+    wb: Watcher = spawn Watcher(b)
+    stop(b)
+    run_until_idle()
+    c: Service = spawn Service()
+    wc: Watcher = spawn Watcher(c)
+    c.boom()
+    run_until_idle()
+    d: Service = spawn Service()
+    wd: RestartsOnly = spawn RestartsOnly(d)
+    d.quit()
+    run_until_idle()
+}

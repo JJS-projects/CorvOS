@@ -1,0 +1,16 @@
+// A `match` on a `Sent` must list `Gone` too, because a send to an ended actor can answer it.
+// error: 12:5: this `match` is missing `Gone`
+
+import actors: Sent
+
+actor Sink {
+    pub reliable on take(n: u64) {
+    }
+}
+
+fn f(sink: Sink) {
+    match sink.take(1) {
+        Delivered => { }
+        MailboxFull => { }
+    }
+}

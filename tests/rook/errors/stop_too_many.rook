@@ -1,0 +1,10 @@
+// `stop` takes at most one actor.
+// error: 8:9: write `stop()` to end this actor, or `stop(actor)` to end one you spawned
+
+actor Worker {
+    new() { }
+
+    pub lossy on go(other: Worker) {
+        stop(other, other)
+    }
+}
