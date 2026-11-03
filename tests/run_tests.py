@@ -62,7 +62,7 @@ CORVOS_SERIAL chooses where boot output is read from: unset (QEMU's own output),
 device such as /dev/ttyUSB0 for a real board. With a device only boot/hello runs:
 the kernel on the board's SD card is whatever is there.
 
-Usage: python3 tests/run_tests.py [name-or-prefix ...]
+Usage: python3 tests/run_tests.py [-v] [name-or-prefix ...]   (-v or VERBOSE=1: a line per test)
        e.g. `rook/` runs only the Rook program tests.
 """
 
@@ -939,7 +939,57 @@ def check_wrong_expectations_fail():
     return None
 
 
+def check_quiet_output():
+    """A run prints failures in full and a summary; a line per passing test only with -v."""
+    import contextlib
+    import io
+
+    class Fake:
+        def __init__(self, name, ok):
+            self.name, self.description, self.ok = name, "d", ok
+
+        def run(self):
+            return (self.ok, "" if self.ok else "the reason", "" if self.ok else "the output")
+
+    tests = [Fake("fake/good", True), Fake("fake/bad", False)]
+    global VERBOSE
+    saved = VERBOSE
+    try:
+        text = {}
+        for verbose in (False, True):
+            VERBOSE = verbose
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                status = run_all(tests)
+            text[verbose] = out.getvalue()
+            if status != 1:
+                return f"a failing test gave status {status}"
+    finally:
+        VERBOSE = saved
+    quiet, loud = text[False], text[True]
+    if "FAIL  fake/bad" not in quiet or "the reason" not in quiet or "the output" not in quiet:
+        return f"a failure was not shown in full: {quiet!r}"
+    if "PASS" in quiet:
+        return f"quiet mode listed a passing test: {quiet!r}"
+    if "1/2 passed" not in quiet or "slowest:" not in quiet:
+        return f"no summary: {quiet!r}"
+    if "PASS  fake/good" not in loud:
+        return f"verbose mode left out a passing test: {loud!r}"
+    return None
+
+
+def check_decisions_index():
+    """docs/decisions-index.md is regenerated from decisions.md after every new decision."""
+    result = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "decisions-index.py"),
+                             "--check"], capture_output=True, text=True)
+    return None if result.returncode == 0 else result.stderr.strip()
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/decisions_index", "The decision index matches decisions.md",
+                check_decisions_index),
+    HarnessTest("harness/quiet_output", "A run shows failures in full and a summary; -v lists "
+                "every test", check_quiet_output),
     HarnessTest("harness/qemu_log_check", "QEMU's device log must match what a test expects, "
                 "exactly", check_log_cases),
     HarnessTest("harness/machines", "Tests run on a 1 GB and a 512 MB Raspberry Pi machine",
@@ -988,6 +1038,10 @@ def all_tests():
 
 def main(argv):
     tests = all_tests()
+    global VERBOSE
+    if "-v" in argv:
+        argv = [a for a in argv if a != "-v"]
+        VERBOSE = True
     if argv:
         selected = [t for t in tests if any(t.name == a or t.name.startswith(a) for a in argv)]
         if not selected:
@@ -1011,10 +1065,19 @@ def runnable_on_board(tests):
     return [t for t in tests if t.name == "boot/hello"]
 
 
+# Quiet by default (a passing run is a summary, not 500 lines); -v or VERBOSE=1
+# prints a line per test. A failure always prints in full.
+VERBOSE = bool(os.environ.get("VERBOSE"))
+
+
 def run_all(selected):
-    """Run `selected` tests, print one line each, and return the exit status."""
+    """Run `selected` tests and return the exit status.
+
+    Prints only failures and a summary (with the slowest tests), or one line per
+    test with -v / VERBOSE=1."""
     os.makedirs(LOG_DIR, exist_ok=True)
     failures = 0
+    times = []
     width = max(len(t.name) for t in selected)
     for test in selected:
         start = time.monotonic()
@@ -1027,7 +1090,9 @@ def run_all(selected):
         passed, reason = result[0], result[1]
         output = result[2] if len(result) > 2 else ""
         elapsed = time.monotonic() - start
-        print(f"{'PASS' if passed else 'FAIL'}  {test.name:<{width}}  {elapsed:4.1f}s  {test.description}")
+        times.append((elapsed, test.name))
+        if VERBOSE or not passed:
+            print(f"{'PASS' if passed else 'FAIL'}  {test.name:<{width}}  {elapsed:4.1f}s  {test.description}")
         if not passed:
             failures += 1
             print(f"      reason: {reason}")
@@ -1036,6 +1101,9 @@ def run_all(selected):
                 for line in output.replace("\r", "").splitlines():
                     print(f"        | {line}")
 
+    if not VERBOSE:
+        slow = ", ".join(f"{n} {t:.1f}s" for t, n in sorted(times, reverse=True)[:5])
+        print(f"slowest: {slow}")
     print(f"\n{len(selected) - failures}/{len(selected)} passed (logs in build/test-logs/)")
     return 1 if failures else 0
 

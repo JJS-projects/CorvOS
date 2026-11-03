@@ -7,7 +7,7 @@ Entries 56–63 cite the principles' first numbering (1 safe by default, 2 reade
 3 ambiguity, 4 uniformity, 5 trust, 6 visible costs, 7 familiarity). Decision 64
 renumbered them; later entries use the current numbering.
 
-Newest at the bottom. To change a decision, add a new entry that supersedes the old
+Newest at the bottom. A one-line-per-entry index is in [decisions-index.md](decisions-index.md). To change a decision, add a new entry that supersedes the old
 one rather than editing it.
 
 | #  | Decision            | Choice                                   | Alternatives considered                         | Why |

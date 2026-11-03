@@ -6,3 +6,4 @@
 - `bug-check.py`: break one thing on purpose, run `make test`, and print which tests failed
 - `coverage.py`: which lines of the compiler the tests reach (`make coverage`); fails on a gap not explained in `coverage-gaps.txt`
 - `difftest.py`: random arithmetic programs checked against a model written in Python (`make difftest`)
+- `decisions-index.py`: regenerate `docs/decisions-index.md` from `decisions.md` (`--check` in `make test`)

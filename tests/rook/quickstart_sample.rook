@@ -1,0 +1,60 @@
+// The cheat sheet in docs/QUICKSTART.md must stay legal Rook: this is that sample.
+// Worked out: sends only queue; handlers run in `run_until_idle`. The reliable send into
+// an empty mailbox is Delivered, so `report` prints 1 at once; `unwrap(Ok(value: 7))`
+// prints 7 at once; then the queue runs add(1), add(2), show on a counter that starts at
+// 10, and prints 13.
+// expect: 1
+// expect: 7
+// expect: 13
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+interface Add {
+    reliable on add(n: u64)
+}
+
+enum Reply {
+    Ok(value: u64)
+    Failed
+}
+
+actor Counter: Add {
+    mut count: u64
+
+    new(start: u64) {
+        .count = start
+    }
+
+    reliable on add(n: u64) {
+        .count += n
+    }
+
+    pub lossy on show() {
+        print_u64(.count)
+    }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_u64(1)
+        MailboxFull => panic("full")
+    }
+}
+
+fn unwrap(r: Reply) -> u64 {
+    match r {
+        Ok(value: v) => return v
+        Failed => return 0
+    }
+}
+
+fn test_main() {
+    c: Counter = spawn Counter(10)
+    adder: Add = narrow(c, Add)
+    report(adder.add(1))
+    discard adder.add(2)
+    c.show()
+    print_u64(unwrap(Ok(value: 7)))
+    run_until_idle()
+}

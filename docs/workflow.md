@@ -1,5 +1,7 @@
 # Development workflow
 
+Agents: start with [QUICKSTART.md](QUICKSTART.md); this page has the full detail.
+
 CorvOS is built by Claude and reviewed by the project owner. This document
 describes how work arrives, how to check it, and how it gets into `main`.
 
@@ -36,10 +38,11 @@ to try it yourself, there are three ways, from easiest:
 | Command | What it does |
 |---|---|
 | `make` | Build `build/kernel8.img` |
-| `make test` | Build and run every QEMU test |
+| `make test` | Build and run every QEMU test (quiet: failures and a summary; `VERBOSE=1` or `-v` for a line per test) |
 | `make difftest` | Random integer arithmetic, checked against a Python model (`SEED=n PROGRAMS=n`; see decision 106) |
 | `make coverage` | Fail if a compiler line is reached by no test, except those listed in `tools/coverage-gaps.txt` (Python's `trace`, no extra install) |
 | `python3 -m fledgling FILES --suggest-imports` | List the `import` lines each file lacks, instead of failing (what a file needs from the others) |
+| `tools/decisions-index.py` | Regenerate `docs/decisions-index.md` after adding a decision (`make test` checks it) |
 | `make run` | Boot the kernel in QEMU with the UART on your terminal (quit: Ctrl-A then X) |
 | `make disasm` | Disassemble the kernel |
 | `make sdcard` | Collect files for a real Pi Zero 2 W (see `tools/sdcard/`) |
