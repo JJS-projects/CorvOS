@@ -472,7 +472,8 @@ plain data by itself is the first thing to reconsider (decision 114).
 
 ### 4.3 Failure, restarts and ending
 
-*Planned (decisions 116 to 120); none of it is built before milestone 6 or 7.*
+*Decisions 116 to 120 and 148. Restarts are built (step 7a, section 11.16); `watch`,
+`stop` and `Gone` are planned (7b, 7c).*
 
 - **Domains.** Until milestone 6 every `spawn` puts the new actor in the spawner's
   domain, and Rook has no word for domains. Raven still gives untrusted code and DMA
@@ -734,6 +735,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 | Kernel (2d) | the console and `kernel_main` rewritten in Rook, with `Mmio` | done |
 | Actors (3a) | `actor`, `new`, `lossy on` handlers, `spawn`, `self`, sends; Raven's mailboxes and scheduler | done |
 | Ownership (4a) | `consume`, `iso` parameters and fields, move checking; no run-time change | done |
+| Restarts (7a) | a panic or an over-budget handler restarts the actor; `new` runs again on kept arguments | done |
 | Closed modules (5b) | `module public`; Raven's internals can't be imported by application code | done |
 | Imports (5a) | `import module: Name, Name`; a file uses another file's names only if it imports them | done |
 | Ownership (4b) | handlers take `iso` and `val` structs and enums; up to 8 words are copied into the message | done |
@@ -770,8 +772,8 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **Helpful errors for other languages' habits**: `let`, `var`, `const`, `while`,
   `for`, `&&`, `||`, `!` and C bit operators are rejected with the Rook spelling.
 - **A panic** calls the kernel's `rook_panic`, which prints
-  `Raven: panic: <what> at <file>:<line>` and halts. Once actors exist, it will crash
-  only the actor's domain instead.
+  `Raven: panic: <what> at <file>:<line>`. In a handler, that abandons the handler and
+  Raven restarts the actor (section 11.16); anywhere else it halts the core.
 
 ### 11.2 Rules settled while building structs
 
@@ -878,8 +880,8 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   `run_until_idle()`, which takes turns one message at a time. A send to a full mailbox
   is dropped and counted (`dropped_messages()`). Actors are never freed: running out
   of arena is a panic.
-- **Panics.** A panic in a handler reports its line and halts the whole system, as
-  any panic does for now; restarting just the actor's domain waits for milestone 7.
+- **Panics.** A panic in a handler reports its line, abandons the handler and restarts the
+  actor (step 7a, section 11.16); a panic outside any handler halts the core.
 - **Known gaps.** No `Main`, `Boot`, `freeze` (section 11.13).
 
 ### 11.7 Rules settled while building reliable sends (step 3b)
@@ -942,8 +944,8 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   means the handler has failed.
 - **The report** is the owner's choice (decision 133) and has the shape of a panic:
   `Raven: panic: Counter.spin ran for over 100 ms at counter.rook:14`. The line is where
-  the handler is declared. The core halts, as for any panic, until supervision exists
-  (milestone 7). A test expects it with `// expect-panic: Counter.spin ran for over 100 ms
+  the handler is declared. The handler is abandoned and the actor restarted (section
+  11.16). A test expects it with `// expect-failure: Counter.spin ran for over 100 ms
   at counter.rook:14`.
 - **A handler that waits is also over budget.** `wait_ms` inside a handler counts. Long
   work belongs in steps (section 4.4).
@@ -1064,6 +1066,28 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   checks.
 - **A new public name is looked at first.** `harness/public_surface` fails when a public
   module gains or loses a name, or a module opens itself, until the list is updated.
+
+### 11.16 Rules settled while building restarts (step 7a)
+
+- **What fails an actor:** a panic, or running past the time budget, inside one of its
+  handlers or inside a `new` that Raven runs for a restart. The handler is abandoned
+  where it stands (its stack is discarded; nothing it did to other actors is undone) and the
+  failure is reported on the console as before.
+- **What a restart does** (decisions 117, 148): the actor's fields are cleared, its mailbox is
+  emptied (the lost messages are counted, `lost_messages()`), and its `new` runs again on
+  the arguments it was spawned with, which Raven kept (at most 16 words). References to it
+  stay valid. `restart_count()` counts restarts.
+- **Its children.** The actors an actor spawned *in its `new`* are restarted with it, in the
+  same places, so references to them stay valid: the spawns of the re-run `new` are matched
+  to them in the order they run. A spawn that makes a different kind of actor than before
+  ends the old one. Children it spawned in a *handler* end with the restart; an ended actor
+  keeps its place, and messages sent to it are refused (a `lossy` send is dropped and
+  counted; a `reliable` one answers `MailboxFull` until `Gone` arrives in step 7c).
+- **If `new` fails during a restart, the actor ends.** It does not retry for ever.
+- **Not covered:** a panic in code outside any handler (`kernel_main`, a test's `test_main`)
+  still halts; a CPU fault (a bad address) still halts; and nothing a failed handler did to
+  memory with `unsafe` code is undone, which is why a restart is not isolation until
+  milestone 6.
 
 ## 12. Open questions
 

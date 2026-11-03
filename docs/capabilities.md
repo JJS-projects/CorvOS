@@ -60,8 +60,8 @@ Any code can write `panic("text")`, and Raven reports a panic on the UART:
 too, naming the handler. This is the single channel that reaches the console without a
 reference. The owner decided (decision 145) to accept and document it. It is bounded: one
 line per failure, the text is a constant in the actor's own source, and the actor does not
-survive the report (today the system halts; with supervision, milestone 7, the domain restarts
-and the report goes to the supervisor). "Cannot write to the UART" is therefore true of every
+survive the report (its handler is abandoned and Raven restarts it, decision 148; a panic in
+code outside any handler still halts the system). "Cannot write to the UART" is therefore true of every
 write the language offers, not of every byte that can appear on the wire.
 
 ## What this argument does not cover
@@ -75,8 +75,10 @@ write the language offers, not of every byte that can appear on the wire.
   and exist only in test images (`kernel/test/print.s`). A test program can import them, so in
   the test build they are ambient. They do not exist in the real kernel. The demo's shell does
   not import them.
-- **Denial of service.** A runaway or panicking actor halts the whole system today (decision
-  133); flooding a mailbox is bounded but not prevented. Milestone 7 changes both.
+- **Denial of service.** A runaway or panicking actor is restarted, not halted (decisions 133,
+  148), but it can crash again at once, so one that crash-loops keeps Raven busy and fills the
+  console with reports until a supervisor stops it (milestone 7, in progress). Flooding a
+  mailbox is bounded but not prevented.
 - **Covert and timing channels.** Not claimed.
 - **Hardware untested.** All of this ran on QEMU. Nothing here was tried on a Pi Zero 2 W.
 

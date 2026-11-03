@@ -278,6 +278,9 @@ fault-tolerance claim will be tested.
 
 How failure and ending look to other actors (decisions 117 to 120):
 
+- **Built so far (step 7a):** a panic or an overrun in a handler abandons it and restarts the
+  actor in place; the children it made in `new` restart with it in the same places
+  (decision 148). `watch`, `stop` and supervisors are next.
 - **A reference names a place, not an instance.** After a restart, references others
   hold reach the new instance, so clients that keep no state in the server carry on
   with no recovery code. The new instance starts from `new`; its mailbox starts empty
