@@ -1,0 +1,73 @@
+// What is watched is forgotten when it ends, so the table of 14 does not fill up with watches
+// that can never fire. Fourteen watchers watch one service, which is stopped; fourteen more watch
+// a second service. If the first fourteen records were kept, the second fourteen would not fit.
+//
+// Worked out: both groups of 14 fit (nothing panics), and the first service's 14 watchers are each
+// told it ended (14). The tally prints 14 after the first stop, and 28 after the second.
+// expect: 14
+// expect: 28
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+actor Tally {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on add() {
+        .total += 1
+    }
+
+    pub lossy on show() {
+        print_u64(.total)
+    }
+}
+
+actor Service {
+    new() { }
+}
+
+actor Watcher: Lifecycle {
+    tally: Tally
+
+    new(service: Service, tally: Tally) {
+        .tally = tally
+        watch(service, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() { }
+
+    lossy on stopped() {
+        .tally.add()
+    }
+}
+
+fn watch_all(service: Service, tally: Tally) {
+    making: loop i: u64 in 0..14 {
+        watcher: Watcher = spawn Watcher(service, tally)
+    }
+}
+
+fn test_main() {
+    tally: Tally = spawn Tally()
+    first: Service = spawn Service()
+    watch_all(first, tally)
+    stop(first)
+    run_until_idle()
+    tally.show()
+    run_until_idle()
+    second: Service = spawn Service()
+    watch_all(second, tally)
+    stop(second)
+    run_until_idle()
+    tally.show()
+    run_until_idle()
+}

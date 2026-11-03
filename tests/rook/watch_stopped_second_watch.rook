@@ -1,0 +1,44 @@
+// Watching the same actor again with another interface adds `stopped`: an actor first watches
+// for restarts only, then for restarts and ends; it is told of the end.
+//
+// Worked out: `Both` watches the service twice, first through `Restarts` (no `stopped`), then
+// through `Lifecycle` (with it). The service is stopped from `test_main`: Both prints 200 once.
+// expect: 200
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+actor Service {
+    new() { }
+}
+
+actor Both: Lifecycle, Restarts {
+    new(service: Service) {
+        watch(service, narrow(self, Restarts))
+        watch(service, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        print_u64(100)
+    }
+
+    lossy on stopped() {
+        print_u64(200)
+    }
+}
+
+fn test_main() {
+    service: Service = spawn Service()
+    both: Both = spawn Both(service)
+    stop(service)
+    run_until_idle()
+}
