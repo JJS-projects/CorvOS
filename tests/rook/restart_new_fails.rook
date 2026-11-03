@@ -1,0 +1,36 @@
+// If an actor's `new` fails when it is run again for a restart, the actor ends instead of
+// restarting for ever: its mailbox is refused from then on and the rest of the system
+// carries on. This `new` panics only after a restart has happened.
+// expect-failure: first failure at restart_new_fails.rook:24
+// expect-failure: new failed again at restart_new_fails.rook:15
+// expect: 1
+// expect: 1
+
+import actors: dropped_messages, restart_count, run_until_idle
+import print: print_u64
+
+actor Fragile {
+    new() {
+        if restart_count() > 0 {
+            panic("new failed again")
+        }
+    }
+
+    pub lossy on hello() {
+        print_u64(1)
+    }
+
+    pub lossy on boom() {
+        panic("first failure")
+    }
+}
+
+fn test_main() {
+    fragile: Fragile = spawn Fragile()
+    fragile.hello()
+    fragile.boom()
+    run_until_idle()                    // hello (1); boom fails; the restart fails; it ends
+    fragile.hello()
+    run_until_idle()                    // refused
+    print_u64(dropped_messages())       // 1
+}

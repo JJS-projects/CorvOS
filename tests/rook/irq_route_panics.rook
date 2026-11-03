@@ -1,6 +1,6 @@
 // Only the whole peripherals can make an `Irq`: a driver given just its registers
 // can't give itself an interrupt.
-// expect-panic: an Irq is made from the whole peripherals at actors.rook:81
+// expect-panic: an Irq is made from the whole peripherals at actors.rook:96
 
 import actors: Irq, make_irq
 import devices: Mmio

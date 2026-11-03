@@ -1,0 +1,30 @@
+// Raven keeps at most 16 words of `new` arguments, to run it again on a restart.
+// error: 27:5: `new` would take 17 words of arguments, and Raven keeps at most 16 for a restart
+
+struct Wide {
+    f0: u64
+    f1: u64
+    f2: u64
+    f3: u64
+    f4: u64
+    f5: u64
+    f6: u64
+    f7: u64
+    f8: u64
+    f9: u64
+    f10: u64
+    f11: u64
+    f12: u64
+    f13: u64
+    f14: u64
+    f15: u64
+    f16: u64
+}
+
+actor Holder {
+    wide: val Wide
+
+    new(wide: val Wide) {
+        .wide = wide
+    }
+}

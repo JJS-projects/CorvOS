@@ -1,0 +1,50 @@
+// A restart runs `new` again on the arguments the actor was spawned with, including a
+// struct kept by value: after the failure it prints the same 5, 8 and true it did before.
+// expect-failure: oops at restart_args.rook:39
+// expect: 5
+// expect: 8
+// expect: 1
+// expect: 5
+// expect: 8
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+struct Window {
+    start: u64
+    size: u64
+}
+
+actor Probe {
+    window: val Window
+    flag: bool
+    mut seen: u64
+
+    new(window: val Window, flag: bool) {
+        .window = window
+        .flag = flag
+        .seen = 0
+    }
+
+    pub lossy on show() {
+        print_u64(.window.start)
+        print_u64(.window.start + .window.size)
+        if .flag {
+            print_u64(1)
+        }
+    }
+
+    pub lossy on oops() {
+        panic("oops")
+    }
+}
+
+fn test_main() {
+    probe: Probe = spawn Probe(Window(start: 5, size: 3), true)
+    probe.show()
+    probe.oops()
+    run_until_idle()
+    probe.show()
+    run_until_idle()
+}

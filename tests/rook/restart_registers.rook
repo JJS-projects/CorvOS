@@ -1,0 +1,10 @@
+// Abandoning a failed handler gives back the registers a function must keep (x19-x28), so
+// the scheduler that called it carries on with its own state. The probe clobbers all ten in a
+// "handler" that fails, and checks them afterwards.
+// expect: true
+
+import print: print_bool, probe_protected_registers
+
+fn test_main() {
+    print_bool(probe_protected_registers())
+}

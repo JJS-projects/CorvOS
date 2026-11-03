@@ -14,10 +14,10 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: actor_arena_base, actor_arena_limit, call_dispatch, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency
 
-ACTOR_HEADER_WORDS: u64 = 8
+ACTOR_HEADER_WORDS: u64 = 14
 ACTOR_SLOTS: u64 = 16               // messages one mailbox holds (decision 113, g)
 ACTOR_MESSAGE_WORDS: u64 = 8        // payload words in a message
 ACTOR_SLOT_WORDS: u64 = 9           // a handler number and the payload
@@ -28,6 +28,17 @@ ACTOR_H_DISPATCHER: u64 = 0         // address of its dispatcher
 ACTOR_H_FIRST: u64 = 8              // slot of the oldest message
 ACTOR_H_COUNT: u64 = 16             // messages waiting
 ACTOR_H_QUEUED: u64 = 24            // 1 if it is in the run queue
+ACTOR_H_START: u64 = 32             // its start stub, which runs `new` on stored arguments (0: none)
+ACTOR_H_PARENT: u64 = 40            // the actor that spawned it (0: spawned outside any actor)
+ACTOR_H_ARGS_WORDS: u64 = 48        // words of `new` arguments kept for a restart
+ACTOR_H_FIRST_CHILD: u64 = 56       // the actors it spawned, in order: the first ...
+ACTOR_H_NEXT_SIBLING: u64 = 64      // ... and each one's next
+ACTOR_H_LAST_CHILD: u64 = 72
+ACTOR_H_PENDING: u64 = 80           // during a restart: children not yet matched by a `spawn`
+ACTOR_H_FLAGS: u64 = 88             // see ACTOR_F_*
+ACTOR_H_ARGS: u64 = 96              // address of the kept `new` arguments
+ACTOR_F_IN_NEW: u64 = 1             // it was spawned by its spawner's `new`: kept across restarts
+ACTOR_F_ENDED: u64 = 2              // it has ended: sends to it are refused
 
 // Raven's tables, as byte offsets from the start of the arena.
 ACTOR_S_NEXT: u64 = 0               // next free byte (0 until the first spawn)
@@ -42,6 +53,11 @@ ACTOR_RUNQ_SLOTS: u64 = 128
 pub ACTOR_IRQ_ROUTES: u64 = 1152        // where each interrupt goes: 32 records of (actor, handler number)
 pub ACTOR_IRQ_FIRST: u64 = 32           // the interrupts handled: peripheral IRQs 32 to 63
 ACTOR_MSG_BUFFER: u64 = 1664        // the message being handled, copied out of its slot (8 words)
+ACTOR_S_PROTECTED: u64 = 1088       // 1 while a protected call is running (actors.s)
+ACTOR_S_CURRENT_ACTOR: u64 = 1096   // the actor whose handler or `new` is running (0: none)
+ACTOR_S_IN_NEW: u64 = 1104          // 1 while that actor's `new` is running
+pub ACTOR_S_LOST: u64 = 1112            // messages lost because the actor they were for failed or ended
+pub ACTOR_S_RESTARTS: u64 = 1120        // actors restarted so far
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
 
 // A handler may run this long before it counts as failed (decisions 121, 133).
@@ -49,22 +65,195 @@ ACTOR_BUDGET_MS: u64 = 100
 BUDGET_DEFAULT_HZ: u64 = 19200000   // the timer's rate if the firmware didn't set it (hardware.md 12)
 HANDLER_RECORD_BYTES: u64 = 40      // one record of Fledgling's handler table
 
-/// Makes room for an actor with `fields` words of fields and returns its
-/// reference. `dispatcher` is the address of the actor's dispatcher.
-pub fn raven_spawn_actor(fields: u64, dispatcher: u64) -> u64 {
+/// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
+/// arguments (copied from `args`, and kept so the actor can be restarted), then runs its
+/// start stub, which runs `new`. Returns its reference. `dispatcher` is the address of the
+/// actor's dispatcher and `start` of its start stub.
+///
+/// If the actor spawning is being restarted and this spawn is in its `new`, the actor it
+/// spawned in the same position before is restarted in the same place instead of a new
+/// one being made (decision 148), so references to it stay valid.
+pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
+                         rt_args_words: u64) -> u64 {
     rt_base: u64 = actor_arena_base()
     unsafe {
-        mut rt_next: u64 = load64(rt_base + ACTOR_S_NEXT)
-        if rt_next == 0 {
-            rt_next = rt_base + ACTOR_FIRST_ACTOR
+        rt_parent: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
+        rt_was_in_new: u64 = load64(rt_base + ACTOR_S_IN_NEW)
+        mut rt_actor: u64 = 0
+        if rt_parent != 0 and rt_was_in_new != 0 {
+            rt_old: u64 = load64(rt_parent - ACTOR_BEFORE_FIELDS + ACTOR_H_PENDING)
+            if rt_old != 0 {
+                rt_old_header: u64 = rt_old - ACTOR_BEFORE_FIELDS
+                store64(rt_parent - ACTOR_BEFORE_FIELDS + ACTOR_H_PENDING,
+                        load64(rt_old_header + ACTOR_H_NEXT_SIBLING))
+                if load64(rt_old_header + ACTOR_H_DISPATCHER) == dispatcher {
+                    rt_actor = rt_old
+                    rerun_begin(rt_actor)
+                } else {
+                    end_actor(rt_old)           // a different kind of actor is spawned here now
+                }
+            }
         }
-        rt_size: u64 = ACTOR_BEFORE_FIELDS + fields * 8
-        if rt_next + rt_size > actor_arena_limit() {
-            panic("out of memory for actors")
+        if rt_actor == 0 {
+            mut rt_next: u64 = load64(rt_base + ACTOR_S_NEXT)
+            if rt_next == 0 {
+                rt_next = rt_base + ACTOR_FIRST_ACTOR
+            }
+            rt_size: u64 = ACTOR_BEFORE_FIELDS + (fields + rt_args_words) * 8
+            if rt_next + rt_size > actor_arena_limit() {
+                panic("out of memory for actors")
+            }
+            store64(rt_base + ACTOR_S_NEXT, rt_next + rt_size)
+            rt_actor = rt_next + ACTOR_BEFORE_FIELDS
+            store64(rt_next + ACTOR_H_DISPATCHER, dispatcher)
+            store64(rt_next + ACTOR_H_ARGS, rt_actor + fields * 8)
         }
-        store64(rt_base + ACTOR_S_NEXT, rt_next + rt_size)
-        store64(rt_next + ACTOR_H_DISPATCHER, dispatcher)
-        return rt_next + ACTOR_BEFORE_FIELDS
+        rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
+        store64(rt_header + ACTOR_H_START, rt_entry)
+        store64(rt_header + ACTOR_H_ARGS_WORDS, rt_args_words)
+        store64(rt_header + ACTOR_H_PARENT, rt_parent)
+        store64(rt_header + ACTOR_H_FLAGS, rt_was_in_new)       // ACTOR_F_IN_NEW is 1
+        store64(rt_header + ACTOR_H_NEXT_SIBLING, 0)
+        if rt_parent != 0 {
+            rt_parent_header: u64 = rt_parent - ACTOR_BEFORE_FIELDS
+            rt_last: u64 = load64(rt_parent_header + ACTOR_H_LAST_CHILD)
+            if rt_last == 0 {
+                store64(rt_parent_header + ACTOR_H_FIRST_CHILD, rt_actor)
+            } else {
+                store64(rt_last - ACTOR_BEFORE_FIELDS + ACTOR_H_NEXT_SIBLING, rt_actor)
+            }
+            store64(rt_parent_header + ACTOR_H_LAST_CHILD, rt_actor)
+        }
+        rt_kept: u64 = load64(rt_header + ACTOR_H_ARGS)
+        copying: loop rt_w: u64 in 0..rt_args_words {
+            store64(rt_kept + rt_w * 8, load64(rt_args + rt_w * 8))
+        }
+        if rt_entry != 0 {
+            store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_actor)
+            store64(rt_base + ACTOR_S_IN_NEW, 1)
+            call_dispatch(rt_entry, rt_actor, 0, rt_kept)
+            store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_parent)
+            store64(rt_base + ACTOR_S_IN_NEW, rt_was_in_new)
+        }
+        rerun_end(rt_actor)
+        return rt_actor
+    }
+}
+
+/// Empties an actor's mailbox, counting what was in it as lost.
+fn clear_mailbox(rt_who: u64) {
+    unsafe {
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        rt_base: u64 = actor_arena_base()
+        store64(rt_base + ACTOR_S_LOST,
+                load64(rt_base + ACTOR_S_LOST) + load64(rt_header + ACTOR_H_COUNT))
+        store64(rt_header + ACTOR_H_COUNT, 0)
+    }
+}
+
+/// An actor ends: its mailbox is emptied and sends to it are refused from now on, and so
+/// are those of everything it spawned. Its place stays, as a tombstone, because a
+/// reference to it may still exist (decision 148).
+fn end_actor(rt_who: u64) {
+    unsafe {
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED)
+        clear_mailbox(rt_who)
+        end_list(load64(rt_header + ACTOR_H_FIRST_CHILD))
+        end_list(load64(rt_header + ACTOR_H_PENDING))
+        store64(rt_header + ACTOR_H_FIRST_CHILD, 0)
+        store64(rt_header + ACTOR_H_LAST_CHILD, 0)
+        store64(rt_header + ACTOR_H_PENDING, 0)
+    }
+}
+
+/// Ends each actor on a list of siblings, and what they spawned.
+fn end_list(rt_list: u64) {
+    mut rt_child: u64 = rt_list
+    walking: loop rt_child != 0 {
+        unsafe {
+            rt_next: u64 = load64(rt_child - ACTOR_BEFORE_FIELDS + ACTOR_H_NEXT_SIBLING)
+            end_actor(rt_child)
+            rt_child = rt_next
+        }
+    }
+}
+
+/// Starts an actor's restart (and a child's, when its parent's `new` reaches the spawn
+/// that makes it): the actors it spawned in a handler end; those it spawned in its `new`
+/// wait, in order, to be matched by the spawns in the `new` that is about to run again;
+/// its fields are cleared and its mailbox emptied.
+fn rerun_begin(rt_who: u64) {
+    unsafe {
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        mut rt_child: u64 = load64(rt_header + ACTOR_H_FIRST_CHILD)
+        mut rt_head: u64 = 0
+        mut rt_tail: u64 = 0
+        sorting: loop rt_child != 0 {
+            rt_child_header: u64 = rt_child - ACTOR_BEFORE_FIELDS
+            rt_after: u64 = load64(rt_child_header + ACTOR_H_NEXT_SIBLING)
+            if (load64(rt_child_header + ACTOR_H_FLAGS) and ACTOR_F_IN_NEW) != 0 {
+                store64(rt_child_header + ACTOR_H_NEXT_SIBLING, 0)
+                if rt_head == 0 {
+                    rt_head = rt_child
+                } else {
+                    store64(rt_tail - ACTOR_BEFORE_FIELDS + ACTOR_H_NEXT_SIBLING, rt_child)
+                }
+                rt_tail = rt_child
+            } else {
+                end_actor(rt_child)
+            }
+            rt_child = rt_after
+        }
+        store64(rt_header + ACTOR_H_PENDING, rt_head)
+        store64(rt_header + ACTOR_H_FIRST_CHILD, 0)
+        store64(rt_header + ACTOR_H_LAST_CHILD, 0)
+        store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) and ACTOR_F_IN_NEW)
+        clear_mailbox(rt_who)
+        rt_fields_end: u64 = load64(rt_header + ACTOR_H_ARGS)
+        mut rt_at: u64 = rt_who
+        clearing: loop rt_at < rt_fields_end {
+            store64(rt_at, 0)
+            rt_at = rt_at + 8
+        }
+    }
+}
+
+/// Ends a restart: the actors spawned in the previous `new` that this one did not spawn
+/// again end.
+fn rerun_end(rt_who: u64) {
+    unsafe {
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        end_list(load64(rt_header + ACTOR_H_PENDING))
+        store64(rt_header + ACTOR_H_PENDING, 0)
+    }
+}
+
+/// Restarts an actor whose handler failed: its `new` runs again on the arguments it was
+/// spawned with, with its fields cleared and its mailbox empty. References to it stay
+/// valid. If that `new` fails too, the actor ends (a restart that fails would otherwise
+/// repeat for ever).
+fn restart_actor(rt_who: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        store64(rt_base + ACTOR_S_RESTARTS, load64(rt_base + ACTOR_S_RESTARTS) + 1)
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        rerun_begin(rt_who)
+        rt_start: u64 = load64(rt_header + ACTOR_H_START)
+        if rt_start != 0 {
+            store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_who)
+            store64(rt_base + ACTOR_S_IN_NEW, 1)
+            timer_arm(budget_ticks())
+            rt_failed: u64 = call_protected(rt_start, rt_who, 0, load64(rt_header + ACTOR_H_ARGS))
+            timer_disarm()
+            store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
+            store64(rt_base + ACTOR_S_IN_NEW, 0)
+            if rt_failed != 0 {
+                end_actor(rt_who)
+                return
+            }
+        }
+        rerun_end(rt_who)
     }
 }
 
@@ -95,6 +284,9 @@ pub fn raven_send_reliable(target: u64, handler: u64, payload: u64, words: u64) 
 fn rt_enqueue(target: u64, handler: u64, payload: u64, words: u64) -> bool {
     rt_header: u64 = target - ACTOR_BEFORE_FIELDS
     unsafe {
+        if (load64(rt_header + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
+            return false
+        }
         rt_count: u64 = load64(rt_header + ACTOR_H_COUNT)
         if rt_count == ACTOR_SLOTS {
             return false
@@ -191,6 +383,10 @@ pub fn run_one_turn() {
 
         // Take the oldest message out of the actor's mailbox.
         rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
+        if load64(rt_header + ACTOR_H_COUNT) == 0 {
+            store64(rt_header + ACTOR_H_QUEUED, 0)      // its messages were lost in a restart
+            return
+        }
         rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
         rt_slot: u64 = rt_header + ACTOR_HEADER_WORDS * 8 + rt_first * ACTOR_SLOT_WORDS * 8
         rt_handler: u64 = load64(rt_slot)
@@ -211,9 +407,15 @@ pub fn run_one_turn() {
         rt_dispatcher: u64 = load64(rt_header + ACTOR_H_DISPATCHER)
         store64(rt_base + ACTOR_S_CURRENT_DISPATCHER, rt_dispatcher)
         store64(rt_base + ACTOR_S_CURRENT_HANDLER, rt_handler)
+        store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_actor)
+        store64(rt_base + ACTOR_S_IN_NEW, 0)
         timer_arm(budget_ticks())
-        call_dispatch(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
+        rt_failed: u64 = call_protected(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
         timer_disarm()
+        store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
+        if rt_failed != 0 {
+            restart_actor(rt_actor)
+        }
     }
 }
 

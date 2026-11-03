@@ -1,0 +1,63 @@
+// An actor spawned in a handler (not in `new`) cannot be matched to a spawn of the new `new`,
+// so it ends when its parent restarts: its place stays, and messages sent to it are refused
+// (a `lossy` send is dropped and counted). A boss hires a helper in a handler and hands a
+// reference to a keeper; the helper answers (7); the boss crashes and restarts; the same
+// reference now reaches nothing, and the send is counted as dropped (1).
+// expect-failure: boss bug at restart_dynamic.rook:30
+// expect: 7
+// expect: 1
+
+import actors: dropped_messages, run_until_idle
+import print: print_u64
+
+interface Hello {
+    lossy on hello()
+}
+
+actor Helper: Hello {
+    lossy on hello() {
+        print_u64(7)
+    }
+}
+
+actor Boss {
+    pub lossy on hire(to: Keeper) {
+        helper: Helper = spawn Helper()
+        to.take(narrow(helper, Hello))
+    }
+
+    pub lossy on crash() {
+        panic("boss bug")
+    }
+}
+
+actor Keeper {
+    mut kept: Hello
+
+    new(first: Hello) {
+        .kept = first
+    }
+
+    pub lossy on take(h: Hello) {
+        .kept = h
+    }
+
+    pub lossy on poke() {
+        .kept.hello()
+    }
+}
+
+fn test_main() {
+    spare: Helper = spawn Helper()
+    keeper: Keeper = spawn Keeper(narrow(spare, Hello))
+    boss: Boss = spawn Boss()
+    boss.hire(keeper)
+    run_until_idle()
+    keeper.poke()
+    run_until_idle()                    // 7
+    boss.crash()
+    run_until_idle()
+    keeper.poke()
+    run_until_idle()                    // the helper has ended: nothing is printed
+    print_u64(dropped_messages())       // 1
+}

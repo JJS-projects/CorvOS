@@ -20,6 +20,11 @@ Four kinds of test:
              kernel/arch/aarch64/vectors.s) has a line containing this text.
                  // machines: raspi3b
              Run only on the listed machines (for tests of the machine itself).
+                 // expect-failure: handler gave up at x.rook:15
+             (add ` x40` for 40 identical lines) An actor's handler panicked (or ran over its budget) and Raven restarted the
+             actor: the program carries on and returns. One line per failure, in order; the
+             panic lines must be exactly these (decision 148). `expect-panic` is for a panic
+             that ends the program.
                  // expect-line-count: hello 1
              The program (which must return) wrote the line "hello" exactly once: a way to
              test that something did *not* get written.
@@ -413,6 +418,7 @@ class RookTest:
     input: list = field(default_factory=list)        # typed (with a newline) into the input
     expect_echo: list = field(default_factory=list)  # lines the program must write back
     line_counts: list = field(default_factory=list)  # (line, times) it must write
+    expect_failures: list = field(default_factory=list)   # contained panics, in order
     timeout: float = 10.0
 
     @classmethod
@@ -421,6 +427,7 @@ class RookTest:
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
         fault, machines, typed, echo, counts = None, None, [], [], []
+        failures = []
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -430,6 +437,12 @@ class RookTest:
                 expect.append(text[len("expect:"):].strip())
             elif text.startswith("expect-panic:"):
                 panic = text[len("expect-panic:"):].strip()
+            elif text.startswith("expect-failure:"):
+                what, _, times = text[len("expect-failure:"):].strip().rpartition(" x")
+                if what and times.isdigit():
+                    failures += [what] * int(times)      # "msg at f.rook:7 x40": 40 times
+                else:
+                    failures.append(text[len("expect-failure:"):].strip())
             elif text.startswith("expect-fault:"):
                 fault = text[len("expect-fault:"):].strip()
             elif text.startswith("machines:"):
@@ -447,7 +460,7 @@ class RookTest:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
                    qemu_log, fault, machines, input=typed, expect_echo=echo,
-                   line_counts=counts)
+                   line_counts=counts, expect_failures=failures)
 
     def run(self):
         return on_each_machine(self, self.run_on, self.machines)
@@ -461,7 +474,8 @@ class RookTest:
             return True, "skipped: input is not typed into a board", ""
 
         def finished(lines):
-            return any(l.startswith((DONE, PANIC)) or "unhandled exception" in l
+            ends = DONE if self.expect_failures else (DONE, PANIC)
+            return any(l.startswith(ends) or "unhandled exception" in l
                        or (self.expect_echo and all(e in lines for e in self.expect_echo))
                        for l in lines)
 
@@ -479,7 +493,10 @@ class RookTest:
         outs = [l[len("out: "):] for l in lines if l.startswith("out: ")]
         panics = [l[len(PANIC):] for l in lines if l.startswith(PANIC)]
 
-        if len(panics) > 1:
+        if self.expect_failures:
+            if panics != self.expect_failures:
+                return False, f"expected the failures {self.expect_failures!r}, got {panics!r}", output
+        elif len(panics) > 1:
             return False, f"more than one panic: {panics[1]!r}", output
         if self.expect_fault is not None:
             if not any(self.expect_fault in l for l in lines):
@@ -504,7 +521,7 @@ class RookTest:
                 if echo not in lines:
                     return False, f"expected the program to write back {echo!r}", output
         else:
-            if panics:
+            if panics and not self.expect_failures:
                 return False, f"unexpected panic: {panics[0]!r}", output
             if not any(l.startswith(DONE) for l in lines):
                 reason = "timed out" if timed_out else "QEMU stopped"
@@ -844,6 +861,24 @@ def check_public_surface():
     return "the public surface of Raven changed (tests/public-surface.txt): " + "; ".join(lines)
 
 
+def check_failure_expectations():
+    """A test that expects contained failures fails if the program's failures differ: other
+    text, one missing, or one extra."""
+    path = os.path.join(ROOT, "tests", "rook", "restart_basic.rook")
+    wrong = {
+        "other failure text": ["something else at restart_basic.rook:41"],
+        "a missing failure": [],
+        "an extra failure": ["it blew up at restart_basic.rook:41"] * 2,
+    }
+    for what, failures in wrong.items():
+        test = RookTest.from_file(path)
+        test.machines = [MACHINES[0]]
+        test.expect_failures = failures
+        if test.run()[0]:
+            return f"passed with {what}"
+    return None
+
+
 def check_line_counts():
     """A test that expects a line written exactly N times fails when it was written more or
     fewer times (the revocation demo checks the line is NOT written again)."""
@@ -917,6 +952,8 @@ HARNESS_TESTS = [
                 check_suggest_imports),
     HarnessTest("harness/public_surface", "The names application code can reach in Raven "
                 "are the ones listed, and a new one is looked at first", check_public_surface),
+    HarnessTest("harness/failure_expectations", "A test that expects contained failures fails "
+                "when the failures differ", check_failure_expectations),
     HarnessTest("harness/line_count", "A test that expects a line a number of times fails when "
                 "it was written another number of times", check_line_counts),
     HarnessTest("harness/import_ambiguous", "Two files of one name can't be imported",

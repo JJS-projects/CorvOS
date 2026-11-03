@@ -3,8 +3,8 @@
 # Before adding a name, look at what it gives away: a number used as authority, or a call
 # that reaches memory or code from a number, does not belong here.
 #
-actors: Interrupt, Irq, Irq.route, Sent, dropped_messages, make_irq, run_forever, run_until_idle
+actors: Interrupt, Irq, Irq.route, Sent, dropped_messages, lost_messages, make_irq, restart_count, run_forever, run_until_idle
 bytes: Bytes, Bytes.at, Bytes.len
 devices: Mmio, Mmio.is_root, Mmio.part, Mmio.read32, Mmio.write32
 hardware: counter_frequency, current_el, irq_init, quiet_build, read_counter, run_test_hooks
-print: print_bool, print_i64, print_u64, probe_irq_registers
+print: print_bool, print_i64, print_u64, probe_irq_registers, probe_protected_registers

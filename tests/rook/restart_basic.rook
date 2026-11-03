@@ -1,0 +1,76 @@
+// A panic in a handler no longer ends the program: the handler is abandoned and Raven
+// restarts the actor. Its `new` runs again on the arguments it was spawned with, so its
+// state is back to what `new` made it; the messages waiting behind the failing one are lost
+// and counted; the actor's reference still works; and an actor next to it never notices.
+//
+// Worked out: the counter and its neighbour take turns, one message each. The counter
+// starts at 10 (from `new(10)`) and its mailbox holds add(1), add(2), show, boom, add(5),
+// show; the neighbour's holds two ticks. The turns go: add(1), tick (prints 1), add(2),
+// tick (2), show (13), boom: the handler panics and is abandoned, add(5) and the second
+// show are lost (2 messages), and the counter restarts. A new show prints 10: `new` ran
+// again with the 10 it was spawned with. Then the two counts (2 lost, 1 restart), and a
+// third tick (3): the neighbour never noticed.
+// expect-failure: it blew up at restart_basic.rook:41
+// expect: 1
+// expect: 2
+// expect: 13
+// expect: 10
+// expect: 2
+// expect: 1
+// expect: 3
+
+import actors: lost_messages, restart_count, run_until_idle
+import print: print_u64
+
+actor Counter {
+    mut count: u64
+
+    new(start: u64) {
+        .count = start
+    }
+
+    pub lossy on add(n: u64) {
+        .count += n
+    }
+
+    pub lossy on show() {
+        print_u64(.count)
+    }
+
+    pub lossy on boom() {
+        panic("it blew up")
+    }
+}
+
+actor Neighbour {
+    mut ticks: u64
+
+    new() {
+        .ticks = 0
+    }
+
+    pub lossy on tick() {
+        .ticks += 1
+        print_u64(.ticks)
+    }
+}
+
+fn test_main() {
+    counter: Counter = spawn Counter(10)
+    neighbour: Neighbour = spawn Neighbour()
+    counter.add(1)
+    counter.add(2)
+    counter.show()                  // 13
+    neighbour.tick()                // 1
+    counter.boom()
+    counter.add(5)                  // lost
+    counter.show()                  // lost
+    neighbour.tick()                // 2
+    run_until_idle()
+    counter.show()                  // 10: `new` ran again with the 10 it was spawned with
+    run_until_idle()
+    print_u64(lost_messages())      // 2: add(5) and the second show
+    print_u64(restart_count())      // 1
+    neighbour.tick()
+    run_until_idle()
+}

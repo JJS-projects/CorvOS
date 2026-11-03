@@ -1,14 +1,15 @@
 // rook_panic: where compiled Rook code goes when it hits a bug.
 //
 // Fledgling emits a call to this on integer overflow, division by zero and
-// oversized shifts. For now a panic halts the core. Once actors exist, it
-// will crash only the faulting actor's domain, and its supervisor restarts it
-// (docs/design.md, section 7).
+// oversized shifts. A panic outside any handler halts the core. A panic inside a
+// handler abandons that handler and Raven restarts the actor (decision 117; see
+// actor_failed in actors.s and restart_actor in raven/trusted/mailbox.rook).
 
     .section .text
 
 // void rook_panic(const u8 *message, u64 message_length,
 //                 const u8 *file, u64 file_length, u64 line)  -- never returns
+// (a panic inside a handler abandons that handler, see actor_failed in actors.s)
 //
 // Messages are Rook `Bytes` (address and length, no terminating zero).
     .global rook_panic
@@ -36,9 +37,8 @@ rook_panic:
     bl      uart_put_dec
     adr     x0, msg_newline
     bl      uart_puts
-
-1:  wfe
-    b       1b
+    b       actor_failed                // abandons the handler that panicked, if one is running;
+                                        // otherwise halts, as a panic always did
 
 // void rook_budget_panic(const Bytes *name, u64 budget_ms, const Bytes *file, u64 line)
 //   -- never returns
@@ -71,8 +71,7 @@ rook_budget_panic:
     bl      uart_put_dec
     adr     x0, msg_newline
     bl      uart_puts
-1:  wfe
-    b       1b
+    b       actor_failed
 
 // put_bytes(const u8 *bytes, u64 length): write `length` bytes to the UART.
 // Uses x24 and x25, which rook_panic never needs back.

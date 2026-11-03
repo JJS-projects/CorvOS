@@ -8,6 +8,7 @@
 pub extern fn actor_arena_base() -> u64
 pub extern fn actor_arena_limit() -> u64
 pub extern fn call_dispatch(dispatcher: u64, target: u64, handler: u64, payload: u64)
+pub extern fn call_protected(dispatcher: u64, target: u64, handler: u64, payload: u64) -> u64
 
 /// Interrupts and the handler time budget (kernel/arch/aarch64/actors.s,
 /// kernel/panic.s, decisions 133 and 134). `timer_arm` interrupts after that many counter

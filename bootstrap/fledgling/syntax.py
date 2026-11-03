@@ -148,6 +148,8 @@ class Spawn(Expr):
         self.actor = None       # set by checker: the ActorType
         self.sig = None         # set by checker: the signature of `new`, or None
         self.temp = None        # set by checker: frame slot holding the new reference
+        self.args_slot = None   # set by checker: frame slot of the arguments of `new`, as words
+        self.args_words = 0
 
 
 @dataclass

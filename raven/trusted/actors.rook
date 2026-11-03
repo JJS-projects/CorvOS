@@ -8,7 +8,7 @@ module public
 
 import assembly: actor_arena_base, idle_until_interrupt, irq_enable_source
 import devices: Mmio
-import mailbox: ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, actors_waiting, deliver_interrupts, run_one_turn
+import mailbox: ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, run_one_turn
 
 /// What a send to a `reliable` handler tells the sender (decision 126).
 pub enum Sent {
@@ -20,6 +20,21 @@ pub enum Sent {
 pub fn dropped_messages() -> u64 {
     unsafe {
         return load64(actor_arena_base() + ACTOR_S_DROPPED)
+    }
+}
+
+/// The number of messages lost because the actor they were for failed or ended: they
+/// were waiting in its mailbox when it was restarted (decision 148).
+pub fn lost_messages() -> u64 {
+    unsafe {
+        return load64(actor_arena_base() + ACTOR_S_LOST)
+    }
+}
+
+/// The number of times an actor has been restarted so far.
+pub fn restart_count() -> u64 {
+    unsafe {
+        return load64(actor_arena_base() + ACTOR_S_RESTARTS)
     }
 }
 
