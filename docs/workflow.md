@@ -39,6 +39,7 @@ to try it yourself, there are three ways, from easiest:
 |---|---|
 | `make` | Build `build/kernel8.img` |
 | `make test` | Build and run every QEMU test (quiet: failures and a summary; `VERBOSE=1` or `-v` for a line per test) |
+| `make quick T="rook/restart"` | Only some tests (default: every Rook and error test); Rook and error tests run in parallel, `JOBS=n` or `-j n` sets how many |
 | `make difftest` | Random integer arithmetic, checked against a Python model (`SEED=n PROGRAMS=n`; see decision 106) |
 | `make coverage` | Fail if a compiler line is reached by no test, except those listed in `tools/coverage-gaps.txt` (Python's `trace`, no extra install) |
 | `python3 -m fledgling FILES --suggest-imports` | List the `import` lines each file lacks, instead of failing (what a file needs from the others) |
@@ -76,8 +77,10 @@ of test:
   `MACHINES=raspi3b make test` runs one machine only. `CORVOS_SERIAL=pty` reads
   QEMU's serial port through a pseudo-terminal, as a board's will be read;
   `CORVOS_SERIAL=/dev/ttyUSB0` reads a real board (only `boot/hello` runs).
-- Run a subset with `python3 tests/run_tests.py rook/` (any test name or prefix),
-  after `make test` has built the images.
+- Run a subset with `make quick T=rook/` or `python3 tests/run_tests.py rook/` (any
+  test name or prefix), after `make test` has built the images. A panic expectation
+  for a panic inside Raven's own files can end `at mailbox.rook:*` (any line); the
+  test's own file keeps its exact line.
 - Full QEMU output of each run is saved in `build/test-logs/`.
 - The assembly Fledgling generates for each Rook test is kept in
   `build/rook-tests/*.s`, for reading or debugging.
@@ -105,11 +108,12 @@ These are how the work is done, as opposed to the design
   review" in `decisions.md` and listed in the PR.
 - **Error messages are read before they become tests.** Each new error test's
   program is compiled first, and its message and caret position are checked by
-  eye before the `// error:` line is written from them.
+  eye before the `// error:` line is written from them
+  (`tools/new-error-test.py` makes the two steps: placeholder, then `--accept`).
 - **Deliberate-bug checks are scripted.** For each new rule, a script edits the
   compiler (or Rook code) to break it, runs `make test`, restores the file, and
   records which tests failed (`tools/bug-check.py FILE OLD NEW` does this for one
-  edit). The table goes in the PR. A check no test catches
+  edit; `tools/bug-check-batch.py LIST` runs a list and writes the table). The table goes in the PR. A check no test catches
   is either covered by a new test or listed as untested, with the reason.
 
 ## Merging

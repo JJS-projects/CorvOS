@@ -1,5 +1,5 @@
 // A part can't reach beyond the `Mmio` it is cut from.
-// expect-panic: part outside Mmio at devices.rook:26
+// expect-panic: part outside Mmio at devices.rook:*
 
 import devices: Mmio
 

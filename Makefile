@@ -44,7 +44,7 @@ ROOK_TEST_TRUSTED := $(RAVEN_TRUSTED) --trusted tests/rook/support/trusted \
 ROOK_TESTS     := $(wildcard tests/rook/*.rook tests/rook/trusted/*.rook)
 ROOK_TEST_IMGS := $(ROOK_TESTS:tests/rook/%.rook=$(BUILD)/rook-tests/%.img)
 
-.PHONY: all run test difftest coverage disasm sdcard clean help
+.PHONY: all run test quick difftest coverage disasm sdcard clean help
 # Keep generated assembly, so it can be read when reviewing or debugging.
 .SECONDARY:
 
@@ -106,6 +106,13 @@ run: $(KERNEL)
 test: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS)
 	$(PYTHON) tests/run_tests.py
 
+# A faster loop: only the tests named in T (names or prefixes), default every Rook
+# program and error test; skips the boot and harness tests (about 20 s of one-at-a-time
+# work). `make quick T=rook/restart` while working, `make test` before a push.
+T ?= rook/ error/
+quick: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS)
+	$(PYTHON) tests/run_tests.py $(T)
+
 # Differential testing: random integer arithmetic, checked against a model
 # written in Python. SEED picks the programs; the same seed gives the same ones.
 SEED     ?= 1
@@ -132,6 +139,7 @@ help:
 	@echo "make run      boot it in QEMU (quit with Ctrl-A then X)"
 	@echo "make test     build everything and run the full test suite"
 	@echo "              (python3 tests/run_tests.py NAME... runs only some tests)"
+	@echo "make quick  only some tests (T=\"rook/restart\"; default every Rook and error test)"
 	@echo "make difftest random arithmetic checked against a Python model (SEED=n PROGRAMS=n)"
 	@echo "make coverage  list the compiler lines no test reaches"
 	@echo "make disasm   disassemble the kernel"

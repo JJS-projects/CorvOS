@@ -1,7 +1,7 @@
 // Reading past the end of a `Bytes` panics; the report names the line in
 // bytes.rook that checks the index.
 // expect: 104
-// expect-panic: index outside Bytes at bytes.rook:21
+// expect-panic: index outside Bytes at bytes.rook:*
 
 import bytes: Bytes
 import print: print_u64

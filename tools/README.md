@@ -7,3 +7,6 @@
 - `coverage.py`: which lines of the compiler the tests reach (`make coverage`); fails on a gap not explained in `coverage-gaps.txt`
 - `difftest.py`: random arithmetic programs checked against a model written in Python (`make difftest`)
 - `decisions-index.py`: regenerate `docs/decisions-index.md` from `decisions.md` (`--check` in `make test`)
+- `new-error-test.py`: make an error test in two steps (placeholder, then `--accept` once the real message has been read)
+- `bug-check-batch.py`: run a list of bug checks and write one summary table
+- `pr-body.py`: build the PR body from the template, test output and bug-check table; `--open` creates the PR
