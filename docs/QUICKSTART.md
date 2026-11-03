@@ -19,12 +19,16 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 
 | Command | What it does |
 |---|---|
-| `make test` | Build and run every test. Quiet: failures, `slowest:` and a summary |
+| `make test` | Build and run every test (~45 s). Quiet: failures, `slowest:` and a summary. Rook and error tests run in parallel (`-j N` / `JOBS=N`) |
+| `make quick [T="rook/restart"]` | Only the tests named in T (names or prefixes); default every Rook and error test (~15 s). Not a substitute for `make test` before a push |
 | `python3 tests/run_tests.py [-v] PREFIX...` | Run tests by name or prefix (`rook/restart`, `error/`); `-v` lists every test. Needs images from a `make test` |
 | `make coverage` | Must exit 0 (compiler lines no test reaches, except `tools/coverage-gaps.txt`) |
 | `make difftest` | Random arithmetic against a Python model |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |
+| `tools/new-error-test.py NAME "desc" < prog.rook` | Make an error test: writes a failing placeholder and shows the real error; read it, then `--accept NAME` fills the `// error:` line |
 | `tools/bug-check.py FILE OLD NEW` | Break one thing, run `make test`, list failing tests, restore |
+| `tools/bug-check-batch.py LIST` | Many bug checks from a file (format in its docstring), in the background; writes `build/bug-check-summary.md` |
+| `tools/pr-body.py --summary … --tests OUT --bugs build/bug-check-summary.md [--open --title … --head …]` | Build (and open) the PR body from the template |
 | `tools/decisions-index.py` | Regenerate `docs/decisions-index.md` after adding a decision |
 | `MACHINES=raspi3b make test` | One QEMU machine only (use for bug checks) |
 
@@ -41,11 +45,11 @@ Long commands go in the background. `make test` once per change, not per edit.
   caret, then write the line. `// alone` compiles without Raven.
 - `tests/rook/trusted/` and `tests/rook/errors/trusted/`: tests that may use `unsafe`.
 - `boot/` and `harness/` tests are Python in `run_tests.py`.
-- A panic expectation `at file.rook:N` is an exact line. Lines in `raven/trusted/*.rook`
-  move whenever those files change.
+- A panic expectation `at file.rook:N` is an exact line for the test's own file. For a
+  panic inside Raven's files write `at mailbox.rook:*` (any line; the message stays exact).
 - Logs: `build/test-logs/`; generated assembly: `build/rook-tests/*.s`.
-- A bug-check batch edits source files: commit real work first, never commit the edits,
-  wait for it to end, then `make test` again (images go stale).
+- A bug-check batch edits source files: commit real work first (it refuses otherwise),
+  never commit while it runs, wait for it to end, then `make test` again (images go stale).
 
 ## Rules that bite (Fledgling)
 
@@ -56,7 +60,6 @@ Long commands go in the background. `make test` once per change, not per edit.
   (`import module: Name, Name`, bare, one module per line, top of file).
 - Raven internals (mailbox, assembly) are closed modules. A new `pub` name in a public
   module must be added to `tests/public-surface.txt`.
-- Panic-line expectations into `raven/trusted` move when those files change.
 - `unsafe` only under `raven/trusted/` (and `tests/rook/trusted/`).
 
 ## Workflow

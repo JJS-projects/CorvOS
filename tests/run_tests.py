@@ -14,7 +14,9 @@ Four kinds of test:
              tests/rook/trusted/. Its header comments say what it must print:
                  // expect: 42                  one per `out:` line, exact, in order
                  // expect-panic: integer overflow at x.rook:7
-             Without expect-panic, test_main must return normally.
+             Without expect-panic, test_main must return normally. A panic inside one of
+             Raven's files may end `at mailbox.rook:*` (any line); the test's own file
+             keeps its exact line.
                  // expect-fault: FAR_EL1:  0x0000000030000000
              The program must end in a CPU exception, whose report (see
              kernel/arch/aarch64/vectors.s) has a line containing this text.
@@ -1032,7 +1034,113 @@ def check_panic_wildcard():
     return None
 
 
+def load_tool(name):
+    """A script in tools/ as a module (its file name has a hyphen), without running it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        name.replace("-", "_"), os.path.join(ROOT, "tools", name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_parallel_run():
+    """Tests run side by side still report in order, each result with its own test, and really
+    overlap in time; error tests compiled in other processes keep their results straight."""
+    def fake(name, ok, seconds):
+        test = RookTest(name, "d", "img", [])
+        test.run = lambda: (time.sleep(seconds), (ok, "reason " + name))[1]
+        return test
+    tests = [fake("rook/a", True, 0.6), fake("rook/b", False, 0.2), fake("rook/c", True, 0.4),
+             fake("rook/d", False, 0.1)]
+    start = time.monotonic()
+    got = run_parallel_group(tests, 4)
+    elapsed = time.monotonic() - start
+    if [g[0] for g in got] != [True, False, True, False] or got[1][1] != "reason rook/b":
+        return f"results out of order or mixed up: {got!r}"
+    if elapsed > 1.0:
+        return f"four tests of 0.6, 0.2, 0.4 and 0.1 s took {elapsed:.1f} s: not side by side"
+    errors_dir = os.path.join(ROOT, "tests", "rook", "errors")
+    good = ErrorTest.from_file(os.path.join(errors_dir, "assign_to_immutable.rook"))
+    bad = ErrorTest.from_file(os.path.join(errors_dir, "assign_to_immutable.rook"))
+    bad.line += 1
+    got = run_parallel_group([good, bad, good, bad], 4)
+    if [g[0] for g in got] != [True, False, True, False]:
+        return f"error test results mixed up: {[g[0] for g in got]!r}"
+    return None
+
+
+def check_make_quick():
+    """`make quick` runs the tests named in T, and by default every Rook and error test."""
+    def command(*flags):
+        out = subprocess.run(["make", "-n", *flags, "quick"], cwd=ROOT, capture_output=True,
+                             text=True).stdout
+        return [l for l in out.splitlines() if "run_tests.py" in l]
+    if command("T=rook/restart_basic")[-1:] != ["python3 tests/run_tests.py rook/restart_basic"]:
+        return f"T was not passed on: {command('T=rook/restart_basic')!r}"
+    if command()[-1:] != ["python3 tests/run_tests.py rook/ error/"]:
+        return f"the default subset is wrong: {command()!r}"
+    return None
+
+
+def check_new_error_test():
+    """tools/new-error-test.py writes a failing placeholder first, shows the real error, and
+    --accept turns it into a passing test whose line numbers did not move."""
+    import tempfile
+    tool = os.path.join(ROOT, "tools", "new-error-test.py")
+    program = "fn f() {\n    x: u64 = 1\n    x = 2\n}\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "demo.rook")
+        step1 = subprocess.run([sys.executable, tool, "demo", "A demo.", "--dir", tmp],
+                               input=program, capture_output=True, text=True)
+        if step1.returncode != 0 or "declare it with `mut`" not in step1.stdout or "^" not in step1.stdout:
+            return f"step 1 did not show the error: {step1.stdout!r} {step1.stderr!r}"
+        if "PLACEHOLDER" not in open(path).read() or ErrorTest.from_file(path).run()[0]:
+            return "the placeholder should fail until it is accepted"
+        step2 = subprocess.run([sys.executable, tool, "--accept", "demo", "--dir", tmp],
+                               capture_output=True, text=True)
+        test = ErrorTest.from_file(path)
+        if step2.returncode != 0 or (test.line, test.col) != (6, 7) or "PLACEHOLDER" in open(path).read():
+            return f"--accept did not fill the header: {step2.stdout!r} {step2.stderr!r}"
+        if not test.run()[0]:
+            return "the accepted test fails"
+        clean = subprocess.run([sys.executable, tool, "clean", "No error.", "--dir", tmp],
+                               input="fn f() {\n}\n", capture_output=True, text=True)
+        if clean.returncode == 0 or "without an error" not in clean.stderr:
+            return "a program that compiles should be refused"
+    return None
+
+
+def check_batch_and_body_tools():
+    """The bug-check batch reads its list correctly, and pr-body fills every template section."""
+    batch = load_tool("bug-check-batch")
+    blocks = batch.parse("# c\n@@ First one: a/b.py\n- x = 1\n-     y = 2\n+ x = 2\n\n@@ Second: c.py\n- q\n+\n")
+    want = [{"title": "First one", "path": "a/b.py", "old": "x = 1\n    y = 2", "new": "x = 2"},
+            {"title": "Second", "path": "c.py", "old": "q", "new": ""}]
+    if blocks != want:
+        return f"mutation list misread: {blocks!r}"
+    body = load_tool("pr-body")
+    import argparse
+    args = argparse.Namespace(summary="SUM", roadmap="ROAD", review="REV", design="", limits="LIM",
+                              tests=None, checks="CHK", bugs=None, session=None)
+    text = body.fill(open(body.TEMPLATE).read(), args)
+    for piece in ("SUM", "ROAD", "REV", "LIM", "CHK", "No decision in this PR", "CI is green"):
+        if piece not in text:
+            return f"the PR body lacks {piece!r}"
+    if "<!--" in text:
+        return "a template comment was left in the body"
+    return None
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "
+                "time", check_parallel_run),
+    HarnessTest("harness/make_quick", "make quick runs the tests named in T, or every Rook and "
+                "error test", check_make_quick),
+    HarnessTest("harness/new_error_test", "A new error test starts as a failing placeholder and "
+                "--accept fills in the real error", check_new_error_test),
+    HarnessTest("harness/tools_batch_body", "The bug-check list and the PR body are built "
+                "correctly", check_batch_and_body_tools),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
                 "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",
@@ -1140,31 +1248,29 @@ def run_one(test):
 def run_parallel_group(tests, jobs):
     """Results for `tests` in order, running up to `jobs` at once.
 
-    Only Rook program tests run side by side: each is one QEMU boot on prebuilt images
-    with its own log file. Boot and harness tests measure timing or CPU use, error tests
-    are instant, so those run one at a time, before the parallel group. Error tests only compile, in processes."""
-    parallel = [t for t in tests if isinstance(t, RookTest)]
-    errors = [t for t in tests if isinstance(t, ErrorTest)]
-    results = {}
-    for test in tests:
-        if test not in parallel and test not in errors:
-            results[test.name] = run_one(test)
-    if jobs > 1 and len(errors) > 1:
-        # Compiling is CPU-bound Python, so these need processes, not threads.
-        with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as pool:
-            for test, result in zip(errors, pool.map(run_one, errors, chunksize=16)):
-                results[test.name] = result
-    else:
-        for test in errors:
-            results[test.name] = run_one(test)
-    if jobs > 1 and len(parallel) > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
-            for test, result in zip(parallel, pool.map(run_one, parallel)):
-                results[test.name] = result
-    else:
-        for test in parallel:
-            results[test.name] = run_one(test)
-    return [results[t.name] for t in tests]
+    Rook program tests run side by side (threads): each is one QEMU boot on prebuilt
+    images with its own log file. Error tests only compile, so they run in processes.
+    Boot and harness tests measure timing or CPU use, so they run one at a time, first."""
+    kinds = {"rook": [], "error": [], "alone": []}
+    for i, test in enumerate(tests):
+        kind = "rook" if isinstance(test, RookTest) else "error" if isinstance(test, ErrorTest) else "alone"
+        kinds[kind].append((i, test))
+    results = [None] * len(tests)
+    for i, test in kinds["alone"]:
+        results[i] = run_one(test)
+    for kind, pool_class in (("error", concurrent.futures.ProcessPoolExecutor),
+                             ("rook", concurrent.futures.ThreadPoolExecutor)):
+        group = kinds[kind]
+        if jobs > 1 and len(group) > 1:
+            # Compiling is CPU-bound Python, so error tests need processes, not threads.
+            with pool_class(max_workers=jobs) as pool:
+                outcomes = pool.map(run_one, [t for _, t in group], chunksize=16 if kind == "error" else 1)
+                for (i, _), result in zip(group, outcomes):
+                    results[i] = result
+        else:
+            for i, test in group:
+                results[i] = run_one(test)
+    return results
 
 
 def run_all(selected, jobs=None):
