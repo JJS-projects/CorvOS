@@ -1,0 +1,69 @@
+// A watcher is told when the restart worked. If the restarted actor's `new` fails again
+// it ends instead, and nobody is told here (the end notice comes with `stop`, step 7c).
+//
+// Worked out: the server's `new` fails once `restart_count()` is above 0, so the first run
+// is fine and the restart's re-run fails. The handler failure is the first line, the failed
+// `new` the second; the client prints nothing. A second client that watches an actor that
+// restarts fine prints 7 once, so the watch itself works.
+// expect-failure: first bug at watch_not_told_if_new_fails.rook:28
+// expect-failure: new failed at watch_not_told_if_new_fails.rook:23
+// expect-failure: fine bug at watch_not_told_if_new_fails.rook:36
+// expect: 7
+
+import actors: restart_count, run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Fragile {
+    new() {
+        if restart_count() == 1 {
+            panic("new failed")
+        }
+    }
+
+    pub lossy on boom() {
+        panic("first bug")
+    }
+}
+
+actor Sturdy {
+    new() { }
+
+    pub lossy on boom() {
+        panic("fine bug")
+    }
+}
+
+actor Client: Restarts {
+    new(fragile: Fragile) {
+        watch(fragile, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(99)
+    }
+}
+
+actor Other: Restarts {
+    new(sturdy: Sturdy) {
+        watch(sturdy, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(7)
+    }
+}
+
+fn test_main() {
+    fragile: Fragile = spawn Fragile()
+    sturdy: Sturdy = spawn Sturdy()
+    client: Client = spawn Client(fragile)
+    other: Other = spawn Other(sturdy)
+    fragile.boom()
+    run_until_idle()
+    sturdy.boom()
+    run_until_idle()
+}

@@ -1,0 +1,37 @@
+// The watch table holds 14 watches; a 15th is a failure like any bug, and here, in a
+// `new` run by `spawn` in `test_main`, it ends the program.
+//
+// Worked out: the first 14 clients watch the server (28 `watch` calls, as watching again is the
+// same watch), and the 14 is printed. The 15th client's first `watch` finds no room and panics
+// "too many watches" at the site in Raven's mailbox code.
+// expect: 14
+// expect-panic: too many watches at mailbox.rook:*
+
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Server {
+    new() { }
+}
+
+actor Client: Restarts {
+    new(server: Server) {
+        watch(server, narrow(self, Restarts))
+        watch(server, narrow(self, Restarts))
+    }
+
+    lossy on restarted() { }
+}
+
+fn test_main() {
+    server: Server = spawn Server()
+    making: loop i: u64 in 0..14 {
+        client: Client = spawn Client(server)
+    }
+    print_u64(14)
+    last: Client = spawn Client(server)
+    print_u64(15)
+}

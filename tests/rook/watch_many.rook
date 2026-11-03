@@ -1,0 +1,66 @@
+// The watch table holds 14 watches. Fourteen clients each watch the server, each twice:
+// watching the same actor again is the same watch, so the repeats take no room.
+// When the server restarts every client is told, and the tally counts 14.
+//
+// Worked out: 14 clients, each `watch` called twice in `new` (28 calls, 14 records). The
+// server fails once (expect-failure); each client's `restarted` sends the tally one `add`,
+// and the tally's mailbox (16 messages) holds the 14. `show` prints 14.
+// expect-failure: server bug at watch_many.rook:38
+// expect: 14
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Tally {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on add() {
+        .total += 1
+    }
+
+    pub lossy on show() {
+        print_u64(.total)
+    }
+}
+
+actor Server {
+    new() { }
+
+    pub lossy on boom() {
+        panic("server bug")
+    }
+}
+
+actor Client: Restarts {
+    tally: Tally
+
+    new(server: Server, tally: Tally) {
+        .tally = tally
+        watch(server, narrow(self, Restarts))
+        watch(server, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        .tally.add()
+    }
+}
+
+fn test_main() {
+    server: Server = spawn Server()
+    tally: Tally = spawn Tally()
+    making: loop i: u64 in 0..14 {
+        client: Client = spawn Client(server, tally)
+    }
+    server.boom()
+    run_until_idle()
+    tally.show()
+    run_until_idle()
+}

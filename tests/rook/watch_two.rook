@@ -1,0 +1,63 @@
+// Every watcher of an actor is told, and an actor that is not watched costs no one a
+// message: two clients watch the server and a third watches nothing.
+//
+// Worked out: the server fails once (expect-failure). The first client prints 100 and the
+// second 200, in the order they started watching (their messages are queued in that
+// order). The bystander's own failure, which nobody watches, prints nothing.
+// expect-failure: server bug at watch_two.rook:23
+// expect-failure: bystander bug at watch_two.rook:31
+// expect: 100
+// expect: 200
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Server {
+    new() { }
+
+    pub lossy on boom() {
+        panic("server bug")
+    }
+}
+
+actor Bystander {
+    new() { }
+
+    pub lossy on boom() {
+        panic("bystander bug")
+    }
+}
+
+actor First: Restarts {
+    new(server: Server) {
+        watch(server, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(100)
+    }
+}
+
+actor Second: Restarts {
+    new(server: Server) {
+        watch(server, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(200)
+    }
+}
+
+fn test_main() {
+    server: Server = spawn Server()
+    bystander: Bystander = spawn Bystander()
+    first: First = spawn First(server)
+    second: Second = spawn Second(server)
+    server.boom()
+    bystander.boom()
+    run_until_idle()
+}

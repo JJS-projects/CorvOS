@@ -137,7 +137,7 @@ fn append(buf: mut Buffer, b: u8) -> Result<u64, AppendError> {
 | Narrowing | `narrow(editor, ByteSink)` | Hands out a reference that can only send that interface's handlers |
 | Message handlers | `reliable on write(b: u8) { }`, `lossy on byte(b: u8) { }` | Every handler says which; `new(...)` initialises an actor; `spawn Uart(...)` creates one |
 | Sending | `discard uart.write(b)`, `match uart.write(b) { … }`, `sink.byte(b)` | A send to a `reliable` handler returns a `Sent` (`Delivered` or `MailboxFull`) that must be handled; a send to a `lossy` one returns nothing |
-| Watching, stopping | `watch(out, narrow(self, Restarts))`, `stop()` | Planned (section 4.3): `restarted()` tells a client its server restarted; `stop()` ends the actor it is in |
+| Watching, stopping | `watch(out, narrow(self, Restarts))`, `stop()` | `watch` is built (4.3, 11.17): `restarted()` tells a client its server restarted. `stop()` ends the actor it is in: planned (7c) |
 | Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
 | Enums | `Busy(job: 3, since: now)`, `Idle` | Variant names are unique, so they're written bare |
@@ -474,8 +474,8 @@ plain data by itself is the first thing to reconsider (decision 114).
 
 ### 4.3 Failure, restarts and ending
 
-*Decisions 116 to 120 and 148. Restarts are built (step 7a, section 11.16); `watch`,
-`stop` and `Gone` are planned (7b, 7c).*
+*Decisions 116 to 120, 148 and 149. Restarts (step 7a, section 11.16) and `watch` (7b,
+section 11.17) are built; `stop` and `Gone` are planned (7c).*
 
 - **Domains.** Until milestone 6 every `spawn` puts the new actor in the spawner's
   domain, and Rook has no word for domains. Raven still gives untrusted code and DMA
@@ -1090,6 +1090,22 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   still halts; a CPU fault (a bad address) still halts; and nothing a failed handler did to
   memory with `unsafe` code is undone, which is why a restart is not isolation until
   milestone 6.
+
+### 11.17 Rules settled while building `watch` (step 7b)
+
+- **The call:** `watch(actor, narrow(self, I))`, a built-in statement (so `watch` is a reserved
+  name). The first argument is any actor or interface reference; the second must be an
+  interface reference whose interface has `lossy on restarted()` with no arguments (other
+  handlers are allowed). Holding a reference is all it takes: watching gives no authority
+  over the actor (docs/capabilities.md).
+- **What the watcher gets:** after the watched actor has restarted and its `new` has run
+  again, Raven sends the watcher `restarted()` once. It is `lossy`: one already waiting stands
+  for a second restart, and a full mailbox drops it. A watched actor whose `new` fails again
+  ends instead, and its watchers are not told (the end notice comes with `stop`, step 7c).
+- **A child restarted in place with its parent** counts as restarted: its watchers are told.
+- **A watch ends** when the watcher restarts or ends, so `new` is the place to set it up. Watching
+  the same actor twice is one watch. All watches in the system share a table of 14; a 15th
+  panics with "too many watches" in the watcher (derived; open to review, decision 149).
 
 ## 12. Open questions
 

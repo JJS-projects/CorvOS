@@ -1,0 +1,20 @@
+// `restarted` must be `lossy`.
+// error: 18:22: `restarted` must be `lossy on restarted()`, with no arguments: one already waiting stands for a second restart
+
+interface Restarts {
+    lossy on restarted()
+}
+
+interface Loud {
+    reliable on restarted()
+}
+
+actor Watcher: Loud {
+    new() { }
+
+    reliable on restarted() { }
+
+    pub lossy on go(other: Watcher) {
+        watch(other, narrow(self, Loud))
+    }
+}

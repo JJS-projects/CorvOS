@@ -1,0 +1,16 @@
+// `watch` needs an actor reference to watch.
+// error: 14:15: `watch` takes an actor reference to watch, not u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Watcher: Restarts {
+    new() { }
+
+    lossy on restarted() { }
+
+    pub lossy on go() {
+        watch(1, narrow(self, Restarts))
+    }
+}

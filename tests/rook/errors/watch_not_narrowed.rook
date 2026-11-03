@@ -1,0 +1,16 @@
+// `watch` tells an interface reference, so the actor itself is not enough.
+// error: 14:22: `watch` tells an interface reference: write `narrow(self, Restarts)`
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Watcher: Restarts {
+    new() { }
+
+    lossy on restarted() { }
+
+    pub lossy on go(other: Watcher) {
+        watch(other, self)
+    }
+}

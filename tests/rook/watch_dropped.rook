@@ -1,0 +1,74 @@
+// A watch ends when the watcher itself restarts. `Early` watches in its `new`, so it
+// watches again after a restart; `Late` watches in a handler, so a restart of it ends the
+// watch and nothing sets it up again.
+//
+// Worked out: both watchers start watching (Late after its `arm`). Both fail (expect-failure
+// lines 1 and 2) and restart; Late's `new` does not watch. Then the server fails (line 3):
+// Early is told and prints 1; Late prints nothing. Before the restarts the same server
+// failure would have told both, so the 1 is not from a leftover watch (one print, not two).
+// expect-failure: early bug at watch_dropped.rook:35
+// expect-failure: late bug at watch_dropped.rook:55
+// expect-failure: server bug at watch_dropped.rook:25
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor Server {
+    new() { }
+
+    pub lossy on boom() {
+        panic("server bug")
+    }
+}
+
+actor Early: Restarts {
+    new(server: Server) {
+        watch(server, narrow(self, Restarts))
+    }
+
+    pub lossy on boom() {
+        panic("early bug")
+    }
+
+    lossy on restarted() {
+        print_u64(1)
+    }
+}
+
+actor Late: Restarts {
+    server: Server
+
+    new(server: Server) {
+        .server = server
+    }
+
+    pub lossy on arm() {
+        watch(.server, narrow(self, Restarts))
+    }
+
+    pub lossy on boom() {
+        panic("late bug")
+    }
+
+    lossy on restarted() {
+        print_u64(2)
+    }
+}
+
+fn test_main() {
+    server: Server = spawn Server()
+    early: Early = spawn Early(server)
+    late: Late = spawn Late(server)
+    late.arm()
+    run_until_idle()
+    early.boom()
+    late.boom()
+    run_until_idle()
+    server.boom()
+    run_until_idle()
+}

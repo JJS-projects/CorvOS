@@ -64,6 +64,15 @@ survive the report (its handler is abandoned and Raven restarts it, decision 148
 code outside any handler still halts the system). "Cannot write to the UART" is therefore true of every
 write the language offers, not of every byte that can appear on the wire.
 
+## Watching an actor gives no authority
+
+`watch(ref, narrow(self, Restarts))` needs a reference to the actor, which the caller must
+already hold, and lets Raven send the *watcher* a `restarted()` message. It reads nothing from
+the watched actor and sends it nothing, so it adds no route to any actor or device. A
+watcher can learn that an actor it can reach was restarted, which any holder of the
+reference could learn by other means (a send returning `MailboxFull` while it restarts). The
+test for this is `rook/watch_basic`; the compile-time limits are the `error/watch_*` tests.
+
 ## What this argument does not cover
 
 - **Memory protection.** There is no MMU yet (milestone 6). Untrusted code is kept away from
