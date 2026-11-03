@@ -1,0 +1,78 @@
+// The actors a parent spawns in its `new` restart with it, in the same places, so a
+// reference to a child stays valid. A keeper holds a reference to the parent's child. The
+// child counts bumps (1, 2). The parent panics and restarts: its `new` spawns a child
+// again, which Raven puts in the old child's place and restarts (its count is 0). The same
+// reference, held by the keeper, now reaches the restarted child: it prints 1 again.
+// expect-failure: parent bug at restart_children.rook:44
+// expect: 1
+// expect: 2
+// expect: 1
+// expect: 1
+
+import actors: restart_count, run_until_idle
+import print: print_u64
+
+interface Bump {
+    lossy on bump()
+}
+
+actor Child: Bump {
+    mut count: u64
+
+    new() {
+        .count = 0
+    }
+
+    lossy on bump() {
+        .count += 1
+        print_u64(.count)
+    }
+}
+
+actor Parent {
+    child: Child
+
+    new() {
+        .child = spawn Child()
+    }
+
+    pub lossy on give(to: Keeper) {
+        to.take(narrow(.child, Bump))
+    }
+
+    pub lossy on crash() {
+        panic("parent bug")
+    }
+}
+
+actor Keeper {
+    mut kept: Bump
+
+    new(first: Bump) {
+        .kept = first
+    }
+
+    pub lossy on take(b: Bump) {
+        .kept = b
+    }
+
+    pub lossy on poke() {
+        .kept.bump()
+    }
+}
+
+fn test_main() {
+    spare: Child = spawn Child()
+    keeper: Keeper = spawn Keeper(narrow(spare, Bump))
+    parent: Parent = spawn Parent()
+    parent.give(keeper)
+    run_until_idle()
+    keeper.poke()
+    keeper.poke()
+    run_until_idle()                    // 1, 2
+    parent.crash()
+    run_until_idle()                    // the parent restarts, and its child with it
+    keeper.poke()
+    run_until_idle()                    // 1: the same reference, the restarted child
+    print_u64(restart_count())          // 1: the parent; its child was restarted through it
+}

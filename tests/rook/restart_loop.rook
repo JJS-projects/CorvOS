@@ -1,0 +1,51 @@
+// Restarting a parent that spawns children does not use more memory: the children are
+// restarted in their places. Forty crashes of a parent with two children would use up the
+// arena (about 50 actors) if each restart made new ones; here it carries on, and the
+// 41st message is still answered.
+// expect-failure: parent bug at restart_loop.rook:34 x40
+// expect: 40
+// expect: 1
+
+import actors: restart_count, run_until_idle
+import print: print_u64
+
+actor Leaf {
+    mut seen: u64
+
+    new() {
+        .seen = 0
+    }
+
+    pub lossy on hello() {
+        .seen += 1
+    }
+}
+
+actor Parent {
+    first: Leaf
+    second: Leaf
+
+    new() {
+        .first = spawn Leaf()
+        .second = spawn Leaf()
+    }
+
+    pub lossy on crash() {
+        panic("parent bug")
+    }
+
+    pub lossy on alive() {
+        print_u64(1)
+    }
+}
+
+fn test_main() {
+    parent: Parent = spawn Parent()
+    crashing: loop i: u64 in 0..40 {
+        parent.crash()
+        run_until_idle()
+    }
+    print_u64(restart_count())          // 40
+    parent.alive()
+    run_until_idle()                    // 1
+}

@@ -1,14 +1,21 @@
 // A handler that never returns is a failure, not a hung core: the budget timer
-// interrupts it and Raven reports it.
-// expect-panic: Spinner.spin ran for over 100 ms at actors_endless.rook:14
+// interrupts it, Raven reports it, and the actor is restarted with its state reset (the
+// count the handler had reached is gone: 0).
+// expect-failure: Spinner.spin ran for over 100 ms at actors_endless.rook:21
+// expect: 0
 
 import actors: run_until_idle
+import print: print_u64
 
 actor Spinner {
     mut count: u64
 
     new() {
         .count = 0
+    }
+
+    pub lossy on peek() {
+        print_u64(.count)
     }
 
     pub lossy on spin() {
@@ -21,5 +28,7 @@ actor Spinner {
 fn test_main() {
     spinner: Spinner = spawn Spinner()
     spinner.spin()
+    run_until_idle()
+    spinner.peek()
     run_until_idle()
 }

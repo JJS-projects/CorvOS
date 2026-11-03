@@ -1,8 +1,9 @@
-// A handler that runs past its time budget (100 ms) has failed. Until supervision
-// exists that is reported like a panic, naming the handler and the line where it is
-// declared, and the core halts. This one is slow, not endless: it waits 300 ms.
+// A handler that runs past its time budget (100 ms) has failed. That is reported like a
+// panic, naming the handler and the line where it is declared, and the handler is abandoned
+// and the actor restarted. This one is slow, not endless: it waits 300 ms.
+// expect-failure: Slow.crawl ran for over 100 ms at actors_overrun.rook:17
 // expect: 1
-// expect-panic: Slow.crawl ran for over 100 ms at actors_overrun.rook:16
+// expect: 1
 
 import actors: run_until_idle
 import print: print_u64
@@ -23,5 +24,7 @@ fn test_main() {
     slow: Slow = spawn Slow()
     slow.quick()
     slow.crawl()
+    run_until_idle()
+    slow.quick()                        // the actor answers again, after its restart
     run_until_idle()
 }

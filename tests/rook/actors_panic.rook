@@ -1,7 +1,8 @@
-// A panic in a handler ends the program and reports the handler's line, as
-// a panic anywhere does.
+// A panic in a handler is reported with the handler's line, as a panic anywhere is, and
+// the handler is abandoned and the actor restarted: the program carries on.
+// expect-failure: handler gave up at actors_panic.rook:16
 // expect: 1
-// expect-panic: handler gave up at actors_panic.rook:15
+// expect: 1
 
 import actors: run_until_idle
 import print: print_u64
@@ -20,5 +21,7 @@ fn test_main() {
     fussy: Fussy = spawn Fussy()
     fussy.first()
     fussy.second()
+    run_until_idle()
+    fussy.first()                       // the actor answers again, after its restart
     run_until_idle()
 }
