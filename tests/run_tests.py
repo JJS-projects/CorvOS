@@ -1060,6 +1060,10 @@ def check_parallel_run():
         return f"results out of order or mixed up: {got!r}"
     if elapsed > 1.0:
         return f"four tests of 0.6, 0.2, 0.4 and 0.1 s took {elapsed:.1f} s: not side by side"
+    quitter = RookTest("rook/q", "d", "img", [])
+    quitter.run = lambda: sys.exit("a tool gave up")
+    if run_one(quitter)[0]:
+        return "a test that calls sys.exit passed (it must fail, not end the run)"
     errors_dir = os.path.join(ROOT, "tests", "rook", "errors")
     good = ErrorTest.from_file(os.path.join(errors_dir, "assign_to_immutable.rook"))
     bad = ErrorTest.from_file(os.path.join(errors_dir, "assign_to_immutable.rook"))
@@ -1238,9 +1242,9 @@ def run_one(test):
     start = time.monotonic()
     try:
         result = test.run()
-    except Exception:
-        # A crash inside the compiler fails this test only; the rest of
-        # the suite still runs.
+    except (Exception, SystemExit):
+        # A crash inside the compiler (or a tool that exits) fails this test only; the
+        # rest of the suite still runs.
         result = (False, "compiler crashed", traceback.format_exc())
     return result[0], result[1], (result[2] if len(result) > 2 else ""), time.monotonic() - start
 
