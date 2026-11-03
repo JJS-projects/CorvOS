@@ -137,7 +137,7 @@ fn append(buf: mut Buffer, b: u8) -> Result<u64, AppendError> {
 | Narrowing | `narrow(editor, ByteSink)` | Hands out a reference that can only send that interface's handlers |
 | Message handlers | `reliable on write(b: u8) { }`, `lossy on byte(b: u8) { }` | Every handler says which; `new(...)` initialises an actor; `spawn Uart(...)` creates one |
 | Sending | `discard uart.write(b)`, `match uart.write(b) { … }`, `sink.byte(b)` | A send to a `reliable` handler returns a `Sent` (`Delivered` or `MailboxFull`) that must be handled; a send to a `lossy` one returns nothing |
-| Watching, stopping | `watch(out, narrow(self, Restarts))`, `stop()` | `watch` is built (4.3, 11.17): `restarted()` tells a client its server restarted. `stop()` ends the actor it is in: planned (7c) |
+| Watching, stopping | `watch(out, narrow(self, Restarts))`, `stop()` | `watch` and `stop` are built (4.3, 11.17, 11.18): `restarted()` tells a client its server restarted, an optional `stopped()` that it ended. `stop()` ends the actor it is in, `stop(ref)` one it spawned |
 | Own fields | `.regs`, `.listener` | In actors and struct methods; `self` is the actor's own reference |
 | Errors | `Result` handled with explicit `match` | No `?` shortcut |
 | Enums | `Busy(job: 3, since: now)`, `Idle` | Variant names are unique, so they're written bare |
@@ -395,7 +395,8 @@ Mailboxes hold a fixed number of messages, so a flood can't use up memory, and a
 full mailbox never crashes the sender or the receiver.
 
 - A send to a **`reliable`** handler returns a `Sent`, an enum with the variants
-  `Delivered` and `MailboxFull` (decision 126). The compiler makes the sender handle
+  `Delivered`, `MailboxFull` and `Gone` (decisions 126 and 150): full means try later, `Gone` means
+  the actor has ended and never will answer. The compiler makes the sender handle
   it with `match`, or throw it away on purpose with `discard`. A refused message is
   not counted as a drop. The sender knows what the message is worth.
 - A send to a **`lossy`** handler returns nothing. If the mailbox is full the new
@@ -474,8 +475,8 @@ plain data by itself is the first thing to reconsider (decision 114).
 
 ### 4.3 Failure, restarts and ending
 
-*Decisions 116 to 120, 148 and 149. Restarts (step 7a, section 11.16) and `watch` (7b,
-section 11.17) are built; `stop` and `Gone` are planned (7c).*
+*Decisions 116 to 120 and 147 to 150. Restarts (step 7a, section 11.16), `watch` (7b,
+section 11.17) and `stop`, `Gone` and `stopped` (7c, section 11.18) are built.*
 
 - **Domains.** Until milestone 6 every `spawn` puts the new actor in the spawner's
   domain, and Rook has no word for domains. Raven still gives untrusted code and DMA
@@ -490,14 +491,15 @@ section 11.17) are built; `stop` and `Gone` are planned (7c).*
   sends `restarted()` once the new instance has run `new`. A watch ends when the
   watcher itself fails, so its `new` sets it up again.
 - **An actor ends by `stop()`** in one of its own handlers, or when the actor that
-  spawned it uses the authority `spawn` gave it. No other holder of a reference can
-  end it, and actors are never freed automatically. A send to a stopped actor
-  returns an error from a `reliable` handler (`Gone`) and is dropped from a `lossy`
-  one; watchers are told.
+  spawned it calls `stop(ref)`. No other holder of a reference can end it (from anyone
+  else `stop(ref)` is a failure), and actors are never freed automatically. A send to a
+  stopped actor answers `Gone` from a `reliable` handler and is dropped from a `lossy`
+  one; a watcher whose interface has `lossy on stopped()` is told.
 
 ```rook
 pub interface Restarts {
     lossy on restarted()       // Raven sends this when the watched actor restarts
+    lossy on stopped()         // optional: ... and this when it ends
 }
 
 actor LineEditor: ByteSink, Restarts {
@@ -1106,6 +1108,24 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **A watch ends** when the watcher restarts or ends, so `new` is the place to set it up. Watching
   the same actor twice is one watch. All watches in the system share a table of 14; a 15th
   panics with "too many watches" in the watcher (derived; open to review, decision 149).
+
+### 11.18 Rules settled while building `stop` and `Gone` (step 7c)
+
+- **`Sent` has a third variant, `Gone`.** A `reliable` send to an ended actor answers `Gone`;
+  `MailboxFull` now only ever means "no room yet". A `match` on a send lists all three (owner's
+  choice, decision 150). A `lossy` send to an ended actor is dropped and counted, as before.
+- **`stop()`** ends the actor whose handler it is in, and works only in a handler (a
+  compile error in `new`, in a plain function or in `test_main`). The handler is abandoned at
+  that point (what follows never runs), nothing is reported as a failure, and the actor is not
+  restarted. Its mailbox is emptied (lost messages counted) and what it spawned ends with it.
+- **`stop(ref)`** ends `ref` if the caller is the actor that spawned it, or is code outside
+  any actor and spawned it (`test_main`, Raven's start-up); from anyone else it is a failure
+  like any bug, reported "only the actor that spawned an actor can stop it" (decision 147).
+  `stop(ref)` of an actor that has ended does nothing; `stop(self-reference)` is `stop()`.
+- **`stopped()`.** If the interface given to `watch` also has `lossy on stopped()` (no arguments),
+  Raven sends it once when the watched actor ends, whether by `stop`, because its `new`
+  failed again during a restart, or because a parent ended it. Without `stopped` only restarts
+  are reported. A watch on an actor that has ended is forgotten (derived; open to review).
 
 ## 12. Open questions
 

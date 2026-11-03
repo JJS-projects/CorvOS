@@ -81,6 +81,7 @@ class Call(Expr):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot for a struct result
         self.number = None      # set by checker: `handler_number("name")`'s value
+        self.stopped = 0        # set by checker for `watch`: the number of `stopped`, plus one
 
 
 @dataclass

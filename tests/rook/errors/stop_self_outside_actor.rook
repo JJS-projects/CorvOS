@@ -1,0 +1,6 @@
+// `stop()` ends the actor it is in, so it needs one.
+// error: 5:5: `stop()` ends the actor it is in, so it only works in one of its handlers (not in `new`)
+
+fn f() {
+    stop()
+}

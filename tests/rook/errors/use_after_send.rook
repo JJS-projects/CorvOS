@@ -19,5 +19,6 @@ fn f(h: Holder) {
     match h.keep(consume(r)) {
         Delivered => { }
         MailboxFull => print_i64(r.temp as i64)
+        Gone => { }
     }
 }

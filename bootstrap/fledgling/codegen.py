@@ -514,7 +514,14 @@ class Gen:
             self.emit("mov x1, x0")                 # who to tell
             self.pop("x0")                          # the actor watched
             self.emit(f"mov x2, #{e.number}")       # the number of `restarted`
+            self.emit(f"mov x3, #{e.stopped}")      # the number of `stopped` plus one (0: none)
             self.emit("bl raven_watch")
+        elif isinstance(e, S.Call) and e.callee == "stop":
+            if e.args:
+                self.expr(e.args[0])                # the actor to end
+                self.emit("bl raven_stop")
+            else:
+                self.emit("bl raven_stop_self")
         elif isinstance(e, S.Call) and e.callee == "actor_address":
             self.expr(e.args[0])                    # a reference already is its address
         elif isinstance(e, S.Call) and e.callee == "handler_number":

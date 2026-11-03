@@ -39,6 +39,7 @@ fn report(result: Sent) {
     match result {
         Delivered => print_u64(1)
         MailboxFull => panic("full")
+        Gone => panic("full")
     }
 }
 

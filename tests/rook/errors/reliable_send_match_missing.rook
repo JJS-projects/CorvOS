@@ -1,4 +1,4 @@
-// A `match` on a `Sent` lists both variants.
+// A `match` on a `Sent` lists every variant: here `MailboxFull` and `Gone` are both missing, and the first is named.
 // error: 12:5: this `match` is missing `MailboxFull`
 
 import actors: Sent

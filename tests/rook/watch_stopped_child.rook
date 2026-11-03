@@ -1,0 +1,60 @@
+// A child ends with its parent, and its watcher is told: the client watches the child (handed
+// to it by the parent) and the parent stops itself.
+//
+// Worked out: the parent makes a child in `new`; `introduce` gives it to the client, which watches
+// it for `stopped`. `quit` makes the parent stop(): the child ends with it, and the client prints
+// 200 once. Nobody watches the parent.
+// expect: 200
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+actor Child {
+    new() { }
+}
+
+actor Client: Lifecycle {
+    new() { }
+
+    pub lossy on watch_it(child: Child) {
+        watch(child, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        print_u64(100)
+    }
+
+    lossy on stopped() {
+        print_u64(200)
+    }
+}
+
+actor Parent {
+    child: Child
+
+    new() {
+        .child = spawn Child()
+    }
+
+    pub lossy on introduce(client: Client) {
+        client.watch_it(.child)
+    }
+
+    pub lossy on quit() {
+        stop()
+    }
+}
+
+fn test_main() {
+    parent: Parent = spawn Parent()
+    client: Client = spawn Client()
+    parent.introduce(client)
+    run_until_idle()
+    parent.quit()
+    run_until_idle()
+}

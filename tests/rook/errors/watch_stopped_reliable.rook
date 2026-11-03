@@ -1,0 +1,19 @@
+// `stopped` must be `lossy`.
+// error: 17:22: `stopped` must be `lossy on stopped()`, with no arguments: one already waiting stands for a second notice
+
+interface Ends {
+    lossy on restarted()
+    reliable on stopped()
+}
+
+actor Watcher: Ends {
+    new() { }
+
+    lossy on restarted() { }
+
+    reliable on stopped() { }
+
+    pub lossy on go(other: Watcher) {
+        watch(other, narrow(self, Ends))
+    }
+}

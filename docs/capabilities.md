@@ -64,6 +64,16 @@ survive the report (its handler is abandoned and Raven restarts it, decision 148
 code outside any handler still halts the system). "Cannot write to the UART" is therefore true of every
 write the language offers, not of every byte that can appear on the wire.
 
+## Stopping an actor is an authority of its own (decision 147, built in 150)
+
+`stop(ref)` is accepted only from the actor that spawned `ref`: Raven records the spawner (as a
+place, so it stays true across the spawner's restarts) and refuses anyone else with a failure.
+Holding a reference is therefore still send-only: no holder can end the actor, and a supervisor can
+end a child it spawned even while the child crash-loops. This is one identity-based rule, the only
+one in the system (everything else is by reference), and it is kept deliberately small. Code outside any
+actor (`test_main`, Raven's start-up) is the spawner of what it spawns. The tests are
+`rook/stop_spawner` (allowed) and `rook/stop_not_spawner` (refused).
+
 ## Watching an actor gives no authority
 
 `watch(ref, narrow(self, Restarts))` needs a reference to the actor, which the caller must

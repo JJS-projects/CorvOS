@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -51,6 +51,8 @@ ACTOR_S_IRQ_PENDING: u64 = 48       // bit n: peripheral interrupt 32 + n has fi
 ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
 ACTOR_RUNQ_SLOTS: u64 = 128
 ACTOR_S_RESTARTED: u64 = 1128       // the number of the handler `restarted`, kept by `watch`
+ACTOR_S_STOPPED: u64 = 1136         // the number of the handler `stopped`, kept by `watch`
+ACTOR_S_STOPPING: u64 = 1144        // 1 while a handler that called `stop()` is being abandoned
 pub ACTOR_IRQ_ROUTES: u64 = 1152        // where each interrupt goes: 32 records of (actor, handler number)
 pub ACTOR_IRQ_FIRST: u64 = 32           // the interrupts handled: peripheral IRQs 32 to 63
 ACTOR_MSG_BUFFER: u64 = 1664        // the message being handled, copied out of its slot (8 words)
@@ -59,7 +61,7 @@ ACTOR_S_CURRENT_ACTOR: u64 = 1096   // the actor whose handler or `new` is runni
 ACTOR_S_IN_NEW: u64 = 1104          // 1 while that actor's `new` is running
 pub ACTOR_S_LOST: u64 = 1112            // messages lost because the actor they were for failed or ended
 pub ACTOR_S_RESTARTS: u64 = 1120        // actors restarted so far
-ACTOR_WATCHES: u64 = 1824           // who watches whom: 14 records of (actor watched, watcher)
+ACTOR_WATCHES: u64 = 1824           // who watches whom: 14 records of (actor watched, watcher | 1 if it wants `stopped`)
 ACTOR_WATCH_MAX: u64 = 14           // ends at 2048, where the actors start (decision 149)
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
 
@@ -159,12 +161,16 @@ fn clear_mailbox(rt_who: u64) {
     }
 }
 
-/// An actor ends: its mailbox is emptied and sends to it are refused from now on, and so
-/// are those of everything it spawned. Its place stays, as a tombstone, because a
+/// An actor ends: its mailbox is emptied and sends to it are refused from now on (a `reliable`
+/// send answers `Gone`), and so are those of everything it spawned. Its watchers that asked
+/// for it are told `stopped`, and what it watched is forgotten. Its place stays, as a tombstone, because a
 /// reference to it may still exist (decision 148).
 fn end_actor(rt_who: u64) {
     unsafe {
         rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        if (load64(rt_header + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
+            return                              // already ended: its watchers were told
+        }
         store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED)
         drop_watches(rt_who)
         clear_mailbox(rt_who)
@@ -173,6 +179,7 @@ fn end_actor(rt_who: u64) {
         store64(rt_header + ACTOR_H_FIRST_CHILD, 0)
         store64(rt_header + ACTOR_H_LAST_CHILD, 0)
         store64(rt_header + ACTOR_H_PENDING, 0)
+        notify_stopped(rt_who)
     }
 }
 
@@ -272,14 +279,20 @@ fn restart_actor(rt_who: u64) {
 /// `watcher` is sent its handler number `number` (`restarted`) each time `watched` restarts.
 /// Watching twice is the same as once. A watch ends when the watcher restarts or ends,
 /// so its `new` sets it up again. The table is small (14); one more panics.
-pub fn raven_watch(watched: u64, watcher: u64, number: u64) {
+pub fn raven_watch(watched: u64, watcher: u64, number: u64, stopped_plus_one: u64) {
     rt_base: u64 = actor_arena_base()
     unsafe {
         store64(rt_base + ACTOR_S_RESTARTED, number)
+        mut rt_tag: u64 = watcher
+        if stopped_plus_one != 0 {
+            store64(rt_base + ACTOR_S_STOPPED, stopped_plus_one - 1)
+            rt_tag = watcher or 1               // actors are 8-byte aligned: bit 0 is free
+        }
         mut rt_free: u64 = 0
         scanning: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
-            if load64(rt_record) == watched and load64(rt_record + 8) == watcher {
+            if load64(rt_record) == watched and watcher_of(load64(rt_record + 8)) == watcher {
+                store64(rt_record + 8, load64(rt_record + 8) or rt_tag)   // `stopped` asked for now
                 return
             }
             if rt_free == 0 and load64(rt_record) == 0 {
@@ -290,8 +303,13 @@ pub fn raven_watch(watched: u64, watcher: u64, number: u64) {
             panic("too many watches")
         }
         store64(rt_free, watched)
-        store64(rt_free + 8, watcher)
+        store64(rt_free + 8, rt_tag)
     }
+}
+
+/// The watcher in a watch record's second word (bit 0 says it wants `stopped`).
+fn watcher_of(rt_tag: u64) -> u64 {
+    return (rt_tag shr 1) shl 1
 }
 
 /// Forgets what `rt_who` watches (it restarts or ends).
@@ -300,7 +318,7 @@ fn drop_watches(rt_who: u64) {
     unsafe {
         dropping: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
-            if load64(rt_record + 8) == rt_who {
+            if watcher_of(load64(rt_record + 8)) == rt_who {
                 store64(rt_record, 0)
                 store64(rt_record + 8, 0)
             }
@@ -318,12 +336,61 @@ fn notify_restarted(rt_who: u64) {
         telling: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
             if load64(rt_record) == rt_who {
-                rt_watcher: u64 = load64(rt_record + 8)
+                rt_watcher: u64 = watcher_of(load64(rt_record + 8))
                 if not rt_queued(rt_watcher, rt_number) {
                     discard rt_enqueue(rt_watcher, rt_number, 0, 0)
                 }
             }
         }
+    }
+}
+
+/// `rt_who` has ended: tell each watcher that asked for it the message `stopped` (lossy: one
+/// already waiting stands for this one), then forget the watches on it, which can never fire.
+fn notify_stopped(rt_who: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_number: u64 = load64(rt_base + ACTOR_S_STOPPED)
+        telling: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
+            rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
+            if load64(rt_record) == rt_who {
+                rt_tag: u64 = load64(rt_record + 8)
+                rt_watcher: u64 = watcher_of(rt_tag)
+                if (rt_tag and 1) != 0 and not rt_queued(rt_watcher, rt_number) {
+                    discard rt_enqueue(rt_watcher, rt_number, 0, 0)
+                }
+                store64(rt_record, 0)
+                store64(rt_record + 8, 0)
+            }
+        }
+    }
+}
+
+/// `stop()`: the running handler's actor ends. The handler is abandoned where it stands,
+/// like a failure, but nothing is reported and the actor is not restarted (decision 150).
+pub fn raven_stop_self() {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        store64(rt_base + ACTOR_S_STOPPING, 1)
+    }
+    actor_failed()
+}
+
+/// `stop(target)`: `target` ends, if the caller is the actor that spawned it (code outside
+/// any actor, such as `test_main`, is the spawner of what it spawns); from anyone else it is a
+/// failure like any bug (decision 147). Stopping an actor that has ended does nothing; stopping
+/// oneself is `stop()`.
+pub fn raven_stop(target: u64) {
+    rt_base: u64 = actor_arena_base()
+    unsafe {
+        rt_caller: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
+        if target == rt_caller {
+            raven_stop_self()
+        }
+        if load64(target - ACTOR_BEFORE_FIELDS + ACTOR_H_PARENT) != rt_caller {
+            panic("only the actor that spawned an actor can stop it")
+        }
+        end_actor(target)
     }
 }
 
@@ -345,6 +412,11 @@ pub fn raven_send(target: u64, handler: u64, payload: u64, words: u64) {
 pub fn raven_send_reliable(target: u64, handler: u64, payload: u64, words: u64) -> Sent {
     if rt_enqueue(target, handler, payload, words) {
         return Delivered
+    }
+    unsafe {
+        if (load64(target - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
+            return Gone
+        }
     }
     return MailboxFull
 }
@@ -484,7 +556,12 @@ pub fn run_one_turn() {
         timer_disarm()
         store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
         if rt_failed != 0 {
-            restart_actor(rt_actor)
+            if load64(rt_base + ACTOR_S_STOPPING) != 0 {
+                store64(rt_base + ACTOR_S_STOPPING, 0)
+                end_actor(rt_actor)                 // it called stop()
+            } else {
+                restart_actor(rt_actor)
+            }
         }
     }
 }

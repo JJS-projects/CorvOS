@@ -1,0 +1,32 @@
+// `stop(self)` is the same as `stop()`: the actor ends where it stands, and is not restarted.
+//
+// Worked out: `go` prints 1 and calls stop(self); the 2 after it never prints. A later `reliable`
+// send answers Gone (3). No failure line: it ended, it did not fail.
+// expect: 1
+// expect: 3
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+actor Selfish {
+    new() { }
+
+    pub lossy on go() {
+        print_u64(1)
+        stop(self)
+        print_u64(2)
+    }
+
+    pub reliable on ask() { }
+}
+
+fn test_main() {
+    selfish: Selfish = spawn Selfish()
+    selfish.go()
+    run_until_idle()
+    match selfish.ask() {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(2)
+        Gone => print_u64(3)
+    }
+}

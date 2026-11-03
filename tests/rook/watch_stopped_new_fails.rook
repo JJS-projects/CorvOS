@@ -1,0 +1,50 @@
+// An actor whose `new` fails again during a restart ends, and a watcher that asked for it is
+// told `stopped` (not `restarted`).
+//
+// Worked out: the first run of `new` is fine; `boom` fails (first expect-failure); the restart
+// re-runs `new`, which fails because `restart_count()` is 1 (second expect-failure) and the actor
+// ends. The watcher prints 200 once, and never 100.
+// expect-failure: first bug at watch_stopped_new_fails.rook:27
+// expect-failure: new failed at watch_stopped_new_fails.rook:22
+// expect: 200
+
+import actors: restart_count, run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+actor Fragile {
+    new() {
+        if restart_count() == 1 {
+            panic("new failed")
+        }
+    }
+
+    pub lossy on boom() {
+        panic("first bug")
+    }
+}
+
+actor Watcher: Lifecycle {
+    new(fragile: Fragile) {
+        watch(fragile, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        print_u64(100)
+    }
+
+    lossy on stopped() {
+        print_u64(200)
+    }
+}
+
+fn test_main() {
+    fragile: Fragile = spawn Fragile()
+    watcher: Watcher = spawn Watcher(fragile)
+    fragile.boom()
+    run_until_idle()
+}

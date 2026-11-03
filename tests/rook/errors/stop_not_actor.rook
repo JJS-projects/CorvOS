@@ -1,0 +1,10 @@
+// `stop` takes an actor reference.
+// error: 8:14: `stop` takes an actor reference, not u64
+
+actor Worker {
+    new() { }
+
+    pub lossy on go() {
+        stop(1)
+    }
+}

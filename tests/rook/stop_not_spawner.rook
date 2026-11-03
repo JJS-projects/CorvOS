@@ -1,0 +1,40 @@
+// Only the actor that spawned an actor can stop it. From anyone else `stop(ref)` is a failure
+// like any bug: the caller's handler is abandoned and it restarts. The target carries on.
+//
+// Worked out: `test_main` spawned both. The intruder's `meddle` calls stop(victim): not its
+// to stop, so it fails (expect-failure, site in Raven's mailbox code). The victim still
+// answers: `ask` prints 1.
+// expect-failure: only the actor that spawned an actor can stop it at mailbox.rook:*
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Victim {
+    new() { }
+
+    pub lossy on ask() {
+        print_u64(1)
+    }
+}
+
+actor Intruder {
+    victim: Victim
+
+    new(victim: Victim) {
+        .victim = victim
+    }
+
+    pub lossy on meddle() {
+        stop(.victim)
+    }
+}
+
+fn test_main() {
+    victim: Victim = spawn Victim()
+    intruder: Intruder = spawn Intruder(victim)
+    intruder.meddle()
+    run_until_idle()
+    victim.ask()
+    run_until_idle()
+}

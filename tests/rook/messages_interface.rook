@@ -42,6 +42,7 @@ fn report(result: Sent) {
     match result {
         Delivered => print_bool(true)
         MailboxFull => print_bool(false)
+        Gone => print_bool(false)
     }
 }
 

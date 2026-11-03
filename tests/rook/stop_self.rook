@@ -1,0 +1,56 @@
+// `stop()` ends the actor it is in: the handler is abandoned where it stands (the print
+// after it never runs), nothing is reported as a failure, and the actor is not restarted.
+// A `reliable` send to an ended actor answers `Gone` (not `MailboxFull`: waiting never
+// helps), a `lossy` one is dropped and counted, and what was waiting in its mailbox is lost.
+//
+// Worked out: `run` and `more` are queued (Delivered, Delivered: 1, 1). Running: `run` prints
+// 7 and calls stop(); `more` was waiting and is lost (1 lost). Now `more` answers Gone (3).
+// A lossy `ping` is dropped (1 dropped). No restart happened (0).
+// expect: 1
+// expect: 1
+// expect: 7
+// expect: 3
+// expect: 1
+// expect: 1
+// expect: 0
+
+import actors: Sent, dropped_messages, lost_messages, restart_count, run_until_idle
+import print: print_u64
+
+actor Job {
+    new() { }
+
+    pub reliable on run(n: u64) {
+        print_u64(n)
+        stop()
+        print_u64(999)
+    }
+
+    pub reliable on more() {
+        print_u64(5)
+    }
+
+    pub lossy on ping() {
+        print_u64(6)
+    }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(2)
+        Gone => print_u64(3)
+    }
+}
+
+fn test_main() {
+    job: Job = spawn Job()
+    report(job.run(7))
+    report(job.more())
+    run_until_idle()
+    report(job.more())
+    job.ping()
+    print_u64(lost_messages())
+    print_u64(dropped_messages())
+    print_u64(restart_count())
+}

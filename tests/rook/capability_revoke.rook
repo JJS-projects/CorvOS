@@ -20,6 +20,7 @@ fn test_main(peripherals: Mmio) {
     match narrow(valve, Revoke).revoke() {      // reliable: a full mailbox would be reported
         Delivered => { }
         MailboxFull => panic("the revocation was lost")
+        Gone => panic("the revocation was lost")
     }
     run_until_idle()
     shell.greet()
