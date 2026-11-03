@@ -9,7 +9,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
   `bootstrap/fledgling/`), actors and Raven (`raven/`, trusted parts in `raven/trusted/`),
   ownership, imports, the capability demo.
 - Milestone 7 (supervision) is in progress: step 7a (a failed handler restarts its
-  actor, decision 148) and 7b (`watch`/`restarted`, decision 149) are done, and 7c (`stop`/`Gone`/`stopped`, decision 150). Next: 7d a supervisor actor
+  actor, decision 148) and 7b (`watch`/`restarted`, decision 149) are done, and 7c (`stop`/`Gone`/`stopped`, decision 150). 7d (a supervisor written in Rook, `tests/rook/supervisor_demo.rook`, `docs/fault-tolerance.md`, decision 151) are done. Next: the rest of milestone 7 (drivers as actors) or milestone 5/6; ask the owner
   Ownership 4c (`freeze`/pool) is deferred.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
@@ -155,5 +155,6 @@ fn test_main() {
 | Security argument, what an untrusted actor can reach | [capabilities.md](capabilities.md) |
 | Why a choice was made | [principles.md](principles.md) |
 | Board assumptions, first boot | [hardware.md](hardware.md) |
+| Failure, restarts, supervisors | [fault-tolerance.md](fault-tolerance.md) |
 | Next steps | [roadmap.md](roadmap.md) |
 | Full workflow and test details | [workflow.md](workflow.md) |

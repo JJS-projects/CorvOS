@@ -297,8 +297,8 @@ How failure and ending look to other actors (decisions 117 to 120):
   automatically: counting every reference would add a hidden cost to every send
   (principle 8), make freeing unpredictable (principle 9), and needs a cycle-handling
   protocol in the kernel (principle 7).
-- A supervisor is an ordinary actor built from these pieces. How its restart policy
-  is written is decided at milestone 7.
+- A supervisor is an ordinary actor built from these pieces; its restart policy is ordinary
+  Rook code (decision 151). See [fault-tolerance.md](fault-tolerance.md).
 
 ## 8. Prior art
 
@@ -342,8 +342,9 @@ How failure and ending look to other actors (decisions 117 to 120):
 - **The form of the stop authority** that `spawn` gives its caller (decision 119), and
   whether stopping an actor stops the actors it spawned. Decide at milestone 6 or 7,
   when a program first needs an actor per request.
-- **How a supervisor's restart policy is written** (retry limits, what to restart
-  together). Decide at milestone 7.
+- **Richer supervisor policies** (a restart window in time, restarting siblings together): a
+  supervisor is written in Rook (decision 151); a library that helps needs generics or a
+  way to name a child's type, and a clock the policy can read. Open.
 - **Visible cost of cross-domain sends** (principle 8): a send to an actor in
   another domain copies the message, while an identical-looking send within a
   domain doesn't. Should the difference show in the code? A send to another core is a
