@@ -10,3 +10,7 @@ pub extern fn print_bool(b: bool)
 /// Spins with known values in registers while the UART's interrupt is taken, and says
 /// whether the interrupt code gave them back (kernel/test/print.s).
 pub extern fn probe_irq_registers() -> bool
+
+/// Runs a handler under Raven's protection that clobbers x19-x28 and fails, and says whether
+/// the abandoned call gave those registers back (kernel/test/print.s).
+pub extern fn probe_protected_registers() -> bool

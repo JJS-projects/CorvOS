@@ -861,6 +861,24 @@ def check_public_surface():
     return "the public surface of Raven changed (tests/public-surface.txt): " + "; ".join(lines)
 
 
+def check_failure_expectations():
+    """A test that expects contained failures fails if the program's failures differ: other
+    text, one missing, or one extra."""
+    path = os.path.join(ROOT, "tests", "rook", "restart_basic.rook")
+    wrong = {
+        "other failure text": ["something else at restart_basic.rook:41"],
+        "a missing failure": [],
+        "an extra failure": ["it blew up at restart_basic.rook:41"] * 2,
+    }
+    for what, failures in wrong.items():
+        test = RookTest.from_file(path)
+        test.machines = [MACHINES[0]]
+        test.expect_failures = failures
+        if test.run()[0]:
+            return f"passed with {what}"
+    return None
+
+
 def check_line_counts():
     """A test that expects a line written exactly N times fails when it was written more or
     fewer times (the revocation demo checks the line is NOT written again)."""
@@ -934,6 +952,8 @@ HARNESS_TESTS = [
                 check_suggest_imports),
     HarnessTest("harness/public_surface", "The names application code can reach in Raven "
                 "are the ones listed, and a new one is looked at first", check_public_surface),
+    HarnessTest("harness/failure_expectations", "A test that expects contained failures fails "
+                "when the failures differ", check_failure_expectations),
     HarnessTest("harness/line_count", "A test that expects a line a number of times fails when "
                 "it was written another number of times", check_line_counts),
     HarnessTest("harness/import_ambiguous", "Two files of one name can't be imported",
