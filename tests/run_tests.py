@@ -66,6 +66,7 @@ Usage: python3 tests/run_tests.py [-v] [name-or-prefix ...]   (-v or VERBOSE=1: 
        e.g. `rook/` runs only the Rook program tests.
 """
 
+import concurrent.futures
 import dataclasses
 import glob
 import os
@@ -405,6 +406,18 @@ FEED_AFTER = "Raven: running Rook test"
 PANIC = "Raven: panic: "
 
 
+def panic_matches(want, got, own_file):
+    """Does the panic line `got` fit the expected `want`?  Exact, except that a site in one of
+    Raven's own files may end in `:*` (`out of memory at mailbox.rook:*`): those lines move
+    whenever raven/trusted changes. The test's own file (`own_file`) keeps its exact line."""
+    if not want.endswith(":*"):
+        return want == got
+    head, _, file = want[:-2].rpartition(" at ")
+    if file == own_file:
+        return False
+    return re.fullmatch(re.escape(head + " at " + file) + r":\d+", got) is not None
+
+
 @dataclass
 class RookTest:
     name: str
@@ -462,6 +475,10 @@ class RookTest:
                    qemu_log, fault, machines, input=typed, expect_echo=echo,
                    line_counts=counts, expect_failures=failures)
 
+    def own_file(self):
+        """The test's own source file name, as a panic line names it."""
+        return self.name.rsplit("/", 1)[-1] + ".rook"
+
     def run(self):
         return on_each_machine(self, self.run_on, self.machines)
 
@@ -494,7 +511,8 @@ class RookTest:
         panics = [l[len(PANIC):] for l in lines if l.startswith(PANIC)]
 
         if self.expect_failures:
-            if panics != self.expect_failures:
+            if len(panics) != len(self.expect_failures) or not all(
+                    panic_matches(w, g, self.own_file()) for w, g in zip(self.expect_failures, panics)):
                 return False, f"expected the failures {self.expect_failures!r}, got {panics!r}", output
         elif len(panics) > 1:
             return False, f"more than one panic: {panics[1]!r}", output
@@ -512,7 +530,7 @@ class RookTest:
         if self.expect_panic is not None:
             if not panics:
                 return False, f"expected a panic ({self.expect_panic!r}), but none happened", output
-            if panics[0] != self.expect_panic:
+            if not panic_matches(self.expect_panic, panics[0], self.own_file()):
                 return False, f"expected panic {self.expect_panic!r}, got {panics[0]!r}", output
         elif self.expect_echo:
             if panics:
@@ -985,7 +1003,38 @@ def check_decisions_index():
     return None if result.returncode == 0 else result.stderr.strip()
 
 
+def check_panic_wildcard():
+    """`at FILE.rook:*` matches any line in one of Raven's files, but never the wrong message or
+    file, and never the test's own file, which keeps its exact line."""
+    cases = [
+        ("boom at devices.rook:*", "boom at devices.rook:58", "t.rook", True),
+        ("boom at devices.rook:*", "boom at devices.rook:7", "t.rook", True),
+        ("boom at devices.rook:*", "bang at devices.rook:58", "t.rook", False),
+        ("boom at devices.rook:*", "boom at actors.rook:58", "t.rook", False),
+        ("boom at devices.rook:*", "boom at devices.rook:", "t.rook", False),
+        ("boom at t.rook:*", "boom at t.rook:5", "t.rook", False),
+        ("boom at t.rook:5", "boom at t.rook:5", "t.rook", True),
+        ("boom at t.rook:5", "boom at t.rook:6", "t.rook", False),
+    ]
+    for want, got, own, expected in cases:
+        if panic_matches(want, got, own) != expected:
+            return f"panic_matches({want!r}, {got!r}, {own!r}) should be {expected}"
+    path = os.path.join(ROOT, "tests", "rook", "mmio_outside.rook")
+    for what, panic, expected in (
+            ("the right site", "register outside Mmio at devices.rook:*", True),
+            ("another file", "register outside Mmio at actors.rook:*", False),
+            ("the test's own file", "register outside Mmio at mmio_outside.rook:*", False)):
+        test = RookTest.from_file(path)
+        test.machines = [MACHINES[0]]
+        test.expect_panic = panic
+        if test.run()[0] != expected:
+            return f"a wildcard for {what} should {'pass' if expected else 'fail'}"
+    return None
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
+                "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",
                 check_decisions_index),
     HarnessTest("harness/quiet_output", "A run shows failures in full and a summary; -v lists "
@@ -1038,10 +1087,14 @@ def all_tests():
 
 def main(argv):
     tests = all_tests()
-    global VERBOSE
+    global VERBOSE, DEFAULT_JOBS
     if "-v" in argv:
         argv = [a for a in argv if a != "-v"]
         VERBOSE = True
+    if "-j" in argv:
+        at = argv.index("-j")
+        os.environ["JOBS"] = argv[at + 1]
+        argv = argv[:at] + argv[at + 2:]
     if argv:
         selected = [t for t in tests if any(t.name == a or t.name.startswith(a) for a in argv)]
         if not selected:
@@ -1068,28 +1121,64 @@ def runnable_on_board(tests):
 # Quiet by default (a passing run is a summary, not 500 lines); -v or VERBOSE=1
 # prints a line per test. A failure always prints in full.
 VERBOSE = bool(os.environ.get("VERBOSE"))
+# More jobs than cores is faster: a QEMU boot mostly waits. 3 x 8 runs of the suite passed.
+DEFAULT_JOBS = min(8, 2 * (os.cpu_count() or 1))
 
 
-def run_all(selected):
+def run_one(test):
+    """Run one test: (passed, reason, output, seconds). A crash fails this test only."""
+    start = time.monotonic()
+    try:
+        result = test.run()
+    except Exception:
+        # A crash inside the compiler fails this test only; the rest of
+        # the suite still runs.
+        result = (False, "compiler crashed", traceback.format_exc())
+    return result[0], result[1], (result[2] if len(result) > 2 else ""), time.monotonic() - start
+
+
+def run_parallel_group(tests, jobs):
+    """Results for `tests` in order, running up to `jobs` at once.
+
+    Only Rook program tests run side by side: each is one QEMU boot on prebuilt images
+    with its own log file. Boot and harness tests measure timing or CPU use, error tests
+    are instant, so those run one at a time, before the parallel group. Error tests only compile, in processes."""
+    parallel = [t for t in tests if isinstance(t, RookTest)]
+    errors = [t for t in tests if isinstance(t, ErrorTest)]
+    results = {}
+    for test in tests:
+        if test not in parallel and test not in errors:
+            results[test.name] = run_one(test)
+    if jobs > 1 and len(errors) > 1:
+        # Compiling is CPU-bound Python, so these need processes, not threads.
+        with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as pool:
+            for test, result in zip(errors, pool.map(run_one, errors, chunksize=16)):
+                results[test.name] = result
+    else:
+        for test in errors:
+            results[test.name] = run_one(test)
+    if jobs > 1 and len(parallel) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+            for test, result in zip(parallel, pool.map(run_one, parallel)):
+                results[test.name] = result
+    else:
+        for test in parallel:
+            results[test.name] = run_one(test)
+    return [results[t.name] for t in tests]
+
+
+def run_all(selected, jobs=None):
     """Run `selected` tests and return the exit status.
 
     Prints only failures and a summary (with the slowest tests), or one line per
-    test with -v / VERBOSE=1."""
+    test with -v / VERBOSE=1. Rook program tests run `jobs` at a time (default JOBS
+    or DEFAULT_JOBS; -j N); everything is reported in the order of `selected`."""
     os.makedirs(LOG_DIR, exist_ok=True)
+    jobs = jobs or int(os.environ.get("JOBS", DEFAULT_JOBS))
     failures = 0
     times = []
     width = max(len(t.name) for t in selected)
-    for test in selected:
-        start = time.monotonic()
-        try:
-            result = test.run()
-        except Exception:
-            # A crash inside the compiler fails this test only; the rest of
-            # the suite still runs.
-            result = (False, "compiler crashed", traceback.format_exc())
-        passed, reason = result[0], result[1]
-        output = result[2] if len(result) > 2 else ""
-        elapsed = time.monotonic() - start
+    for test, (passed, reason, output, elapsed) in zip(selected, run_parallel_group(selected, jobs)):
         times.append((elapsed, test.name))
         if VERBOSE or not passed:
             print(f"{'PASS' if passed else 'FAIL'}  {test.name:<{width}}  {elapsed:4.1f}s  {test.description}")
