@@ -1,5 +1,7 @@
 # Rook language
 
+In a hurry: the cheat sheet in [QUICKSTART.md](QUICKSTART.md#rook-cheat-sheet), then §1 and §2 below.
+
 Status: agreed starting point, October 2026, with the style settled in detail
 (decisions 35–63 in [decisions.md](decisions.md)), and checked against the
 [design principles](principles.md). Expect small tweaks as real
