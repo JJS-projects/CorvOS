@@ -45,6 +45,7 @@ from .rtypes import (BOOL, UNIT, U8, U64, INT_TYPES, NAMED_TYPES, ActorType, Enu
 MESSAGE_PARAMS = 4          # a handler takes at most 4 parameters
 MESSAGE_WORDS = 8           # and a message carries at most 8 words (decision 135)
 NEW_PARAMS = 7
+NEW_WORDS = 16              # words of `new` arguments Raven keeps to restart an actor
 
 # Built-in functions (decision 77: built-ins that produce a value are calls with
 # reserved names). Loads and stores touch raw memory, so they are only allowed
@@ -421,6 +422,10 @@ class Checker:
         if len(params) > limit:
             raise CompileError(
                 f"{what} takes at most {limit} parameters for now", decl.pos)
+        if what == "`new`" and sum(words(ty) for ty, _ in params) > NEW_WORDS:
+            raise CompileError(
+                f"`new` would take {sum(words(ty) for ty, _ in params)} words of arguments, and "
+                f"Raven keeps at most {NEW_WORDS} for a restart", decl.pos)
         if what != "`new`":
             carried = sum(words(ty) for ty, _ in params)
             if carried > MESSAGE_WORDS:
@@ -1039,7 +1044,8 @@ class Checker:
             self.check_args(f"`spawn {e.name}`", sig.params if sig else [], e.args, e.pos,
                             sig=sig)
             e.actor, e.sig = actor, sig
-            e.temp = self.alloc(1)
+            e.args_words = sum(words(ty) for ty, _ in sig.params) if sig else 0
+            e.args_slot = self.alloc(max(1, e.args_words))
             return actor
 
         if isinstance(e, S.MatchExpr):

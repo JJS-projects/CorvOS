@@ -16,6 +16,67 @@ call_dispatch:
     mov     x2, x3
     br      x16
 
+// u64 call_protected(dispatcher, actor, handler, payload)
+//
+// Calls a handler (or an actor's start stub) so that a failure inside it, a panic or an
+// overrun of the time budget, can abandon it: `actor_failed` below jumps back here as if
+// the call had returned, with 1 in x0 (0 if it returned normally). Registers the caller
+// keeps (x19-x28, x29, sp) are saved in the arena (offset 1728) and put back. One
+// protected call at a time (handlers run to completion, decision 121), and the flag at
+// offset 1088 says whether one is running.
+    .global call_protected
+call_protected:
+    stp     x29, x30, [sp, #-16]!
+    mov     x29, sp
+    adrp    x9, actor_arena
+    add     x9, x9, :lo12:actor_arena
+    add     x10, x9, #1728
+    stp     x19, x20, [x10, #0]
+    stp     x21, x22, [x10, #16]
+    stp     x23, x24, [x10, #32]
+    stp     x25, x26, [x10, #48]
+    stp     x27, x28, [x10, #64]
+    str     x29, [x10, #80]             // sp as it is now (x29 was set from it)
+    mov     x11, #1
+    str     x11, [x9, #1088]            // a protected call is running
+    mov     x16, x0                     // the dispatcher's address
+    mov     x0, x1
+    mov     x1, x2
+    mov     x2, x3
+    blr     x16
+    mov     x0, #0                      // it returned
+protected_exit:
+    adrp    x9, actor_arena
+    add     x9, x9, :lo12:actor_arena
+    str     xzr, [x9, #1088]
+    ldp     x29, x30, [sp], #16
+    ret
+
+// void actor_failed(void): never returns to its caller. If a protected call is running,
+// abandons it: unmasks IRQs (it may be called from the budget interrupt), puts back the
+// registers and the stack that call_protected saved, and returns 1 from it. Otherwise
+// (a panic outside any handler, in kernel_main or a test program) halts the core as a
+// panic always did.
+    .global actor_failed
+actor_failed:
+    adrp    x9, actor_arena
+    add     x9, x9, :lo12:actor_arena
+    ldr     x11, [x9, #1088]
+    cbz     x11, 1f
+    msr     daifclr, #2
+    add     x10, x9, #1728
+    ldp     x19, x20, [x10, #0]
+    ldp     x21, x22, [x10, #16]
+    ldp     x23, x24, [x10, #32]
+    ldp     x25, x26, [x10, #48]
+    ldp     x27, x28, [x10, #64]
+    ldr     x29, [x10, #80]
+    mov     sp, x29
+    mov     x0, #1
+    b       protected_exit
+1:  wfe
+    b       1b
+
 // u64 handler_table_start(void), u64 handler_table_end(void): the table Fledgling
 // writes of every handler (see Gen.handler_table), to name one that overran.
     .global handler_table_start

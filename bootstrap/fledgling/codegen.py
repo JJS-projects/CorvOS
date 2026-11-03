@@ -97,6 +97,7 @@ class Gen:
                 for handler in item.handlers:
                     self.function(handler)
                 self.dispatcher(item)
+                self.start_stub(item)
         self.handler_table()
         self.lines.append("")
         self.lines.append("    .section .rodata")
@@ -136,14 +137,38 @@ class Gen:
             self.strings[data] = f".Lbytes_{len(self.strings)}"
         return self.strings[data]
 
+    def start_stub(self, actor):
+        """`Name__Start(self, unused, args)` (capital S: a handler is snake_case, so it can never have this name): Raven calls this to run `new` on the arguments
+        it kept at the spawn, the first time and on every restart. Numbers and references
+        are loaded from their words, structs and enums passed as the address of theirs."""
+        symbol = f"{actor.name}__Start"
+        self.lines.append("")
+        self.lines.append(f"// start stub for actor {actor.name} (line {actor.pos.line})")
+        self.emit(f".global {symbol}")
+        self.emit(".balign 4")
+        self.label(symbol)
+        if actor.new is None:
+            self.emit("ret")
+            return
+        self.emit("mov x17, x2")
+        at = 0
+        for i, param in enumerate(actor.new.params):
+            if is_aggregate(param.ty):
+                self.emit(f"add x{i + 1}, x17, #{8 * at}")
+                at += param.ty.words
+            else:
+                self.emit(f"ldr x{i + 1}, [x17, #{8 * at}]")
+                at += 1
+        self.emit(f"b {actor.new.symbol}")
+
     def dispatcher(self, actor):
-        """`Name__dispatch(self, handler, payload)`: Raven's scheduler calls this with a
+        """`Name__Dispatch(self, handler, payload)`: Raven's scheduler calls this with a
         message taken from the mailbox, its payload words copied to `payload`. It
         jumps to the handler whose number the message carries, with `self` in x0 and
         the arguments from x1: a number or reference is loaded from its payload word,
         a struct or enum is passed as the address of its words in the payload (as a
         lent struct is)."""
-        symbol = f"{actor.name}__dispatch"
+        symbol = f"{actor.name}__Dispatch"
         self.lines.append("")
         self.lines.append(f"// dispatcher for actor {actor.name} (line {actor.pos.line})")
         self.emit(f".global {symbol}")
@@ -637,21 +662,27 @@ class Gen:
                   e.args, e.ty, e.temp)
 
     def spawn(self, e):
-        """Raven makes room for the actor (`raven_spawn_actor(fields, dispatcher)`
-        gives its reference), then `new` runs on it. The reference is the value."""
+        """`raven_spawn_actor(fields, dispatcher, start, args, args_words)`: the arguments of
+        `new` are laid out as words in the spawner's frame (a struct or enum copied in);
+        Raven makes room for the actor (or, in a restart, reuses the place of the one this
+        spawn made before), keeps a copy of the arguments so the actor can be restarted,
+        runs the actor's start stub (which runs `new`) and gives back the reference."""
+        at = 0
+        for arg in e.args:
+            self.expr(arg)
+            n = words(arg.ty)
+            self.region_addr(e.args_slot, e.args_words - at, "x1")
+            if is_aggregate(arg.ty):
+                self.copy_words(n)
+            else:
+                self.emit("str x0, [x1]")
+            at += n
         self.emit(f"mov x0, #{e.actor.words}")
-        self.emit(f"adr x1, {e.actor.name}__dispatch")
+        self.emit(f"adr x1, {e.actor.name}__Dispatch")
+        self.emit(f"adr x2, {e.actor.name}__Start")
+        self.region_addr(e.args_slot, e.args_words, "x3")
+        self.emit(f"mov x4, #{e.args_words}")
         self.emit("bl raven_spawn_actor")
-        self.store_slot(e.temp)
-        if e.sig is not None:
-            for arg in e.args:
-                self.expr(arg)
-                self.push()
-            for i in reversed(range(len(e.args))):
-                self.pop(f"x{i + 1}")
-            self.load_slot(e.temp)                  # x0: the new actor, `new`'s self
-            self.emit(f"bl {e.actor.name}__new")
-        self.load_slot(e.temp)
 
     def send(self, e):
         """`raven_send(target, handler number, payload, words)`: the arguments are laid
