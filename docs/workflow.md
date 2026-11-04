@@ -50,7 +50,7 @@ to try it yourself, there are three ways, from easiest:
 
 ## Tests
 
-`make test` builds everything and runs `tests/run_tests.py`, which has four kinds
+`make test` builds everything and runs `tests/run_tests.py`, which has five kinds
 of test:
 
 | Kind | Where | What it checks |
@@ -58,6 +58,7 @@ of test:
 | `boot/...` | `BOOT_TESTS` in `tests/run_tests.py` | The kernel boots in QEMU; expected UART lines appear in order, forbidden ones never do. |
 | `rook/...` | `tests/rook/*.rook` | A Rook program, compiled and booted in QEMU, prints exactly the `// expect:` lines in its header (and panics with the `// expect-panic:` message, if given). |
 | `error/...` | `tests/rook/errors/*.rook` | The compiler rejects the program with the `// error: LINE:COL: message` given in its header. |
+| `hosted/...` | `tests/hosted/PROGRAM/CASE.in` and `.out` | A self-hosted compiler program (`compiler/PROGRAM.rook`) is fed the input on the UART and must write exactly the output (see [self-hosting.md](self-hosting.md)). |
 | `harness/...` | `HARNESS_TESTS` in `tests/run_tests.py` | The harness and build themselves: things a Rook program can't check, such as that changing the Makefile rebuilds everything. |
 
 - `boot/` and `rook/` tests run on two QEMU machines: `raspi3b` (1 GB) and

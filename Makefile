@@ -81,6 +81,9 @@ $(BUILD)/$(1)/%.elf: $(BUILD)/$(1)/%.o $(ROOKTEST_KERNEL_OBJS) kernel/link.ld
 endef
 $(eval $(call ROOK_IMAGE_RULES,rook-tests,tests/rook/%.rook))
 $(eval $(call ROOK_IMAGE_RULES,difftest,$(BUILD)/difftest/%.rook))
+# The self-hosted compiler's programs (milestone 5), each run hosted: see docs/self-hosting.md.
+$(eval $(call ROOK_IMAGE_RULES,compiler,compiler/%.rook))
+COMPILER_IMGS := $(patsubst compiler/%.rook,$(BUILD)/compiler/%.img,$(wildcard compiler/*.rook))
 
 $(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS) Makefile
 	@mkdir -p $(dir $@)
@@ -103,14 +106,14 @@ $(BUILD)/fault/kernel8.elf: $(FAULT_OBJS) kernel/link.ld
 run: $(KERNEL)
 	tools/run-qemu $(KERNEL)
 
-test: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS)
+test: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
 	$(PYTHON) tests/run_tests.py
 
 # A faster loop: only the tests named in T (names or prefixes), default every Rook
 # program and error test; skips the boot and harness tests (about 20 s of one-at-a-time
 # work). `make quick T=rook/restart` while working, `make test` before a push.
 T ?= rook/ error/
-quick: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS)
+quick: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
 	$(PYTHON) tests/run_tests.py $(T)
 
 # Differential testing: random integer arithmetic, checked against a model
