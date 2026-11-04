@@ -3,7 +3,9 @@
 //
 // Worked out: "hello" + '!' + 1234 + 0 makes "hello!12340", 11 bytes: byte 0 is 'h' (104), byte 5 is '!'
 // (33), byte 6 is '1' (49), byte 10 is '0' (48). `equals` a text built differently as "hello!12340": 1;
-// a text "hello!12341": 0; a text "hello!1234" (a prefix, shorter): 0. `same_as("hello!12340")`: 1; `same_as("hello")`: 0. The FNV-1a hashes
+// a text "hello!12341": 0; a text "hello!1234" (a prefix, shorter): 0, and the prefix
+// `equals` the longer text: 0 too. `same_as("hello!12340")`: 1; `same_as("hello!12341")` (same length, last byte
+// different): 0; `same_as("hello")`: 0. The FNV-1a hashes
 // are the published test vectors: "" is 2166136261, "a" is 3826002220 and "foobar" is 3214735720. The
 // largest u64, 18446744073709551615, written in decimal has 20 digits: the length printed is 20. `clear`
 // leaves length 0, and the text is usable again ("42" has length 2).
@@ -15,7 +17,9 @@
 // expect: 1
 // expect: 0
 // expect: 0
+// expect: 0
 // expect: 1
+// expect: 0
 // expect: 0
 // expect: 2166136261
 // expect: 3826002220
@@ -54,7 +58,9 @@ fn test_main(peripherals: Mmio) {
     mut prefix: Text = Text(region: region)
     prefix.append("hello!1234")
     print_u64(flag(t.equals(prefix)))
+    print_u64(flag(prefix.equals(t)))
     print_u64(flag(t.same_as("hello!12340")))
+    print_u64(flag(t.same_as("hello!12341")))
     print_u64(flag(t.same_as("hello")))
     mut empty: Text = Text(region: region)
     print_u64(empty.hash() as u64)
