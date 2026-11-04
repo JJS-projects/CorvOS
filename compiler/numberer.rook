@@ -1,0 +1,40 @@
+// Stage 0 of the self-hosted compiler (docs/self-hosting.md): not a compiler yet, only the way
+// one talks to the world. A hosted program reads its input from the UART up to the byte 4 (end of
+// input), and writes its result between the lines `Hosted: begin` and `Hosted: end`. This one
+// numbers the lines of its input: `1: first line`, `2: second line`.
+
+import devices: Mmio
+import pl011: Pl011
+
+END_OF_INPUT: u8 = 4
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    console.write("Hosted: begin\n")
+    mut line: u64 = 1
+    mut at_start: bool = true
+    mut last: u8 = '\n'
+    reading: loop {
+        if console.has_byte() {
+            b: u8 = console.take()
+            if b == END_OF_INPUT {
+                break reading
+            }
+            if at_start {
+                console.write_dec(line)
+                console.write(": ")
+                at_start = false
+            }
+            console.put(b)
+            last = b
+            if b == '\n' {
+                line += 1
+                at_start = true
+            }
+        }
+    }
+    if last != '\n' {
+        console.put('\n')               // the output always ends in a newline
+    }
+    console.write("Hosted: end\n")
+}

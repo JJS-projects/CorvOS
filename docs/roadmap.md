@@ -121,6 +121,8 @@ cannot reach the UART.
 
 ## 5. Self-hosting
 
+*Plan and stages: [self-hosting.md](self-hosting.md). Step 5a (the hosted runner and test kind) is built.*
+
 - Write the real compiler in Rook, in `compiler/`.
 - It compiles itself; retire Fledgling (kept for history).
 

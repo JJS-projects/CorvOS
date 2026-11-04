@@ -607,6 +607,65 @@ class ErrorTest:
 
 
 # ---------------------------------------------------------------------------
+# hosted/...: a compiler program run on its input (docs/self-hosting.md)
+
+HOSTED_BEGIN = "Hosted: begin"
+HOSTED_END = "Hosted: end"
+END_OF_INPUT = b"\x04"
+
+
+@dataclass
+class HostedTest:
+    """A program of the self-hosted compiler (compiler/PROGRAM.rook) booted in QEMU and given
+    the contents of tests/hosted/PROGRAM/NAME.in on the UART, ended by the byte 4. It writes its
+    result between the lines `Hosted: begin` and `Hosted: end`, and that must be exactly
+    NAME.out. The input is text without the bytes 2, 3 or 4, and the output ends in a newline."""
+    name: str
+    description: str
+    image: str
+    input_path: str
+    expected_path: str
+    timeout: float = 30.0
+
+    @classmethod
+    def from_file(cls, in_path):
+        program = os.path.basename(os.path.dirname(in_path))
+        case = os.path.splitext(os.path.basename(in_path))[0]
+        base = os.path.splitext(in_path)[0]
+        return cls(f"hosted/{program}/{case}", f"{program} on {case}.in",
+                   f"build/compiler/{program}.img", in_path, base + ".out")
+
+    def run(self):
+        return on_each_machine(self, self.run_on)
+
+    def run_on(self, machine):
+        image = os.path.join(ROOT, self.image)
+        if board_mode():
+            return True, "skipped: hosted programs are not run on a board", ""
+        if not os.path.exists(image):
+            return False, missing_image(image)
+        data = open(self.input_path, "rb").read() + END_OF_INPUT
+        output, timed_out, qemu_log = boot(
+            image, lambda lines: HOSTED_END in lines, self.timeout, machine,
+            log_base(self.name, machine) + ".qemu", [(data, "")])
+        save_log(self.name, machine, output, qemu_log)
+        problem = check_qemu_log(qemu_log, [])
+        if problem:
+            return False, problem, output
+        lines = complete_lines(output)
+        if HOSTED_BEGIN not in lines or HOSTED_END not in lines:
+            return False, f"no `{HOSTED_BEGIN}` ... `{HOSTED_END}` output" + (
+                " before the timeout" if timed_out else ""), output
+        got = lines[lines.index(HOSTED_BEGIN) + 1:lines.index(HOSTED_END)]
+        want = open(self.expected_path).read().splitlines()
+        if got != want:
+            for i, (g, w) in enumerate(zip(got + [None] * len(want), want + [None] * len(got))):
+                if g != w:
+                    return False, f"output line {i + 1}: expected {w!r}, got {g!r}", output
+        return True, "ok", output
+
+
+# ---------------------------------------------------------------------------
 # harness/...: checks of the harness and the build
 
 @dataclass
@@ -1136,7 +1195,29 @@ def check_batch_and_body_tools():
     return None
 
 
+def check_hosted_expectations():
+    """A hosted test fails when the output differs, when the program never writes the
+    `Hosted:` lines, and when it takes too long."""
+    test = HostedTest.from_file(os.path.join(ROOT, "tests", "hosted", "numberer", "basic.in"))
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        wrong = os.path.join(tmp, "wrong.out")
+        for what, text in (("a different line", "1: first line\n2: SECOND line\n3: \n4: fourth after a blank\n"),
+                           ("a missing line", "1: first line\n2: second line\n3: \n"),
+                           ("an extra line", "1: first line\n2: second line\n3: \n4: fourth after a blank\n5: x\n")):
+            open(wrong, "w").write(text)
+            bad = dataclasses.replace(test, expected_path=wrong)
+            if bad.run_on(MACHINES[0])[0]:
+                return f"passed with {what}"
+    silent = dataclasses.replace(test, image="build/rook-tests/actors_basic.img", timeout=2.0)
+    if silent.run_on(MACHINES[0])[0]:
+        return "passed for a program that wrote no `Hosted:` output"
+    return None
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
+                "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "
                 "time", check_parallel_run),
     HarnessTest("harness/make_quick", "make quick runs the tests named in T, or every Rook and "
@@ -1194,6 +1275,8 @@ def all_tests():
     for pattern in ("*.rook", "trusted/*.rook"):
         for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "errors", pattern))):
             tests.append(ErrorTest.from_file(path))
+    for path in sorted(glob.glob(os.path.join(ROOT, "tests", "hosted", "*", "*.in"))):
+        tests.append(HostedTest.from_file(path))
     return tests
 
 
@@ -1257,7 +1340,7 @@ def run_parallel_group(tests, jobs):
     Boot and harness tests measure timing or CPU use, so they run one at a time, first."""
     kinds = {"rook": [], "error": [], "alone": []}
     for i, test in enumerate(tests):
-        kind = "rook" if isinstance(test, RookTest) else "error" if isinstance(test, ErrorTest) else "alone"
+        kind = "rook" if isinstance(test, (RookTest, HostedTest)) else "error" if isinstance(test, ErrorTest) else "alone"
         kinds[kind].append((i, test))
     results = [None] * len(tests)
     for i, test in kinds["alone"]:

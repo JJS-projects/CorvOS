@@ -11,7 +11,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 - Milestone 7 (supervision): restarts (7a, decision 148), `watch` (7b, 149), `stop`/`Gone`/`stopped`
   (7c, 150) and a supervisor written in Rook (7d, 151; `tests/rook/supervisor_demo.rook`,
   `docs/fault-tolerance.md`) are done. Drivers as actors and the DMA question remain, and
-  milestones 5 (self-hosting) and 6 (domains) are next; ask the owner which. Ownership 4c
+  milestone 5 (self-hosting) is in progress, step 5a done (hosted runner, `compiler/numberer.rook`); then 6 (domains). Ownership 4c
   (`freeze`/pool) is deferred.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
@@ -46,6 +46,9 @@ Long commands go in the background. `make test` once per change, not per edit.
   `// error: LINE:COL: message`. Compile the program first, **read** the message and
   caret, then write the line. `// alone` compiles without Raven.
 - `tests/rook/trusted/` and `tests/rook/errors/trusted/`: tests that may use `unsafe`.
+- `hosted/PROGRAM/CASE` = `tests/hosted/PROGRAM/CASE.in` fed to `compiler/PROGRAM.rook` on the UART
+  (ended by byte 4); its output between `Hosted: begin`/`Hosted: end` must equal `CASE.out`
+  ([self-hosting.md](self-hosting.md)).
 - `boot/` and `harness/` tests are Python in `run_tests.py`.
 - A panic expectation `at file.rook:N` is an exact line for the test's own file. For a
   panic inside Raven's files write `at mailbox.rook:*` (any line; the message stays exact).
@@ -157,6 +160,7 @@ fn test_main() {
 | Security argument, what an untrusted actor can reach | [capabilities.md](capabilities.md) |
 | Why a choice was made | [principles.md](principles.md) |
 | Board assumptions, first boot | [hardware.md](hardware.md) |
+| The self-hosted compiler (milestone 5) | [self-hosting.md](self-hosting.md) |
 | Failure, restarts, supervisors | [fault-tolerance.md](fault-tolerance.md) |
 | Next steps | [roadmap.md](roadmap.md) |
 | Full workflow and test details | [workflow.md](workflow.md) |
