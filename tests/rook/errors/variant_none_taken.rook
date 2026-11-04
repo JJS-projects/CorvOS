@@ -1,0 +1,7 @@
+// None is a variant of the library Option, so a program cannot use the name for its own.
+// error: 6:5: `None` is already a variant of `Option`
+
+enum Answer {
+    Yes
+    None
+}

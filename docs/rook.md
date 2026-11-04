@@ -1173,6 +1173,16 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   size in words of the value's type, the argument is only looked at for its type). They are how a generic
   container stores a `T` whose size it cannot write down.
 
+### 11.22 The library `Option` and `Result`, `Text`, and a lexer rule (step 5c)
+
+- `Option<T>` and `Result<T, E>` are in `raven/option.rook` (`import option: Option, Result`). `Some`,
+  `None`, `Ok` and `Err` are therefore taken: a program cannot define a variant or a type of those names
+  (the compiler says so).
+- `Text` (`raven/text.rook`) is a byte string that grows; see self-hosting.md.
+- **A line may end with the `>` that closes type arguments** (`pair: Pair<u64, bool>`). A `>` at the end of a
+  line otherwise continues the statement, as an operator does. The lexer counts a `<` as opening type
+  arguments only after a CamelCase name that is not all capitals, so `FLOOR < x` is a comparison.
+
 ## 12. Open questions
 
 - **Namespacing**: names are unique across a whole program, so a larger piece of software

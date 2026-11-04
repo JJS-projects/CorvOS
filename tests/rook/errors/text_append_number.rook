@@ -1,0 +1,12 @@
+// Text.append takes quoted text, not a number.
+// error: 11:14: expected Bytes, found u64
+
+import devices: Mmio
+import region: Region, make_region
+import text: Text
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut t: Text = Text(region: region)
+    t.append(5)
+}

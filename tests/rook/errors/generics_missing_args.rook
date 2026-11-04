@@ -1,9 +1,9 @@
 // A generic type is written with its type arguments.
-// error: 18:9: `Option` needs type arguments: write `Option<T>` with the types
+// error: 18:9: `Choice` needs type arguments: write `Choice<T>` with the types
 
-enum Option<T> {
-    Some(value: T)
-    None
+enum Choice<T> {
+    Pick(value: T)
+    Nada
 }
 
 struct Pair<A, B> {
@@ -15,5 +15,5 @@ struct Local {
     n: u64
 }
 
-fn f(o: Option) {
+fn f(o: Choice) {
 }

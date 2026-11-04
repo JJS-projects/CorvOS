@@ -1,0 +1,15 @@
+// The two enums nearly every program wants: a value that may be missing, and a result that may be
+// an error. They are ordinary generic enums (decision 154), so `x: Option<u64> = Some(value: 3)`
+// and `r: Result<u64, Failure> = Err(error: Failure(...))`; the type comes from the place the value
+// goes to. Their variants are global names like any variant: `Some`, `None`, `Ok` and `Err` belong
+// to these two and a program cannot define variants of the same names.
+
+pub enum Option<T> {
+    Some(value: T)
+    None
+}
+
+pub enum Result<T, E> {
+    Ok(value: T)
+    Err(error: E)
+}

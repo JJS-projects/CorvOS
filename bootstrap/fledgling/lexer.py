@@ -86,6 +86,8 @@ def lex(source, file=None):
     tokens = []
     i, line, col = 0, 1, 1
     brackets = []  # open brackets; newlines are ignored when the innermost is ( or [
+    angles = 0     # `<` opened after a type name on this line and not yet closed (generics.py)
+    type_close = set()   # indexes of the `>` tokens that close a list of type arguments
 
     def emit(kind, text, value, pos):
         tokens.append(Token(kind, text, value, pos))
@@ -97,8 +99,10 @@ def lex(source, file=None):
         if c == "\n":
             prev = tokens[-1].kind if tokens else "newline"
             inside = brackets and brackets[-1] in "(["
-            if not inside and prev != "newline" and prev not in CONTINUES:
+            closes_types = bool(tokens) and len(tokens) - 1 in type_close
+            if not inside and prev != "newline" and (prev not in CONTINUES or closes_types):
                 emit("newline", "\\n", None, pos)
+            angles = 0
             i, line, col = i + 1, line + 1, 1
             continue
         if c in " \r":
@@ -197,6 +201,12 @@ def lex(source, file=None):
                     brackets.append(p)
                 elif p in (")", "]", "}") and brackets:
                     brackets.pop()
+                if p == "<" and tokens and tokens[-1].kind == "ident" and \
+                        tokens[-1].text[0].isupper() and not tokens[-1].text.isupper():
+                    angles += 1             # after a type name (CamelCase): type arguments follow
+                elif p == ">" and angles:
+                    angles -= 1
+                    type_close.add(len(tokens))
                 emit(p, p, None, pos)
                 i += len(p)
                 col += len(p)

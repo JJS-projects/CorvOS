@@ -1,0 +1,6 @@
+// Option is the library type, so a program cannot define a type of that name.
+// error: 4:1: `Option` is already defined
+
+struct Option {
+    a: u64
+}

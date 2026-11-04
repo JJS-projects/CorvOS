@@ -490,6 +490,11 @@ class Checker:
         if name in self.variants:
             raise CompileError(
                 f"`{name}` is already a variant of `{self.variants[name].enum}`", pos)
+        if name in self.generic_variants:
+            raise CompileError(
+                f"`{name}` is already a variant of `{self.generic_variants[name]}`", pos)
+        if name in self.generic_types:
+            raise CompileError(f"`{name}` is already defined", pos)
         if (name in self.fns or name in self.consts or name in self.structs
                 or name in self.enums or name in self.actors or name in self.interfaces):
             raise CompileError(f"`{name}` is already defined", pos)

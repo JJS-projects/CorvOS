@@ -96,7 +96,7 @@ interface Add {
 }
 
 enum Reply {
-    Ok(value: u64)
+    Go(value: u64)
     Failed
 }
 
@@ -120,12 +120,13 @@ fn report(result: Sent) {
     match result {
         Delivered => print_u64(1)
         MailboxFull => panic("full")
+        Gone => panic("full")
     }
 }
 
 fn unwrap(r: Reply) -> u64 {
     match r {
-        Ok(value: v) => return v
+        Go(value: v) => return v
         Failed => return 0
     }
 }
@@ -136,7 +137,7 @@ fn test_main() {
     report(adder.add(1))
     discard adder.add(2)
     c.show()
-    print_u64(unwrap(Ok(value: 7)))
+    print_u64(unwrap(Go(value: 7)))
     run_until_idle()
 }
 ```
@@ -149,6 +150,7 @@ fn test_main() {
 - Text is `"..."` (`Bytes`). `panic("msg")` ends the handler (the actor restarts, 148).
 - Messages carry `val`, `iso` and small structs/enums (up to 8 words copied).
 - Failure and restarts: rook.md §4.3 and §11.16.
+- `Option<T>`/`Result<T, E>` (`import option: Option, Result`; variants `Some`, `None`, `Ok`, `Err` are taken) and `Text` (`import text: Text`; `t: Text = Text(region: region)`, `push`, `append("..")`, `append_dec`, `equals`, `hash`).
 - `List<T>` (`import region: List, Region, make_region`): `l: List<u64> = List(region: region)`, `push`, `get`, `set`, `pop`, `len`, `clear` (§11.21).
 - A struct can declare `new(...)` like an actor and is then built only as `Name(arg: value, ...)` (§11.20).
 - Generics (structs and enums only): `enum Option<T> { Some(value: T)  None }`, used as `x: Option<u64> = Some(value: 3)`; the type comes from the place the value goes to, never from the arguments (§11.19).

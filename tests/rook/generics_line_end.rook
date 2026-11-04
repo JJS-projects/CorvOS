@@ -1,0 +1,35 @@
+// A line may end with the `>` that closes a list of type arguments, and a comparison still
+// continues on the next line when it ends with `>`.
+//
+// Worked out: the struct has fields whose types end the line with `>`; `holder.pair.first` is 3 and
+// `holder.pair.second` true. The sum 3 + 4 is 7, which is `>` 5 (the comparison, written over two lines),
+// so it prints 1. A constant in capitals before a `<` is a comparison, not a type: `FLOOR < 4 and 4 >`
+// over two lines is true (FLOOR is 2 and 4 > 3), so it prints 1.
+// expect: 3
+// expect: 1
+// expect: 1
+
+import print: print_u64
+
+FLOOR: u64 = 2
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+struct Holder {
+    pair: Pair<u64, bool>
+    count: u64
+}
+
+fn test_main() {
+    holder: Holder = Holder(pair: Pair(first: 3, second: true), count: 4)
+    print_u64(holder.pair.first)
+    big: bool = holder.pair.first + holder.count >
+        5
+    print_u64(if big { 1 } else { 0 })
+    low: bool = FLOOR < holder.count and holder.count >
+        3
+    print_u64(if low { 1 } else { 0 })
+}

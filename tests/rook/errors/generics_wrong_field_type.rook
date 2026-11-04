@@ -1,9 +1,9 @@
-// The field of an instance has the type argument written: Option<u64> holds a u64.
+// The field of an instance has the type argument written: Choice<u64> holds a u64.
 // error: 19:34: expected u64, found bool
 
-enum Option<T> {
-    Some(value: T)
-    None
+enum Choice<T> {
+    Pick(value: T)
+    Nada
 }
 
 struct Pair<A, B> {
@@ -16,5 +16,5 @@ struct Local {
 }
 
 fn f() {
-    o: Option<u64> = Some(value: true)
+    o: Choice<u64> = Pick(value: true)
 }
