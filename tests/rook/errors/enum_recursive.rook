@@ -1,7 +1,7 @@
 // An enum can't contain itself by value.
-// error: 4:1: `List` contains itself, so it would have no fixed size
+// error: 4:1: `Chain` contains itself, so it would have no fixed size
 
-enum List {
+enum Chain {
     Empty
-    Node(value: u64, next: List)
+    Node(value: u64, next: Chain)
 }

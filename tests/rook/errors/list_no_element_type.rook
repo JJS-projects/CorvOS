@@ -1,0 +1,13 @@
+// A List needs the type of its elements, from the place it goes to.
+// error: 9:11: `List` is generic: say which type this is by writing the type where the value goes, as in `x: List<...> = ...`
+
+import devices: Mmio
+import region: List, Region, make_region
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    match List(region: region).len() {
+        0 => { }
+        else => { }
+    }
+}

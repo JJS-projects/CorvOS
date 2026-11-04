@@ -1160,6 +1160,19 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   value goes to (11.19): `s: SupportStack<Local> = SupportStack(first: Local(n: 4))`.
 - `new` is not a method: `value.new(...)` is an error. Enums have no `new`. (Owner's choice, decision 155.)
 
+### 11.21 `Region` as a handle, `List<T>`, and the element builtins (step 5c)
+
+- **`Region` is a handle** on the one pool: the address of the next free byte is kept in the actor arena
+  (offset 1816), not in the value, so a `Region` can be copied (`copy(region)`) and held by a struct. `make_region`
+  still works once, and only from the whole peripherals.
+- **`List<T>`** is a generic struct in `raven/trusted/region.rook` with a `new(region: Region)`; its
+  methods are `len`, `get` (a copy), `set`, `push`, `pop`, `clear`, and an index outside the list panics.
+  Room comes from the region on the first `push`, 4 elements, then doubling; the old room is not given back.
+- **Trusted-only builtins** (inside `unsafe` in a trusted file, like `load64`): `store_element(base, index, value)`,
+  `value = load_element(base, index)` (the type is that of the place it goes to) and `words_of(value)` (the
+  size in words of the value's type, the argument is only looked at for its type). They are how a generic
+  container stores a `T` whose size it cannot write down.
+
 ## 12. Open questions
 
 - **Namespacing**: names are unique across a whole program, so a larger piece of software

@@ -1,0 +1,8 @@
+// load_element needs the type of the place it goes to.
+// error: 6:17: `load_element` loads whatever type the place it goes to has: write `x: Type = load_element(...)`
+
+fn f(base: u64) {
+    unsafe {
+        discard load_element(base, 0)
+    }
+}

@@ -1,0 +1,17 @@
+// `pop` from an empty list is refused; after `clear` too.
+//
+// Worked out: one value pushed and popped (prints 5); a second pop of the now empty list panics.
+// expect: 5
+// expect-panic: pop from an empty List at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: List, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut l: List<u64> = List(region: region)
+    l.push(5)
+    print_u64(l.pop())
+    print_u64(l.pop())
+}

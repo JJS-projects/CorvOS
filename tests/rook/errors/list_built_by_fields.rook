@@ -1,0 +1,10 @@
+// A List is built through its new, with a Region, not field by field.
+// error: 9:25: `new` of `List` has no parameter `count`
+
+import devices: Mmio
+import region: List, Region, make_region
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    l: List<u64> = List(count: 0)
+}

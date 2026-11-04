@@ -1,0 +1,8 @@
+// words_of only looks at the type of a variable or field.
+// error: 6:18: `words_of` takes one argument: a variable or a field, only for its type
+
+fn f(n: u64) {
+    unsafe {
+        k: u64 = words_of(n + 1)
+    }
+}

@@ -1,0 +1,8 @@
+// store_element takes an address, an index and a value.
+// error: 6:9: `store_element` takes three arguments: an address, an index and the value
+
+fn f(base: u64) {
+    unsafe {
+        store_element(base, 0)
+    }
+}

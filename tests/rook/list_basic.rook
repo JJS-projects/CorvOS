@@ -1,0 +1,49 @@
+// A growable list of numbers: `push`, `get`, `set`, `pop`, `len` and `clear`, across the growth
+// from 4 to 8 to 16 slots.
+//
+// Worked out: ten values 1, 4, 9, ..., 100 (the squares) are pushed, so the length is 10 and the
+// list grew twice (4 -> 8 -> 16). `get(0)` is 1, `get(9)` is 100, `get(4)` is 25. `set(4, 7)` makes
+// `get(4)` 7. `pop` gives 100 and leaves length 9. The sum of all nine remaining values is
+// 1 + 4 + 9 + 16 + 7 + 36 + 49 + 64 + 81 = 267. `clear` leaves length 0.
+// The room taken from the region is 4 + 8 + 16 = 28 slots of 8 bytes = 224 bytes (the growth doubles), so
+// 67108864 - 224 = 67108640 bytes are left.
+// expect: 10
+// expect: 1
+// expect: 100
+// expect: 25
+// expect: 7
+// expect: 100
+// expect: 9
+// expect: 267
+// expect: 0
+// expect: 67108640
+
+import devices: Mmio
+import print: print_u64
+import region: List, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut squares: List<u64> = List(region: region)
+    mut n: u64 = 1
+    pushing: loop n <= 10 {
+        squares.push(n * n)
+        n += 1
+    }
+    print_u64(squares.len())
+    print_u64(squares.get(0))
+    print_u64(squares.get(9))
+    print_u64(squares.get(4))
+    squares.set(4, 7)
+    print_u64(squares.get(4))
+    print_u64(squares.pop())
+    print_u64(squares.len())
+    mut sum: u64 = 0
+    adding: loop i: u64 in 0..squares.len() {
+        sum += squares.get(i)
+    }
+    print_u64(sum)
+    squares.clear()
+    print_u64(squares.len())
+    print_u64(region.left())
+}

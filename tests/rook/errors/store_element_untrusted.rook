@@ -1,0 +1,6 @@
+// store_element is for Raven's trusted code only.
+// error: 5:5: `store_element` touches memory the compiler can't check, so it is only allowed in files under a trusted directory, inside `unsafe { }`
+
+fn f(base: u64) {
+    store_element(base, 0, 5)
+}

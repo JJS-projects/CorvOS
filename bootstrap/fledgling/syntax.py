@@ -84,6 +84,7 @@ class Call(Expr):
         self.temp = None        # set by checker: frame slot for a struct result
         self.number = None      # set by checker: `handler_number("name")`'s value
         self.stopped = 0        # set by checker for `watch`: the number of `stopped`, plus one
+        self.words = 1          # set by checker for store_element/load_element: the value's size
 
 
 @dataclass

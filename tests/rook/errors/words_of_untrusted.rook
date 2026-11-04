@@ -1,0 +1,6 @@
+// words_of is for Raven's trusted code only.
+// error: 5:12: `words_of` touches memory the compiler can't check, so it is only allowed in files under a trusted directory, inside `unsafe { }`
+
+fn f(n: u64) -> u64 {
+    return words_of(n)
+}

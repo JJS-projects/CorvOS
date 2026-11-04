@@ -14,9 +14,11 @@ import devices: Mmio
 REGION_BASE: u64 = 0x4000000
 REGION_SIZE: u64 = 0x4000000
 
-/// The word of the actor arena (zero at boot; offset 56 is unused by mailbox.rook's tables)
-/// that says the one `Region` has been made.
-REGION_TAKEN: u64 = 56
+/// The word of the actor arena (zero at boot; offset 1816 is unused by mailbox.rook's tables
+/// and actors.s) that holds the address of the next free byte of the region: 0 until the one
+/// `Region` has been made. The `Region` value is only a handle on it, so it can be copied and
+/// held (by a `List`, which grows itself) without two copies handing out the same memory.
+REGION_NEXT: u64 = 1816
 
 /// A run of zeroed bytes from a `Region`. The fields are private to this file, so a `Block`
 /// can only come from a `Region` and no code can point one at other memory.
@@ -74,31 +76,34 @@ pub struct Block {
 } Block
 
 /// The memory a batch job allocates from. There is one, made by `make_region` from the whole
-/// of the peripherals; `block` takes the next piece and nothing is ever given back.
+/// of the peripherals; `block` takes the next piece and nothing is ever given back. A `Region`
+/// is a handle on the one pool (the free address is kept in the arena, not in the value), so a
+/// copy of it allocates from the same place.
 pub struct Region {
-    next: u64
-    limit: u64
+    next_at: u64        // where the address of the next free byte is kept
 
     /// A new zeroed block of `bytes` bytes (the space is rounded up to whole words, but the
     /// block's length is `bytes`). Panics if the region has not got room.
-    pub mut fn block(bytes: u64) -> Block {
-        if bytes > .limit - .next {
-            panic("the region is full")
-        }
-        rt_space: u64 = (bytes + 7) / 8 * 8      // no overflow: bytes fits, and `limit - next` is a multiple of 8
-        rt_start: u64 = .next
+    pub fn block(bytes: u64) -> Block {
         unsafe {
+            rt_start: u64 = load64(.next_at)
+            if bytes > REGION_BASE + REGION_SIZE - rt_start {
+                panic("the region is full")
+            }
+            rt_space: u64 = (bytes + 7) / 8 * 8      // no overflow: bytes fits, and what is left is a multiple of 8
             clearing: loop rt_at: u64 in 0..rt_space / 8 {
                 store64(rt_start + rt_at * 8, 0)
             }
+            store64(.next_at, rt_start + rt_space)
+            return Block(address: rt_start, length: bytes)
         }
-        .next = .next + rt_space
-        return Block(address: rt_start, length: bytes)
     }
 
     /// How many bytes are left.
     pub fn left() -> u64 {
-        return .limit - .next
+        unsafe {
+            return REGION_BASE + REGION_SIZE - load64(.next_at)
+        }
     }
 } Region
 
@@ -109,11 +114,88 @@ pub fn make_region(peripherals: Mmio) -> Region {
         panic("a Region is made from the whole peripherals")
     }
     unsafe {
-        rt_taken: u64 = actor_arena_base() + REGION_TAKEN
-        if load64(rt_taken) != 0 {
+        rt_next_at: u64 = actor_arena_base() + REGION_NEXT
+        if load64(rt_next_at) != 0 {
             panic("the Region has been made already")
         }
-        store64(rt_taken, 1)
+        store64(rt_next_at, REGION_BASE)
+        return Region(next_at: rt_next_at)
     }
-    return Region(next: REGION_BASE, limit: REGION_BASE + REGION_SIZE)
 }
+
+/// A growable list of `T`, in the region. It starts empty, takes room on the first `push` and
+/// doubles when full (the old room is not given back: a job runs once and ends). `get` and `set`
+/// check the index. Values are stored by copy, a struct or enum as its words. Its fields are
+/// private, so only this file can reach the storage.
+pub struct List<T> {
+    region: Region
+    block: Block
+    count: u64
+    capacity: u64
+
+    new(region: Region) {
+        .region = copy(region)
+        .block = region.block(0)
+        .count = 0
+        .capacity = 0
+    }
+
+    /// How many values it holds.
+    pub fn len() -> u64 {
+        return .count
+    }
+
+    /// The value at `index`. Panics if `index` is outside.
+    pub fn get(index: u64) -> T {
+        if index >= .count {
+            panic("index outside List")
+        }
+        unsafe {
+            return load_element(.block.address, index)
+        }
+    }
+
+    /// Replaces the value at `index`. Panics if `index` is outside.
+    pub mut fn set(index: u64, item: T) {
+        if index >= .count {
+            panic("index outside List")
+        }
+        unsafe {
+            store_element(.block.address, index, item)
+        }
+    }
+
+    /// Adds `item` at the end.
+    pub mut fn push(item: T) {
+        unsafe {
+            if .count == .capacity {
+                rt_capacity: u64 = if .capacity == 0 { 4 } else { .capacity * 2 }
+                rt_fresh: Block = .region.block(rt_capacity * words_of(item) * 8)
+                moving: loop rt_at: u64 in 0..(.count) {
+                    rt_moved: T = load_element(.block.address, rt_at)
+                    store_element(rt_fresh.address, rt_at, rt_moved)
+                }
+                .block = copy(rt_fresh)
+                .capacity = rt_capacity
+            }
+            store_element(.block.address, .count, item)
+            .count = .count + 1
+        }
+    }
+
+    /// Removes and returns the last value. Panics if the list is empty.
+    pub mut fn pop() -> T {
+        if .count == 0 {
+            panic("pop from an empty List")
+        }
+        .count = .count - 1
+        unsafe {
+            return load_element(.block.address, .count)
+        }
+    }
+
+    /// Empties it (the room is kept).
+    pub mut fn clear() {
+        .count = 0
+    }
+} List
