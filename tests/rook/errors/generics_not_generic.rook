@@ -1,12 +1,12 @@
 // A type that is not generic takes no type arguments.
 // error: 18:9: `Local` is not generic, so it takes no type arguments
 
-enum Option<T> {
-    Some(value: T)
-    None
+enum Choice<T> {
+    Pick(value: T)
+    Nada
 }
 
-struct Pair<A, B> {
+struct Twain<A, B> {
     first: A
     second: B
 }

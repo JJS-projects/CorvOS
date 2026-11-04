@@ -1,12 +1,12 @@
 // A generic value needs to know which type it is: the place it goes to says so.
-// error: 19:11: `Option` is generic: say which type this is by writing the type where the value goes, as in `x: Option<...> = ...`
+// error: 19:11: `Choice` is generic: say which type this is by writing the type where the value goes, as in `x: Choice<...> = ...`
 
-enum Option<T> {
-    Some(value: T)
-    None
+enum Choice<T> {
+    Pick(value: T)
+    Nada
 }
 
-struct Pair<A, B> {
+struct Twain<A, B> {
     first: A
     second: B
 }
@@ -16,8 +16,8 @@ struct Local {
 }
 
 fn f() {
-    match Some(value: 3) {
-        Some(value: v) => { }
-        None => { }
+    match Pick(value: 3) {
+        Pick(value: v) => { }
+        Nada => { }
     }
 }

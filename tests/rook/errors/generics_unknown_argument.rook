@@ -1,10 +1,10 @@
 // A type argument must be a known type.
 // error: 9:16: unknown type `Nope`
 
-enum Option<T> {
-    Some(value: T)
-    None
+enum Choice<T> {
+    Pick(value: T)
+    Nada
 }
 
-fn f(o: Option<Nope>) {
+fn f(o: Choice<Nope>) {
 }

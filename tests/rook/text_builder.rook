@@ -1,0 +1,80 @@
+// `Text` grows a byte at a time: `push`, `append` (quoted text), `append_text`, `append_dec`; reads
+// with `at` and `len`; compares with `equals` and `same_as`; `hash` is FNV-1a (32 bits).
+//
+// Worked out: "hello" + '!' + 1234 + 0 makes "hello!12340", 11 bytes: byte 0 is 'h' (104), byte 5 is '!'
+// (33), byte 6 is '1' (49), byte 10 is '0' (48). `equals` a text built differently as "hello!12340": 1;
+// a text "hello!12341": 0; a text "hello!1234" (a prefix, shorter): 0, and the prefix
+// `equals` the longer text: 0 too. `same_as("hello!12340")`: 1; `same_as("hello!12341")` (same length, last byte
+// different): 0; `same_as("hello")`: 0. The FNV-1a hashes
+// are the published test vectors: "" is 2166136261, "a" is 3826002220 and "foobar" is 3214735720. The
+// largest u64, 18446744073709551615, written in decimal has 20 digits: the length printed is 20. `clear`
+// leaves length 0, and the text is usable again ("42" has length 2).
+// expect: 11
+// expect: 104
+// expect: 33
+// expect: 49
+// expect: 48
+// expect: 1
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 1
+// expect: 0
+// expect: 0
+// expect: 2166136261
+// expect: 3826002220
+// expect: 3214735720
+// expect: 20
+// expect: 0
+// expect: 2
+
+import devices: Mmio
+import print: print_u64
+import region: Region, make_region
+import text: Text
+
+fn flag(b: bool) -> u64 {
+    return if b { 1 } else { 0 }
+}
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut t: Text = Text(region: region)
+    t.append("hello")
+    t.push('!')
+    t.append_dec(1234)
+    t.append_dec(0)
+    print_u64(t.len())
+    print_u64(t.at(0) as u64)
+    print_u64(t.at(5) as u64)
+    print_u64(t.at(6) as u64)
+    print_u64(t.at(10) as u64)
+    mut same: Text = Text(region: region)
+    same.append_text(t)
+    print_u64(flag(t.equals(same)))
+    mut other: Text = Text(region: region)
+    other.append("hello!12341")
+    print_u64(flag(t.equals(other)))
+    mut prefix: Text = Text(region: region)
+    prefix.append("hello!1234")
+    print_u64(flag(t.equals(prefix)))
+    print_u64(flag(prefix.equals(t)))
+    print_u64(flag(t.same_as("hello!12340")))
+    print_u64(flag(t.same_as("hello!12341")))
+    print_u64(flag(t.same_as("hello")))
+    mut empty: Text = Text(region: region)
+    print_u64(empty.hash() as u64)
+    mut a: Text = Text(region: region)
+    a.push('a')
+    print_u64(a.hash() as u64)
+    mut foobar: Text = Text(region: region)
+    foobar.append("foobar")
+    print_u64(foobar.hash() as u64)
+    mut big: Text = Text(region: region)
+    big.append_dec(18446744073709551615)
+    print_u64(big.len())
+    t.clear()
+    print_u64(t.len())
+    t.append_dec(42)
+    print_u64(t.len())
+}

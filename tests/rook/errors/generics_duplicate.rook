@@ -1,11 +1,11 @@
 // Two generic types cannot have the same name.
-// error: 9:1: `Pair` is already defined
+// error: 9:1: `Twain` is already defined
 
-struct Pair<A, B> {
+struct Twain<A, B> {
     first: A
     second: B
 }
 
-enum Pair<T> {
+enum Twain<T> {
     One(value: T)
 }

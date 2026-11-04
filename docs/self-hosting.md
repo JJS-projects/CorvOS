@@ -40,6 +40,15 @@ the same pool (decision 156), and a `List` can hold one and grow itself.
 `push` and doubles when full; indexes are checked; a struct or enum is stored word by word, and `get`
 returns a copy. Built on three trusted-only builtins (`store_element`, `load_element`, `words_of`).
 
+## Option, Result and Text (step 5c, decision 157)
+
+`raven/option.rook` has the library `Option<T>` (`Some(value: v)`, `None`) and `Result<T, E>`
+(`Ok(value: v)`, `Err(error: e)`), written like any generic enum; their variant names belong to them, as
+variant names are global. `raven/text.rook` has `Text`, a byte string that grows (`push`, `append` of quoted
+text, `append_text`, `append_dec`, `at`, `len`, `equals`, `same_as`, `hash`, `clear`), written in ordinary
+Rook on `List<u8>` (a byte takes a slot of 8 bytes: wasteful, with no unsafe code). The name table the
+compiler needs will be keyed by `Text`, not by any type: that needs no hashing in the language.
+
 ## Stages
 
 | Step | What | Test |

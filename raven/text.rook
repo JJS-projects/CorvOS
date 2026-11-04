@@ -1,0 +1,99 @@
+// Text that grows: a run of bytes built up a piece at a time, as the compiler builds a name, a
+// line of assembly or a whole file. `Text` is written in ordinary Rook on top of `List<u8>`; each
+// byte takes a list slot (8 bytes), which is wasteful but needs no unsafe code. Quoted text in a
+// program is a `Bytes`, which cannot grow; `append` copies one into a `Text`.
+
+import bytes: Bytes
+import region: List, Region
+
+pub struct Text {
+    bytes: List<u8>
+
+    new(region: Region) {
+        .bytes = List(region: region)
+    }
+
+    /// How many bytes it holds.
+    pub fn len() -> u64 {
+        return .bytes.len()
+    }
+
+    /// The byte at `index`. Panics if `index` is outside.
+    pub fn at(index: u64) -> u8 {
+        return .bytes.get(index)
+    }
+
+    /// Adds one byte at the end.
+    pub mut fn push(b: u8) {
+        .bytes.push(b)
+    }
+
+    /// Adds the bytes of quoted text.
+    pub mut fn append(text: Bytes) {
+        adding: loop rt_i: u64 in 0..text.len() {
+            .bytes.push(text.at(rt_i))
+        }
+    }
+
+    /// Adds the bytes of another `Text`.
+    pub mut fn append_text(other: Text) {
+        adding: loop rt_i: u64 in 0..other.len() {
+            .bytes.push(other.at(rt_i))
+        }
+    }
+
+    /// Adds `n` written in decimal, with no leading zeros.
+    pub mut fn append_dec(n: u64) {
+        mut rt_divisor: u64 = 1
+        scaling: loop n / rt_divisor >= 10 {
+            rt_divisor = rt_divisor * 10
+        }
+        mut rt_rest: u64 = n
+        writing: loop rt_divisor > 0 {
+            .bytes.push('0' + ((rt_rest / rt_divisor) wrap u8))
+            rt_rest = rt_rest % rt_divisor
+            rt_divisor = rt_divisor / 10
+        }
+    }
+
+    /// Empties it (the room is kept).
+    pub mut fn clear() {
+        .bytes.clear()
+    }
+
+    /// Do both hold the same bytes?
+    pub fn equals(other: Text) -> bool {
+        if .len() != other.len() {
+            return false
+        }
+        comparing: loop rt_i: u64 in 0..(.len()) {
+            if .at(rt_i) != other.at(rt_i) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Does it hold the bytes of quoted text?
+    pub fn same_as(text: Bytes) -> bool {
+        if .len() != text.len() {
+            return false
+        }
+        comparing: loop rt_i: u64 in 0..(.len()) {
+            if .at(rt_i) != text.at(rt_i) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// A number made from the bytes (32-bit FNV-1a): equal texts have equal hashes.
+    pub fn hash() -> u32 {
+        mut rt_h: u32 = 2166136261
+        hashing: loop rt_i: u64 in 0..(.len()) {
+            rt_mixed: u64 = ((rt_h as u64) xor (.at(rt_i) as u64)) * 16777619
+            rt_h = rt_mixed wrap u32
+        }
+        return rt_h
+    }
+} Text

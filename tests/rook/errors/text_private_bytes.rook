@@ -1,0 +1,12 @@
+// The bytes of a Text are private to its file.
+// error: 11:16: `bytes` is private to text.rook; mark the field `pub` to use it in another file
+
+import devices: Mmio
+import region: Region, make_region
+import text: Text
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    t: Text = Text(region: region)
+    n: u64 = t.bytes.len()
+}

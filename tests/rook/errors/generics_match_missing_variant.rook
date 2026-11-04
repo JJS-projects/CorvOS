@@ -1,14 +1,14 @@
 // A match on an instance lists every variant, as for any enum.
-// error: 11:5: this `match` is missing `None`
+// error: 11:5: this `match` is missing `Nada`
 
-enum Option<T> {
-    Some(value: T)
-    None
+enum Choice<T> {
+    Pick(value: T)
+    Nada
 }
 
 fn f() {
-    o: Option<u64> = Some(value: 1)
+    o: Choice<u64> = Pick(value: 1)
     match o {
-        Some(value: v) => { }
+        Pick(value: v) => { }
     }
 }

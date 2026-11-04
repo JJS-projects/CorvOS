@@ -1,6 +1,6 @@
 // The cheat sheet in docs/QUICKSTART.md must stay legal Rook: this is that sample.
 // Worked out: sends only queue; handlers run in `run_until_idle`. The reliable send into
-// an empty mailbox is Delivered, so `report` prints 1 at once; `unwrap(Ok(value: 7))`
+// an empty mailbox is Delivered, so `report` prints 1 at once; `unwrap(Go(value: 7))`
 // prints 7 at once; then the queue runs add(1), add(2), show on a counter that starts at
 // 10, and prints 13.
 // expect: 1
@@ -15,7 +15,7 @@ interface Add {
 }
 
 enum Reply {
-    Ok(value: u64)
+    Go(value: u64)
     Failed
 }
 
@@ -45,7 +45,7 @@ fn report(result: Sent) {
 
 fn unwrap(r: Reply) -> u64 {
     match r {
-        Ok(value: v) => return v
+        Go(value: v) => return v
         Failed => return 0
     }
 }
@@ -56,6 +56,6 @@ fn test_main() {
     report(adder.add(1))
     discard adder.add(2)
     c.show()
-    print_u64(unwrap(Ok(value: 7)))
+    print_u64(unwrap(Go(value: 7)))
     run_until_idle()
 }

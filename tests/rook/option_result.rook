@@ -1,0 +1,64 @@
+// The library's `Option<T>` and `Result<T, E>`, imported like any type: `Some`, `None`, `Ok` and
+// `Err` come with them.
+//
+// Worked out: `half(10)` is Ok(5) and `half(7)` is Err(1) (odd): the match prints 5, then the error
+// code 1. `find(3)` in a 5-long table of squares (0, 1, 4, 9, 16) is None for 3 and Some(2) for 4,
+// printing 100 for the missing and 2 for the found. An `Option<Pair>` holds a struct: Some(Pair(6, 7))
+// gives 6 + 7 = 13.
+// expect: 5
+// expect: 1
+// expect: 100
+// expect: 2
+// expect: 13
+
+import option: Option, Result
+import print: print_u64
+
+struct Pair {
+    a: u64
+    b: u64
+}
+
+fn half(n: u64) -> Result<u64, u64> {
+    if n % 2 == 1 {
+        return Err(error: 1)
+    }
+    return Ok(value: n / 2)
+}
+
+fn find(square: u64) -> Option<u64> {
+    mut i: u64 = 0
+    looking: loop i < 5 {
+        if i * i == square {
+            return Some(value: i)
+        }
+        i += 1
+    }
+    return None
+}
+
+fn show(r: Result<u64, u64>) {
+    match r {
+        Ok(value: v) => print_u64(v)
+        Err(error: e) => print_u64(e)
+    }
+}
+
+fn show_found(o: Option<u64>) {
+    match o {
+        Some(value: v) => print_u64(v)
+        None => print_u64(100)
+    }
+}
+
+fn test_main() {
+    show(half(10))
+    show(half(7))
+    show_found(find(3))
+    show_found(find(4))
+    pair: Option<Pair> = Some(value: Pair(a: 6, b: 7))
+    match pair {
+        Some(value: p) => print_u64(p.a + p.b)
+        None => print_u64(0)
+    }
+}
