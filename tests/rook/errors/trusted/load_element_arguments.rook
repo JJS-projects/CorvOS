@@ -1,0 +1,8 @@
+// load_element takes an address and an index.
+// error: 6:18: `load_element` takes two arguments: an address and an index
+
+fn f(base: u64) {
+    unsafe {
+        k: u64 = load_element(base)
+    }
+}
