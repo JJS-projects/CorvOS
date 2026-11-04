@@ -1,0 +1,9 @@
+// A type argument is a plain type: mut goes before a name, not inside <>.
+// error: 8:13: `mut` goes before the name, as in `mut count: u64 = 0`
+
+struct Box<T> {
+    value: T
+}
+
+fn f(b: Box<mut u64>) {
+}

@@ -120,6 +120,8 @@ class Checker:
         self.structs = {}        # name -> StructType
         self.enums = {}          # name -> EnumType
         self.variants = {}       # variant name -> Variant (names are unique across enums)
+        self.generic_variants = {}   # variant of a generic enum -> that enum's name (generics.py)
+        self.generic_types = {}      # generic struct or enum name -> its template
         self.receiver = None     # (AggregateType, mutating) inside a method
         self.locked = {}         # variable -> a `match` binding lent from it
         self.const_decls = {}    # name -> ConstDecl
@@ -141,7 +143,7 @@ class Checker:
     def register_imports(self, prog):
         """Work out which names each file imports, and check each import line."""
         exports, modules, public, trusted = {}, {}, set(), set()
-        for item in prog.items:
+        for item in list(prog.items) + list(prog.generics.values()):
             modules.setdefault(module_name(item.file), set()).add(item.file)
             if item.trusted:
                 trusted.add(item.file)
@@ -154,8 +156,8 @@ class Checker:
             if isinstance(item, (S.FnDecl, S.StructDecl, S.EnumDecl, S.ActorDecl,
                                  S.InterfaceDecl, S.ConstDecl)):
                 exports.setdefault(item.file, {})[item.name] = item
-        variants = {vd.name for item in prog.items if isinstance(item, S.EnumDecl)
-                    for vd in item.variants}
+        variants = {vd.name for item in list(prog.items) + list(prog.generics.values())
+                    if isinstance(item, S.EnumDecl) for vd in item.variants}
         for item in prog.items:
             if not isinstance(item, S.Import):
                 continue
@@ -190,11 +192,23 @@ class Checker:
 
     def program(self, prog):
         self.register_imports(prog)
+        # Generic templates: only their names are known here; each instance is a type of its own.
+        for tpl in prog.generics.values():
+            require_camel(tpl.name, "type", tpl.pos)
+            self.declare_unique(tpl.name, tpl.pos)
+            self.generic_types[tpl.name] = tpl
+            if isinstance(tpl, S.EnumDecl):
+                for vd in tpl.variants:
+                    require_camel(vd.name, "variant", vd.pos)
+                    self.declare_unique(vd.name, vd.pos)
+                    self.generic_variants[vd.name] = tpl.name
         # Type and variant names first, so types can refer to each other in any order.
         for item in prog.items:
             if isinstance(item, (S.StructDecl, S.EnumDecl)):
-                require_camel(item.name, "type", item.pos)
-                self.declare_unique(item.name, item.pos)
+                instance = item.generic_base is not None
+                if not instance:
+                    require_camel(item.name, "type", item.pos)
+                    self.declare_unique(item.name, item.pos)
                 if isinstance(item, S.StructDecl):
                     self.structs[item.name] = StructType(item.name, item)
                 else:
@@ -202,6 +216,9 @@ class Checker:
                     if not item.variants:
                         raise CompileError(f"`{item.name}` has no variants", item.pos)
                     for tag, vd in enumerate(item.variants):
+                        if instance:
+                            en.variants[vd.name] = Variant(vd.name, tag, en, vd.pos)
+                            continue
                         require_camel(vd.name, "variant", vd.pos)
                         self.declare_unique(vd.name, vd.pos)
                         self.variants[vd.name] = en.variants[vd.name] = Variant(
@@ -441,16 +458,21 @@ class Checker:
     def enter_file(self, decl):
         self.file, self.trusted = decl.file, decl.trusted
 
-    def require_visible(self, decl, name, pos):
-        """Without `pub`, an item can only be used in its own file (decision 49)."""
-        if decl.file != self.file and not decl.public:
+    def require_visible(self, decl, name, pos, file=None):
+        """Without `pub`, an item can only be used in its own file (decision 49). `file` is
+        the file whose imports count, if not the one being checked (a type argument written in
+        one file and used inside a generic type from another, generics.py). An instance of a
+        generic is imported under the generic's name."""
+        file = file or self.file
+        name = getattr(decl, "generic_base", None) or name
+        if decl.file != file and not decl.public:
             raise CompileError(
                 f"`{name}` is private to {os.path.basename(decl.file)}; "
                 f"mark it `pub` to use it in another file", pos)
-        if decl.file != self.file and self.imports.get(self.file, {}).get(name) != decl.file:
+        if decl.file != file and self.imports.get(file, {}).get(name) != decl.file:
             module = module_name(decl.file)
             if self.suggestions is not None:
-                self.suggestions.append((self.file, module, name))
+                self.suggestions.append((file, module, name))
                 return
             raise CompileError(
                 f"`{name}` is defined in module `{module}`: write "
@@ -471,7 +493,7 @@ class Checker:
               or self.enums.get(ref.name) or self.actors.get(ref.name)
               or self.interfaces.get(ref.name))
         if is_aggregate(ty) or is_actor(ty):
-            self.require_visible(ty.decl, ty.name, ref.pos)
+            self.require_visible(ty.decl, ty.name, ref.pos, ref.visible_in)
         if ty is None:
             if ref.name in self.variants:
                 raise CompileError(
@@ -815,8 +837,8 @@ class Checker:
                 else:
                     e.const_value = value
                 return ty
-            if e.ident in self.variants:
-                v = self.variants[e.ident]
+            if e.ident in self.variants or e.ident in self.generic_variants:
+                v = self.variants.get(e.ident) or self.generic_variant(e.ident, expected, e.pos)
                 self.require_visible(v.enum.decl, v.enum.name, e.pos)
                 if v.fields:
                     raise CompileError(
@@ -889,7 +911,11 @@ class Checker:
 
         if isinstance(e, S.StructLit):
             v = self.variants.get(e.name)
+            if v is None and e.name in self.generic_variants:
+                v = self.generic_variant(e.name, expected, e.pos)
             st = v.enum if v is not None else self.structs.get(e.name)
+            if st is None and e.name in self.generic_types:
+                st = self.generic_instance(e.name, expected, e.pos)
             if st is not None:
                 self.require_visible(st.decl, st.name, e.pos)
                 if v is None and st.decl.file != self.file and len(st.public_fields) < len(st.fields):
@@ -980,6 +1006,12 @@ class Checker:
         if isinstance(e, S.Copy):
             ty = self.expr(e.value)
             if not is_aggregate(ty):
+                if self.receiver is not None and is_aggregate(self.receiver[0]) \
+                        and self.receiver[0].decl.generic_base is not None:
+                    # In a generic type the same source serves a number and a struct, so
+                    # copying a number is allowed there and does nothing (decision 154).
+                    e.scalar = True
+                    return ty
                 raise CompileError(
                     f"{ty} values are always copied; `copy(...)` is for structs and enums",
                     e.value.pos)
@@ -1182,6 +1214,19 @@ class Checker:
             raise CompileError(f"`stop` takes an actor reference, not {ty}", e.args[0].pos)
         return UNIT
 
+    def generic_instance(self, base, expected, pos):
+        """Which instance of the generic `base` a value being built is: the type of the place it
+        goes to. Nothing else decides it, so a value with nowhere to go is an error."""
+        if expected is not None and is_aggregate(expected) and expected.decl.generic_base == base:
+            return expected
+        raise CompileError(
+            f"`{base}` is generic: say which type this is by writing the type where the value "
+            f"goes, as in `x: {base}<...> = ...`", pos)
+
+    def generic_variant(self, name, expected, pos):
+        base = self.generic_variants[name]
+        return self.generic_instance(base, expected, pos).variants[name]
+
     def bytes_type(self, pos):
         """The type of text in quotes: the program's `Bytes` struct."""
         st = self.structs.get("Bytes")
@@ -1225,7 +1270,8 @@ class Checker:
                     if not (p.end is None and isinstance(p.value, S.Name)):
                         raise CompileError(f"expected a variant of `{ty}`", p.pos)
                     p.name = p.value.ident
-                v = self.variants.get(p.name)
+                v = (ty.variants.get(p.name) if ty.decl.generic_base is not None
+                     else self.variants.get(p.name))
                 if v is None:
                     raise CompileError(f"`{ty}` has no variant `{p.name}`", p.pos)
                 self.require_visible(v.enum.decl, v.enum.name, p.pos)

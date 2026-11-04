@@ -1,0 +1,20 @@
+// Generic types for the tests of generics across files (tests/rook/generics_files.rook): a
+// template lives here, and its instances are made for the types the test writes.
+
+pub struct SupportBox<T> {
+    pub value: T
+
+    pub fn peek() -> T {
+        return copy(.value)
+    }
+}
+
+/// A box whose field is private: only this file can build one.
+pub struct SupportSealed<T> {
+    secret: T
+}
+
+pub enum SupportChoice<T> {
+    SupportLeft(value: T)
+    SupportRight
+}

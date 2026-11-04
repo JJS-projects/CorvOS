@@ -1,0 +1,8 @@
+// A generic type with a private field can only be built in its own file.
+// error: 7:29: `SupportSealed<u64>` has private fields, so it can only be built in generic_library.rook
+
+import generic_library: SupportSealed
+
+fn f() {
+    s: SupportSealed<u64> = SupportSealed(secret: 1)
+}

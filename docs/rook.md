@@ -705,7 +705,8 @@ later if this becomes painful.
 - **Primitive types**: `u8` to `u64`, `i8` to `i64`, `bool`.
 - **Structs**, and **enums** with data, matched with `match` (exhaustively checked).
 - **Generics** (`Result<T, E>`, `Option<T>`, `Reply<T>`), compiled to a separate copy
-  per type.
+  per type. Built so far (step 5c, section 11.19): generic structs and enums; generic
+  functions and generic interfaces are not yet.
 - **Interfaces** are the only abstraction mechanism: they narrow actor references
   and constrain generics. There is no separate trait system.
 - **Text**: `"..."` is a `Bytes`, an unchangeable run of bytes, UTF-8 by convention.
@@ -1126,6 +1127,26 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   Raven sends it once when the watched actor ends, whether by `stop`, because its `new`
   failed again during a restart, or because a parent ended it. Without `stopped` only restarts
   are reported. A watch on an actor that has ended is forgotten (derived; open to review).
+
+### 11.19 Rules settled while building generics (step 5c)
+
+- **Declaring and writing.** `struct Pair<A, B> { ... }` and `enum Option<T> { ... }`; a use writes
+  the type arguments where a type is written: `Option<u64>`, `Pair<bool, Option<u64>>`. Each distinct list
+  makes a separate struct or enum (named `Option<u64>` in messages) with the parameter replaced in its
+  fields and in its methods, checked as written for that instance. Type arguments are plain types: `mut`,
+  `val` and `iso` cannot be written inside `<>`. A generic is written with all of its arguments.
+- **Values.** There is no inference from the arguments: a variant or struct of a generic type takes its
+  instance from the type of the place it goes to (a declaration `x: Option<u64> = Some(value: 3)`, a
+  parameter, a field, a result), and where there is no such place it is an error that says so. A
+  `match` on a value is checked against its own instance. Variants of a generic enum are bare and global
+  like any variant, so `Some` and `None` belong to the one `Option` in the program (derived).
+- **Files.** A generic is imported by its own name (`import option: Option`, which brings its variants);
+  an instance made from types of several files is checked with each type's own file's imports.
+- **`copy` of a number is allowed inside a generic type's methods and does nothing**, so the one body
+  `return copy(.inner)` works for a number and for a struct (elsewhere it is still an error). Derived.
+- **Not yet:** generic functions, constraints on a parameter (`T: Interface`), generic interfaces and actors.
+  A generic struct with private fields cannot be built outside its file (it has no way to be built from
+  there yet: how a library `List<T>` is made is the next question).
 
 ## 12. Open questions
 

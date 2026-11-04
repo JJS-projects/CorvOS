@@ -482,6 +482,8 @@ class Gen:
         elif isinstance(e, S.Consume):
             self.addr(e.value)                      # the same storage, which is now the
                                                     # receiver's: nothing is copied here
+        elif isinstance(e, S.Copy) and e.scalar:
+            self.expr(e.value)
         elif isinstance(e, S.Copy):
             self.addr(e.value)
             self.region_addr(e.temp, e.ty.words, "x1")

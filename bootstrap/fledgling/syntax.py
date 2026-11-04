@@ -16,6 +16,8 @@ class TypeRef:
     mut: bool = False           # `mut T` on a parameter: lent so it can be changed
     val: bool = False           # `val T` on an actor's field or `new` parameter: read-only data
     iso: bool = False           # `iso T` on an actor's field or a parameter: owned, the only reference
+    args: list = field(default_factory=list)    # `Name<A, B>`: the type arguments (generics.py)
+    visible_in: str = None      # set by generics.py: the file whose imports this name is checked in
 
 
 # ---- expressions -------------------------------------------------------
@@ -136,6 +138,7 @@ class Copy(Expr):
     def __post_init__(self):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot for the copy
+        self.scalar = False     # set by checker: a number copied inside a generic type: nothing to do
 
 
 @dataclass
@@ -367,7 +370,8 @@ class FnDecl:
 
     @property
     def symbol(self):
-        return f"{self.owner}__{self.name}" if self.owner else self.name
+        owner = self.owner and self.owner.replace("<", "_L_").replace(">", "_R_").replace(",", "_C_")
+        return f"{owner}__{self.name}" if self.owner else self.name
 
 
 @dataclass
@@ -400,6 +404,8 @@ class StructDecl:
     methods: list               # [FnDecl]
     pos: Pos
     public: bool = False
+    params: list = field(default_factory=list)      # `struct Name<T, U>`: the type parameters
+    generic_base: str = None    # set by generics.py: the generic this is an instance of
 
     def __post_init__(self):
         self.file = None
@@ -452,6 +458,8 @@ class EnumDecl:
     methods: list               # [FnDecl]
     pos: Pos
     public: bool = False
+    params: list = field(default_factory=list)      # `enum Name<T>`: the type parameters
+    generic_base: str = None    # set by generics.py: the generic this is an instance of
 
     def __post_init__(self):
         self.file = None
@@ -486,3 +494,5 @@ class Import:
 @dataclass
 class Program:
     items: list = field(default_factory=list)
+    generics: dict = field(default_factory=dict)    # set by generics.py: name -> template
+    instances: dict = field(default_factory=dict)   # set by generics.py: name -> instance

@@ -60,7 +60,7 @@ Long commands go in the background. `make test` once per change, not per edit.
 
 - Top-level names are global across a program. A local or parameter can't share a
   function's name (use `rt_` prefixes in tests).
-- `actor`, `on`, `self`, `module`, `import`, `consume`, `narrow`, `interface` are keywords.
+- `actor`, `on`, `self`, `module`, `import`, `consume`, `narrow`, `interface`, `watch`, `stop` are keywords.
 - A file uses another file's names only if it imports them
   (`import module: Name, Name`, bare, one module per line, top of file).
 - Raven internals (mailbox, assembly) are closed modules. A new `pub` name in a public
@@ -149,6 +149,7 @@ fn test_main() {
 - Text is `"..."` (`Bytes`). `panic("msg")` ends the handler (the actor restarts, 148).
 - Messages carry `val`, `iso` and small structs/enums (up to 8 words copied).
 - Failure and restarts: rook.md §4.3 and §11.16.
+- Generics (structs and enums only): `enum Option<T> { Some(value: T)  None }`, used as `x: Option<u64> = Some(value: 3)`; the type comes from the place the value goes to, never from the arguments (§11.19).
 
 ## Where to read more (only what the task touches)
 

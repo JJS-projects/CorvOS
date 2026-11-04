@@ -1,0 +1,11 @@
+// Two generic types cannot have the same name.
+// error: 9:1: `Pair` is already defined
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+enum Pair<T> {
+    One(value: T)
+}

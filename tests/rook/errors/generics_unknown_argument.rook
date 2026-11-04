@@ -1,0 +1,10 @@
+// A type argument must be a known type.
+// error: 9:16: unknown type `Nope`
+
+enum Option<T> {
+    Some(value: T)
+    None
+}
+
+fn f(o: Option<Nope>) {
+}
