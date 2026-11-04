@@ -6,7 +6,7 @@ enum Choice<T> {
     Nada
 }
 
-struct Pair<A, B> {
+struct Twain<A, B> {
     first: A
     second: B
 }

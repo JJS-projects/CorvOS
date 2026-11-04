@@ -1,6 +1,6 @@
 // A type parameter is written once.
 // error: 4:16: the type parameter `T` is written twice
 
-struct Pair<T, T> {
+struct Twain<T, T> {
     first: T
 }

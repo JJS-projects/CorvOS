@@ -1,16 +1,16 @@
 // A value of one generic can't go where an instance of another is wanted.
-// error: 15:26: expected Pair<u64,bool>, found a value of the generic type `Choice`
+// error: 15:26: expected Twain<u64,bool>, found a value of the generic type `Choice`
 
 enum Choice<T> {
     Pick(value: T)
     Nada
 }
 
-struct Pair<A, B> {
+struct Twain<A, B> {
     first: A
     second: B
 }
 
 fn f() {
-    p: Pair<u64, bool> = Pick(value: 1)
+    p: Twain<u64, bool> = Pick(value: 1)
 }
