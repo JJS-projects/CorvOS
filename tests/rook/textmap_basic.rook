@@ -8,7 +8,10 @@
 // 39 * 40 * 79 / 6 = 20540, less 49 plus 5 = 20496. `key_at(0)` is "k0" (2 bytes) and `key_at(39)` is "k39"
 // (3 bytes): the lengths print 2 and 3, in the order added. A key built later from the same bytes finds the
 // same entry (the map copied the key it was given, so changing the first `Text` afterwards changes
-// nothing). The struct map holds Info(id, size): "a" is (1, 10), "b" is (2, 20); the size of "b" is 20.
+// nothing). Two different keys with the same hash: "glbvs" and "yacxa" both hash to 2713492047 (found by
+// search, checked in Python); the map keeps them apart: their values 1 and 2 are found for their own keys
+// (printed 1, 2) and the hashes print equal (1). `contains` is 1 for a key put, 0 for "zzz" and 0 for any key in
+// a map with nothing in it. The struct map holds Info(id, size): "a" is (1, 10), "b" is (2, 20); the size of "b" is 20.
 // expect: 40
 // expect: 49
 // expect: 1521
@@ -18,6 +21,12 @@
 // expect: 2
 // expect: 3
 // expect: 49
+// expect: 1
+// expect: 2
+// expect: 1
+// expect: 1
+// expect: 0
+// expect: 0
 // expect: 20
 
 import devices: Mmio
@@ -72,6 +81,21 @@ fn test_main(peripherals: Mmio) {
     map.put(early, 49)
     early.push('!')
     print_u64(value_or(map.find(key_for(region, 7)), 1000))
+    mut left: Text = Text(region: region)
+    left.append("glbvs")
+    mut right: Text = Text(region: region)
+    right.append("yacxa")
+    map.put(left, 1)
+    map.put(right, 2)
+    print_u64(value_or(map.find(left), 1000))
+    print_u64(value_or(map.find(right), 1000))
+    print_u64(if left.hash() == right.hash() { 1 } else { 0 })
+    print_u64(if map.contains(left) { 1 } else { 0 })
+    mut missing: Text = Text(region: region)
+    missing.append("zzz")
+    print_u64(if map.contains(missing) { 1 } else { 0 })
+    empty: TextMap<u64> = TextMap(region: region)
+    print_u64(if empty.contains(left) { 1 } else { 0 })
     mut infos: TextMap<Info> = TextMap(region: region)
     mut a: Text = Text(region: region)
     a.append("a")
