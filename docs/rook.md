@@ -1151,7 +1151,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 ### 11.20 Rules settled while building `new` in structs (step 5c)
 
 - **A struct may declare `new(params) { }`** (not `pub`, no result), as an actor does. It runs on a
-  fresh zeroed value and must set every field once, at the top level of its body with `.field = value`;
+  fresh value and must set every field once, at the top level of its body with `.field = value`;
   it may not read a field, or call a method of its own struct, before every field is set. A struct
   without a `new` is built field by field as before.
 - **Building.** `Counter(start: 5, step: 3)` writes the type's name with the arguments of `new`, named

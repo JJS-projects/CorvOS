@@ -657,11 +657,9 @@ class Gen:
     def struct_lit(self, e):
         st = e.ty
         if e.new_sig is not None:
-            # A struct with a `new`: start from zeros and run `new` on the value's address,
-            # with the arguments after it (a method call whose receiver is the new value).
-            self.region_addr(e.temp, st.words, "x1")
-            for w in range(st.words):
-                self.emit(f"str xzr, [x1, #{8 * w}]")
+            # A struct with a `new`: run `new` on the value's address, with the arguments after
+            # it (a method call whose receiver is the new value). `new` sets every field, so the
+            # space needs no clearing first.
             self.region_addr(e.temp, st.words)
             self.push()
             n = 1
