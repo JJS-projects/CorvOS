@@ -1,5 +1,5 @@
 // A value of one generic can't go where an instance of another is wanted.
-// error: 15:26: expected Twain<u64,bool>, found a value of the generic type `Choice`
+// error: 15:27: expected Twain<u64,bool>, found a value of the generic type `Choice`
 
 enum Choice<T> {
     Pick(value: T)

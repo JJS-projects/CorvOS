@@ -1,5 +1,5 @@
 // A type parameter is written once.
-// error: 4:16: the type parameter `T` is written twice
+// error: 4:17: the type parameter `T` is written twice
 
 struct Twain<T, T> {
     first: T
