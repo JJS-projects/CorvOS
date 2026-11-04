@@ -1,0 +1,16 @@
+// A word needs all eight bytes inside the block.
+//
+// Worked out: a block of 12 bytes holds word 0 (bytes 0 to 7) but not word 1 (bytes 8 to 15).
+// expect: 0
+// expect-panic: word outside Block at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    mut region: Region = make_region(peripherals)
+    block: Block = region.block(12)
+    print_u64(block.get64(0))
+    print_u64(block.get64(1))
+}

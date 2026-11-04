@@ -1,0 +1,21 @@
+// Writes are checked like reads: a byte and a word outside the block are refused, and nothing
+// beside the block changes.
+//
+// Worked out: writing byte 7 of an 8-byte block is fine and reads back 5. Writing byte 8 is
+// outside and panics, which stops the program, so the last line never runs.
+// expect: 5
+// expect-panic: index outside Block at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    mut region: Region = make_region(peripherals)
+    first: Block = region.block(8)
+    second: Block = region.block(8)
+    first.set(7, 5)
+    print_u64(first.get(7) as u64)
+    first.set(8, 6)
+    print_u64(second.get(0) as u64)
+}

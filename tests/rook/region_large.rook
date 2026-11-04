@@ -1,0 +1,23 @@
+// A large block works end to end: 16 MB, the byte just before its last word and its last word written and
+// read back, and the rest of the region still available.
+//
+// Worked out: 16 MB is 16777216 bytes. The last word is word 2097151 (bytes 16777208 to 16777215); the
+// byte before it has index 16777207.
+// After the block 67108864 - 16777216 = 50331648 bytes are left.
+// expect: 77
+// expect: 99
+// expect: 50331648
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    mut region: Region = make_region(peripherals)
+    big: Block = region.block(16777216)
+    big.set(16777207, 77)
+    big.set64(2097151, 99)
+    print_u64(big.get(16777207) as u64)
+    print_u64(big.get64(2097151))
+    print_u64(region.left())
+}

@@ -8,3 +8,4 @@ bytes: Bytes, Bytes.at, Bytes.len
 devices: Mmio, Mmio.is_root, Mmio.part, Mmio.read32, Mmio.write32
 hardware: counter_frequency, current_el, irq_init, quiet_build, read_counter, run_test_hooks
 print: print_bool, print_i64, print_u64, probe_irq_registers, probe_protected_registers
+region: Block, Block.get, Block.get64, Block.len, Block.set, Block.set64, Region, Region.block, Region.left, make_region

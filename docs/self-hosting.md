@@ -21,12 +21,22 @@ the milestone's check ("rebuilds itself and the result is identical") only needs
 When there is a use for files, a filesystem actor can be added later without changing the
 protocol. `compiler/numberer.rook` is the stage-0 program: it numbers the lines of its input.
 
+## Memory: `Region` and `Block` (step 5b, decision 153)
+
+A hosted program gets memory from one 64 MB region at physical 64 MB, far larger than the 64 KB
+actor arena. `make_region(peripherals)` makes the one `Region` (only from the whole peripherals,
+and only once). `region.block(bytes)` returns a zeroed `Block`; nothing is ever freed, because a
+job runs once and ends. A `Block` is read and written by byte (`get`, `set`) or by 64-bit word
+(`get64`, `set64`), every access checked against its length; safe code never sees an address and
+cannot build a `Block` itself (decision 96). `Region.left()` says how much is left. Growable lists
+and maps (step 5c) are built on blocks inside trusted Rook; a full region panics.
+
 ## Stages
 
 | Step | What | Test |
 |---|---|---|
 | 5a (this PR) | Hosted runner and test kind; `numberer` | `hosted/numberer/*` |
-| 5b | Memory for a batch job: a region allocator in trusted Rook, much larger than the actor arena, no freeing | Rook tests |
+| 5b (built) | Memory for a batch job: `Region` and `Block` in `raven/trusted/region.rook` (below) | `rook/region_*`, `error/region_*` |
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`), a growable list and a map, a text builder | Rook and error tests |
 | 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens), parser (tree dump), checker (accept/reject and message), code generator (assembly) | hosted tests comparing with Fledgling's output |
 | 5e | Stage 2: the Rook compiler compiles itself; compile that result again; the two assembly files are identical. Retire Fledgling | the milestone's "done when" |

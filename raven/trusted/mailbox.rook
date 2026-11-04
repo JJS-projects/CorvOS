@@ -49,6 +49,7 @@ ACTOR_S_CURRENT_DISPATCHER: u64 = 32  // the handler now running: its actor's di
 ACTOR_S_CURRENT_HANDLER: u64 = 40     // ... and its number
 ACTOR_S_IRQ_PENDING: u64 = 48       // bit n: peripheral interrupt 32 + n has fired (vectors.s)
 ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
+// (offset 56 is taken by region.rook: the word that says its Region has been made)
 ACTOR_RUNQ_SLOTS: u64 = 128
 ACTOR_S_RESTARTED: u64 = 1128       // the number of the handler `restarted`, kept by `watch`
 ACTOR_S_STOPPED: u64 = 1136         // the number of the handler `stopped`, kept by `watch`

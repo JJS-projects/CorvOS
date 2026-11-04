@@ -1,0 +1,119 @@
+module public
+
+// Memory for batch jobs (the self-hosted compiler, docs/self-hosting.md): a region of RAM
+// far larger than the actor arena, handed out in zeroed blocks that are never freed (a
+// job runs once and ends). Safe code gets only `Block`s, whose reads and writes are checked
+// against their size; it never sees an address (decision 153).
+//
+// The region is 64 MB at physical 64 MB (0x4000000), clear of the kernel image at 0x80000
+// and below the 512 MB every supported board has, and of the part the GPU takes from the top.
+
+import assembly: actor_arena_base
+import devices: Mmio
+
+REGION_BASE: u64 = 0x4000000
+REGION_SIZE: u64 = 0x4000000
+
+/// The word of the actor arena (zero at boot; offset 56 is unused by mailbox.rook's tables)
+/// that says the one `Region` has been made.
+REGION_TAKEN: u64 = 56
+
+/// A run of zeroed bytes from a `Region`. The fields are private to this file, so a `Block`
+/// can only come from a `Region` and no code can point one at other memory.
+pub struct Block {
+    address: u64
+    length: u64
+
+    /// How many bytes it holds.
+    pub fn len() -> u64 {
+        return .length
+    }
+
+    /// The byte at `index`. Panics if `index` is outside.
+    pub fn get(index: u64) -> u8 {
+        if index >= .length {
+            panic("index outside Block")
+        }
+        unsafe {
+            return load8(.address + index)
+        }
+    }
+
+    /// Sets the byte at `index`. Panics if `index` is outside.
+    pub fn set(index: u64, value: u8) {
+        if index >= .length {
+            panic("index outside Block")
+        }
+        unsafe {
+            store8(.address + index, value)
+        }
+    }
+
+    /// The 64-bit word `word` words in (bytes `8 * word` to `8 * word + 7`). Panics if it is
+    /// not entirely inside.
+    pub fn get64(word: u64) -> u64 {
+        .check64(word)
+        unsafe {
+            return load64(.address + word * 8)
+        }
+    }
+
+    /// Sets the 64-bit word `word` words in. Panics if it is not entirely inside.
+    pub fn set64(word: u64, value: u64) {
+        .check64(word)
+        unsafe {
+            store64(.address + word * 8, value)
+        }
+    }
+
+    fn check64(word: u64) {
+        if .length < 8 or word > (.length - 8) / 8 {
+            panic("word outside Block")
+        }
+    }
+} Block
+
+/// The memory a batch job allocates from. There is one, made by `make_region` from the whole
+/// of the peripherals; `block` takes the next piece and nothing is ever given back.
+pub struct Region {
+    next: u64
+    limit: u64
+
+    /// A new zeroed block of `bytes` bytes (the space is rounded up to whole words, but the
+    /// block's length is `bytes`). Panics if the region has not got room.
+    pub mut fn block(bytes: u64) -> Block {
+        if bytes > .limit - .next {
+            panic("the region is full")
+        }
+        rt_space: u64 = (bytes + 7) / 8 * 8      // no overflow: bytes fits, and `limit - next` is a multiple of 8
+        rt_start: u64 = .next
+        unsafe {
+            clearing: loop rt_at: u64 in 0..rt_space / 8 {
+                store64(rt_start + rt_at * 8, 0)
+            }
+        }
+        .next = .next + rt_space
+        return Block(address: rt_start, length: bytes)
+    }
+
+    /// How many bytes are left.
+    pub fn left() -> u64 {
+        return .limit - .next
+    }
+} Region
+
+/// The region. Only the whole of the peripherals can make it (so a driver given just its
+/// registers cannot), and only once: a second one would hand out the same memory again.
+pub fn make_region(peripherals: Mmio) -> Region {
+    if not peripherals.is_root() {
+        panic("a Region is made from the whole peripherals")
+    }
+    unsafe {
+        rt_taken: u64 = actor_arena_base() + REGION_TAKEN
+        if load64(rt_taken) != 0 {
+            panic("the Region has been made already")
+        }
+        store64(rt_taken, 1)
+    }
+    return Region(next: REGION_BASE, limit: REGION_BASE + REGION_SIZE)
+}
