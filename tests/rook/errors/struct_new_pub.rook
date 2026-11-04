@@ -1,0 +1,10 @@
+// new is not marked pub.
+// error: 7:9: `new` is not marked `pub`: whoever can see the type can build it
+
+struct Couple {
+    first: u64
+
+    pub new(a: u64) {
+        .first = a
+    }
+}

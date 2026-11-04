@@ -1,0 +1,7 @@
+// An enum has no new.
+// error: 6:8: a variant with no fields is written without brackets: `new`
+
+enum Shape {
+    Dot
+    new() { }
+}

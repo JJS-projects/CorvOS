@@ -18,3 +18,27 @@ pub enum SupportChoice<T> {
     SupportLeft(value: T)
     SupportRight
 }
+
+/// A stack's top and depth, built only by `new` (its fields are private).
+pub struct SupportStack<T> {
+    top: T
+    depth: u64
+
+    new(first: T) {
+        .top = copy(first)
+        .depth = 1
+    }
+
+    pub mut fn push(item: T) {
+        .top = copy(item)
+        .depth = .depth + 1
+    }
+
+    pub fn peek() -> T {
+        return copy(.top)
+    }
+
+    pub fn size() -> u64 {
+        return .depth
+    }
+}

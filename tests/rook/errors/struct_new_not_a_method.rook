@@ -1,0 +1,14 @@
+// new is not a method: a built value has no new to call.
+// error: 13:7: `Couple` has no method `new`
+
+struct Couple {
+    first: u64
+
+    new(a: u64) {
+        .first = a
+    }
+}
+
+fn f(p: Couple) {
+    p.new(1)
+}

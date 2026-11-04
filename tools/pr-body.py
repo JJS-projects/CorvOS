@@ -3,7 +3,7 @@
 
     tools/pr-body.py --summary TEXT --roadmap TEXT --review TEXT [--design TEXT] [--limits TEXT]
                      [--tests FILE] [--checks TEXT] [--bugs FILE] [--session URL] [-o OUT]
-                     [--open --title TITLE --head BRANCH]
+                     [--open --title TITLE --head BRANCH [--base BRANCH]]
 
 Each text argument fills the template section of that name (use @FILE to read it from a file,
 or a quoted heredoc: `--limits "$(cat <<'EOF' ... EOF)"`). Test evidence is the end of the
@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--open", action="store_true")
     ap.add_argument("--title")
     ap.add_argument("--head")
+    ap.add_argument("--base", default="main", help="the branch to merge into (a stacked PR names the one below)")
     args = ap.parse_args()
     for needed in ("summary", "roadmap", "review", "limits"):
         if not getattr(args, needed):
@@ -79,7 +80,7 @@ def main():
         if not (args.title and args.head):
             sys.exit("--open needs --title and --head")
         run = subprocess.run(["gh", "api", "repos/JJS-projects/CorvOS/pulls", "-X", "POST",
-                              "-f", f"title={args.title}", "-f", f"head={args.head}", "-f", "base=main",
+                              "-f", f"title={args.title}", "-f", f"head={args.head}", "-f", f"base={args.base}",
                               "-F", f"body=@{args.out}", "--jq", ".html_url"],
                              capture_output=True, text=True)
         print(run.stdout.strip() or run.stderr.strip())

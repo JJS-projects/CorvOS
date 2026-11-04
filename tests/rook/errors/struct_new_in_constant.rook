@@ -1,0 +1,12 @@
+// A constant is a number, bool or text, not a value built by running new.
+// error: 12:17: constants must be numbers or bools
+
+struct Couple {
+    first: u64
+
+    new(a: u64) {
+        .first = a
+    }
+}
+
+LIMIT: Couple = Couple(a: 1)

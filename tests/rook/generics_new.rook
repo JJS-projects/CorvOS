@@ -1,0 +1,28 @@
+// A generic struct with private fields is built from another file through its `new`: the type
+// arguments come from the place the value goes to, as for `Some(...)`.
+//
+// Worked out: a stack of `Local` starts with Local(4) (depth 1); pushing Local(9) makes the top 9 and
+// the depth 2. A stack of numbers starts with 7, and pushing 8 then 11 makes the top 11 and the depth 3.
+// expect: 9
+// expect: 2
+// expect: 11
+// expect: 3
+
+import generic_library: SupportStack
+import print: print_u64
+
+struct Local {
+    n: u64
+}
+
+fn test_main() {
+    mut locals: SupportStack<Local> = SupportStack(first: Local(n: 4))
+    locals.push(Local(n: 9))
+    print_u64(locals.peek().n)
+    print_u64(locals.size())
+    mut numbers: SupportStack<u64> = SupportStack(first: 7)
+    numbers.push(8)
+    numbers.push(11)
+    print_u64(numbers.peek())
+    print_u64(numbers.size())
+}

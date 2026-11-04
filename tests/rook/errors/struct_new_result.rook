@@ -1,0 +1,10 @@
+// new has no result.
+// error: 7:17: `new` has no result: it sets the fields of the struct it builds
+
+struct Couple {
+    first: u64
+
+    new(a: u64) -> Couple {
+        .first = a
+    }
+}

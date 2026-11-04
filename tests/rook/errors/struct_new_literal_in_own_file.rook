@@ -1,0 +1,14 @@
+// Even in its own file a struct with a new is built through it.
+// error: 13:24: `new` of `Couple` has no parameter `first`
+
+struct Couple {
+    first: u64
+
+    new(a: u64) {
+        .first = a
+    }
+}
+
+fn f() {
+    c: Couple = Couple(first: 1)
+}
