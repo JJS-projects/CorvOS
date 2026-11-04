@@ -1,0 +1,152 @@
+// The fault-tolerance demo (milestone 7): a supervisor written in ordinary Rook, with no help
+// from the language beyond `watch` and `stop` (docs/fault-tolerance.md).
+//
+// The `Guard` owns a `Console` (a driver-like server whose setting is lost when it restarts)
+// and a `Settings` client that wants the setting to be 7. Raven restarts a failed console at once
+// (decision 148); the guard counts the restarts it is told about and gives up after two, stopping
+// the console; the client rebuilds the setting after each restart and learns when the console is gone.
+//
+// Worked out (each step ends with run_until_idle):
+//  1. Settings' `new` sets the console to 7. `show` prints 7.
+//  2. The console fails (first expect-failure) and restarts with setting 0; the client is told and
+//     sets 7 again (and the guard counts 1). `show` prints 7.
+//  3. It fails again (restarts = 2, within the limit of 2). `show` prints 7.
+//  4. It fails a third time (restarts = 3): the client's re-set is lost when the guard stops the
+//     console. The guard prints 50; the client is told `stopped` and prints 99. A send to the console
+//     answers Gone: `check` prints 3.
+//  5. The guard itself fails (last expect-failure) and restarts: its count is 0 again, and the console
+//     and client it made in `new` are restarted in place, the console back from the dead. The guard
+//     handles `show` (which only queues a message for the console) and then `check`, which prints 1
+//     (Delivered) itself; then the console runs and prints 7.
+// expect-failure: console crash at supervisor_demo.rook:56 x3
+// expect-failure: guard bug at supervisor_demo.rook:126
+// expect: 7
+// expect: 7
+// expect: 7
+// expect: 50
+// expect: 99
+// expect: 3
+// expect: 1
+// expect: 7
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+actor Console {
+    mut setting: u64
+
+    new() {
+        .setting = 0
+    }
+
+    pub lossy on set(value: u64) {
+        .setting = value
+    }
+
+    pub lossy on show() {
+        print_u64(.setting)
+    }
+
+    pub lossy on crash() {
+        panic("console crash")
+    }
+
+    pub reliable on ping() { }
+}
+
+// A client of the console that keeps state in it, so it rebuilds it after a restart.
+actor Settings: Lifecycle {
+    console: Console
+    wanted: u64
+
+    new(console: Console, wanted: u64) {
+        .console = console
+        .wanted = wanted
+        .console.set(wanted)
+        watch(console, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        .console.set(.wanted)
+    }
+
+    lossy on stopped() {
+        print_u64(99)
+    }
+}
+
+// The supervisor: it spawned the console, so it alone may stop it. Policy: give up after `limit`
+// restarts. Rook has no null and no generics, so a supervisor is written per child.
+actor Guard: Lifecycle {
+    console: Console
+    settings: Settings
+    limit: u64
+    mut restarts: u64
+
+    new(limit: u64) {
+        .limit = limit
+        .restarts = 0
+        .console = spawn Console()
+        .settings = spawn Settings(.console, 7)
+        watch(.console, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        .restarts += 1
+        if .restarts > .limit {
+            print_u64(50)
+            stop(.console)
+        }
+    }
+
+    lossy on stopped() { }
+
+    pub lossy on crash() {
+        .console.crash()
+    }
+
+    pub lossy on show() {
+        .console.show()
+    }
+
+    pub lossy on check() {
+        match .console.ping() {
+            Delivered => print_u64(1)
+            MailboxFull => print_u64(2)
+            Gone => print_u64(3)
+        }
+    }
+
+    pub lossy on boom() {
+        panic("guard bug")
+    }
+}
+
+fn test_main() {
+    guard: Guard = spawn Guard(2)
+    run_until_idle()
+    guard.show()
+    run_until_idle()
+    guard.crash()
+    run_until_idle()
+    guard.show()
+    run_until_idle()
+    guard.crash()
+    run_until_idle()
+    guard.show()
+    run_until_idle()
+    guard.crash()
+    run_until_idle()
+    guard.check()
+    run_until_idle()
+    guard.boom()
+    run_until_idle()
+    guard.show()
+    guard.check()
+    run_until_idle()
+}

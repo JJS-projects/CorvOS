@@ -1,0 +1,58 @@
+// A `restarted` notice already waiting stands for a second one (decision 149): a watcher of two
+// actors through one interface, both restarting before it runs, is told once and cannot tell which
+// (give each its own interface to tell them apart).
+//
+// Worked out: the two servers each have a `boom` queued. The first fails and restarts, queueing the
+// watcher's `restarted`; the second fails, and the watcher's `restarted` is still waiting, so it
+// is not queued again. The watcher prints 1 once. A later restart of the first, with the watcher idle,
+// is a new notice: it prints 1 again.
+// expect-failure: first bug at watch_absorbed.rook:26
+// expect-failure: second bug at watch_absorbed.rook:34
+// expect-failure: first bug at watch_absorbed.rook:26
+// expect: 1
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Restarts {
+    lossy on restarted()
+}
+
+actor First {
+    new() { }
+
+    pub lossy on boom() {
+        panic("first bug")
+    }
+}
+
+actor Second {
+    new() { }
+
+    pub lossy on boom() {
+        panic("second bug")
+    }
+}
+
+actor Watcher: Restarts {
+    new(first: First, second: Second) {
+        watch(first, narrow(self, Restarts))
+        watch(second, narrow(self, Restarts))
+    }
+
+    lossy on restarted() {
+        print_u64(1)
+    }
+}
+
+fn test_main() {
+    first: First = spawn First()
+    second: Second = spawn Second()
+    watcher: Watcher = spawn Watcher(first, second)
+    first.boom()
+    second.boom()
+    run_until_idle()
+    first.boom()
+    run_until_idle()
+}
