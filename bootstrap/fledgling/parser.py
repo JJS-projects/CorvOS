@@ -168,6 +168,7 @@ class Parser:
     def struct_decl(self, public):
         start = self.expect("struct")
         name = self.expect("ident", "struct name").text
+        params = self.type_params()
         self.expect("{")
         self.open_blocks.append({name})
         fields, methods = [], []
@@ -203,7 +204,7 @@ class Parser:
                                    tok.pos)
         self.open_blocks.pop()
         self.end_statement()
-        return S.StructDecl(name, fields, methods, start.pos, public)
+        return S.StructDecl(name, fields, methods, start.pos, public, params)
 
     def actor_decl(self, public):
         start = self.expect("actor")
@@ -355,6 +356,7 @@ class Parser:
     def enum_decl(self, public):
         start = self.expect("enum")
         name = self.expect("ident", "enum name").text
+        params = self.type_params()
         self.expect("{")
         self.open_blocks.append({name})
         variants, methods = [], []
@@ -404,7 +406,7 @@ class Parser:
                                    tok.pos)
         self.open_blocks.pop()
         self.end_statement()
-        return S.EnumDecl(name, variants, methods, start.pos, public)
+        return S.EnumDecl(name, variants, methods, start.pos, public, params)
 
     def fn_decl(self, extern, public, mutating=False, owner=None):
         start = self.expect("fn")
@@ -450,12 +452,12 @@ class Parser:
                 and self.peek(1).kind == "ident"):
             self.advance()
             tok = self.expect("ident", "a type")
-            return S.TypeRef(tok.text, tok.pos, val=True)
+            return S.TypeRef(tok.text, tok.pos, val=True, args=self.type_args())
         if (allow_iso and self.at("ident") and self.peek().text == "iso"
                 and self.peek(1).kind == "ident"):
             self.advance()
             tok = self.expect("ident", "a type")
-            return S.TypeRef(tok.text, tok.pos, iso=True)
+            return S.TypeRef(tok.text, tok.pos, iso=True, args=self.type_args())
         if (not allow_iso and self.at("ident") and self.peek().text == "iso"
                 and self.peek(1).kind == "ident"):
             raise CompileError(
@@ -476,7 +478,38 @@ class Parser:
                 raise CompileError("a parameter is lent as `mut` or owned as `iso`, not both",
                                    self.peek().pos)
         tok = self.expect("ident", "a type")
-        return S.TypeRef(tok.text, tok.pos, mut)
+        return S.TypeRef(tok.text, tok.pos, mut, args=self.type_args())
+
+    def type_params(self):
+        """`<T, U>` after the name of a generic struct or enum, or nothing."""
+        if not self.at("<"):
+            return []
+        self.advance()
+        params = []
+        while True:
+            tok = self.expect("ident", "a type parameter")
+            if tok.text in params:
+                raise CompileError(f"the type parameter `{tok.text}` is written twice", tok.pos)
+            params.append(tok.text)
+            if self.at(","):
+                self.advance()
+                continue
+            self.expect(">")
+            return params
+
+    def type_args(self):
+        """`<A, B>` after a type's name, or nothing."""
+        if not self.at("<"):
+            return []
+        self.advance()
+        args = []
+        while True:
+            args.append(self.type_ref())
+            if self.at(","):
+                self.advance()
+                continue
+            self.expect(">")
+            return args
 
     # ---- blocks and named closers -------------------------------------
 

@@ -1,0 +1,70 @@
+// A generic struct with methods, a generic inside a generic, and two instances of the same
+// generic side by side.
+//
+// Worked out: `Pair<u64, bool>` holds (3, true) and `Pair<bool, u64>` holds (false, 9).
+// `swapped` on the first returns a `Pair<bool, u64>` (true, 3), so its `second` is 3 and its
+// `first` is true (1). `Box<Pair<u64, bool>>` wraps a copy of the first pair: `inner.first` is 3. A
+// `Box<u64>` holding 41 unboxes to 41 (the body writes `copy(.inner)`, which for a number does nothing and for a
+// struct copies it, so one source serves both; every instance is checked as written, with its own `T`),
+// and 41 + 1 = 42.
+// The ordinary struct `Flags` is built from the second pair (false, 9); `set_on` makes `active` true,
+// and `describe` adds 10 when `active` is true: 9 + 10 = 19. Two instances that share their first
+// argument but not the second, `Pair<u64, u64>` (5, 6) and `Pair<u64, bool>` (5, true), are different
+// types: the first's `second` is 6 and prints 5 for `first`; the second's `second` is true, printing 1.
+// expect: 3
+// expect: 1
+// expect: 3
+// expect: 42
+// expect: 19
+// expect: 5
+// expect: 1
+
+import print: print_u64
+
+struct Pair<A, B> {
+    first: A
+    second: B
+
+    fn swapped() -> Pair<B, A> {
+        return Pair(first: .second, second: .first)
+    }
+}
+
+struct Box<T> {
+    inner: T
+
+    fn unbox() -> T {
+        return copy(.inner)
+    }
+}
+
+struct Flags {
+    active: bool
+    count: u64
+
+    mut fn set_on() {
+        .active = true
+    }
+
+    fn describe() -> u64 {
+        return if .active { .count + 10 } else { .count }
+    }
+}
+
+fn test_main() {
+    p: Pair<u64, bool> = Pair(first: 3, second: true)
+    q: Pair<bool, u64> = Pair(first: false, second: 9)
+    s: Pair<bool, u64> = p.swapped()
+    print_u64(s.second)
+    print_u64(if s.first { 1 } else { 0 })
+    boxed: Box<Pair<u64, bool>> = Box(inner: copy(p))
+    print_u64(boxed.inner.first)
+    number: Box<u64> = Box(inner: 41)
+    print_u64(number.unbox() + 1)
+    mut f: Flags = Flags(active: q.first, count: q.second)
+    f.set_on()
+    print_u64(f.describe())
+    same_first: Pair<u64, u64> = Pair(first: 5, second: 6)
+    print_u64(same_first.first)
+    print_u64(if p.second { 1 } else { 0 })
+}

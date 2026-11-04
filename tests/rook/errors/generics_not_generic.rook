@@ -1,0 +1,19 @@
+// A type that is not generic takes no type arguments.
+// error: 18:9: `Local` is not generic, so it takes no type arguments
+
+enum Option<T> {
+    Some(value: T)
+    None
+}
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+struct Local {
+    n: u64
+}
+
+fn f(l: Local<u64>) {
+}

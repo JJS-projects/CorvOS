@@ -1,0 +1,35 @@
+// A generic type defined in another file is imported by its own name, and written with types
+// from this file: `SupportBox<Local>` holds a `Local` this file defines, though the file that
+// defines the box has never heard of it. Its public field and method work. (A generic type with a
+// private field cannot be built here: error/generics_private_field.)
+//
+// Worked out: the box holds Local(7); `peek().n` is 7 and `value.n` is 7. The choice
+// `SupportChoice<Local>` is Left(Local(5)), so the match prints 5; the choice
+// `SupportChoice<u64>` is Right, so the match prints 0.
+// expect: 7
+// expect: 7
+// expect: 5
+// expect: 0
+
+import generic_library: SupportBox, SupportChoice
+import print: print_u64
+
+struct Local {
+    n: u64
+}
+
+fn test_main() {
+    b: SupportBox<Local> = SupportBox(value: Local(n: 7))
+    print_u64(b.peek().n)
+    print_u64(b.value.n)
+    left: SupportChoice<Local> = SupportLeft(value: Local(n: 5))
+    right: SupportChoice<u64> = SupportRight
+    match left {
+        SupportLeft(value: l) => print_u64(l.n)
+        SupportRight => print_u64(0)
+    }
+    match right {
+        SupportLeft(value: n) => print_u64(n)
+        SupportRight => print_u64(0)
+    }
+}

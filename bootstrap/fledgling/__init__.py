@@ -14,6 +14,7 @@ from .errors import CompileError
 from .lexer import lex
 from .parser import parse
 from .checker import check
+from .generics import expand
 from .codegen import generate
 from . import syntax as S
 
@@ -41,6 +42,7 @@ def compile_program(files, trusted_dirs=(), suggestions=None):
         for item in parse(lex(source, path)).items:
             item.file, item.trusted = path, trusted
             program.items.append(item)
+    expand(program)
     check(program, suggestions)
     if suggestions is not None:
         return ""

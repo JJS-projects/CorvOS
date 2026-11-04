@@ -112,7 +112,8 @@ from fledgling import compile_program, CompileError  # noqa: E402
 ROOK_LIB = (sorted(glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook")))
             + sorted(glob.glob(os.path.join(ROOT, "raven", "*.rook")))
             + [os.path.join(ROOT, "tests", "rook", "support", "trusted", "print.rook"),
-               os.path.join(ROOT, "tests", "rook", "support", "shell.rook")])
+               os.path.join(ROOT, "tests", "rook", "support", "shell.rook"),
+               os.path.join(ROOT, "tests", "rook", "support", "generic_library.rook")])
 # Error tests are also compiled with a file of private items, to test visibility.
 ERROR_LIB = ROOK_LIB + [os.path.join(ROOT, "tests", "rook", "support", "visibility.rook")]
 TRUSTED_DIRS = [os.path.join(ROOT, *d.split("/")) for d in
