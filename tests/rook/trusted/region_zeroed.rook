@@ -1,0 +1,21 @@
+// A block is zeroed even where the memory held something before: on a real board RAM is not clear
+// at boot. The test fills the start of the region with junk, then takes a block there.
+//
+// Worked out: both words of a 16-byte block at the start of the region read 0, not the junk.
+// expect: 0
+// expect: 0
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    unsafe {
+        store64(0x4000000, 0xDEADBEEF)
+        store64(0x4000008, 0xCAFEF00D)
+    }
+    mut region: Region = make_region(peripherals)
+    block: Block = region.block(16)
+    print_u64(block.get64(0))
+    print_u64(block.get64(1))
+}

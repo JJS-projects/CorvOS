@@ -1,0 +1,14 @@
+// Only the whole of the peripherals can make the Region, not a part of them.
+//
+// Worked out: a 4 KB part of the peripherals is not the root, so it panics.
+// expect-panic: a Region is made from the whole peripherals at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    part: Mmio = peripherals.part(0x201000, 0x1000)
+    mut region: Region = make_region(part)
+    print_u64(region.left())
+}

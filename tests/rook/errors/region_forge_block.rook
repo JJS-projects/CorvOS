@@ -1,0 +1,8 @@
+// A Block can only be made by a Region: building one from an address is refused, as for any struct with private fields.
+// error: 7:21: `Block` has private fields, so it can only be built in region.rook
+
+import region: Block
+
+fn f() {
+    forged: Block = Block(address: 0x80000, length: 4096)
+}

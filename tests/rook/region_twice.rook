@@ -1,0 +1,14 @@
+// There is one Region: a second would hand out the same memory again.
+//
+// Worked out: the first is made; the second panics.
+// expect-panic: the Region has been made already at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    mut first: Region = make_region(peripherals)
+    mut second: Region = make_region(peripherals)
+    print_u64(second.left())
+}
