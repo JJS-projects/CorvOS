@@ -1,0 +1,21 @@
+// The whole region can be taken in one block; after that there is nothing left and any block panics.
+//
+// Worked out: 64 MB is 67108864 bytes. That block fits exactly, leaving 0. The last word (word
+// 8388607) is written and read back (4); then a block of 1 byte does not fit.
+// expect: 0
+// expect: 4
+// expect-panic: the region is full at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    mut region: Region = make_region(peripherals)
+    all: Block = region.block(67108864)
+    print_u64(region.left())
+    all.set64(8388607, 4)
+    print_u64(all.get64(8388607))
+    more: Block = region.block(1)
+    print_u64(more.len())
+}

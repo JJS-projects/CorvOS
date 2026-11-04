@@ -85,10 +85,7 @@ pub struct Region {
         if bytes > .limit - .next {
             panic("the region is full")
         }
-        rt_space: u64 = (bytes + 7) / 8 * 8
-        if rt_space > .limit - .next {
-            panic("the region is full")
-        }
+        rt_space: u64 = (bytes + 7) / 8 * 8      // no overflow: bytes fits, and `limit - next` is a multiple of 8
         rt_start: u64 = .next
         unsafe {
             clearing: loop rt_at: u64 in 0..rt_space / 8 {

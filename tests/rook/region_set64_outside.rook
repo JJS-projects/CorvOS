@@ -1,0 +1,18 @@
+// A word write past the end of a block is refused, like a read.
+//
+// Worked out: a block of 16 bytes holds words 0 and 1; word 1 is written (and read back, 9), word 2
+// is outside and panics.
+// expect: 9
+// expect-panic: word outside Block at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: Block, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    mut region: Region = make_region(peripherals)
+    block: Block = region.block(16)
+    block.set64(1, 9)
+    print_u64(block.get64(1))
+    block.set64(2, 9)
+}
