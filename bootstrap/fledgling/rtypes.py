@@ -54,6 +54,7 @@ class AggregateType:
         self.name = name
         self.decl = decl
         self.methods = {}       # name -> method signature
+        self.new_sig = None     # a struct's `new`, if it has one (not among `methods`)
         self._words = None
 
     @property

@@ -268,6 +268,9 @@ class Checker:
                     raise CompileError(f"`{m.name}` is already a field of `{st.name}`", m.pos)
                 if m.name in st.methods:
                     raise CompileError(f"`{st.name}` already has a method `{m.name}`", m.pos)
+                if m.name == "new":
+                    st.new_sig = self.signature(m, st)
+                    continue
                 st.methods[m.name] = self.signature(m, st)
         for iface in self.interfaces.values():
             self.enter_file(iface.decl)
@@ -303,6 +306,8 @@ class Checker:
             if isinstance(item, S.FnDecl) and item.body is not None:
                 self.function(self.fns[item.name])
         for st in self.aggregates():
+            if st.new_sig is not None:
+                self.function(st.new_sig)
             for sig in st.methods.values():
                 self.function(sig)
         for actor in self.actors.values():
@@ -551,7 +556,7 @@ class Checker:
         self.nslots = 0
         self.loops = []          # labels of the enclosing loops, innermost last
         self.receiver = (sig.owner, sig.mutating) if sig.owner else None
-        self.in_new = is_actor(sig.owner) and decl.name == "new"
+        self.in_new = (is_actor(sig.owner) or is_struct(sig.owner)) and decl.name == "new"
         self.assigned = set()
         self.locked = {}
         self.moved, self.break_states, self.loop_entries = {}, [], []
@@ -918,6 +923,8 @@ class Checker:
                 st = self.generic_instance(e.name, expected, e.pos)
             if st is not None:
                 self.require_visible(st.decl, st.name, e.pos)
+                if v is None and st.new_sig is not None:
+                    return self.build_with_new(e, st)
                 if v is None and st.decl.file != self.file and len(st.public_fields) < len(st.fields):
                     raise CompileError(
                         f"`{st.name}` has private fields, so it can only be built in "
@@ -964,6 +971,8 @@ class Checker:
             if not any(name == e.field for name, _ in st.fields):
                 hint = " (it's a method: call it with `(...)`)" if e.field in st.methods else ""
                 raise CompileError(f"`{st.name}` has no field `{e.field}`{hint}", e.pos)
+            if self.in_new and e.obj is None and e.field not in self.assigned:
+                raise CompileError(f"`.{e.field}` is read before `new` sets it", e.pos)
             if st.decl.file != self.file and e.field not in st.public_fields:
                 raise CompileError(
                     f"`{e.field}` is private to {os.path.basename(st.decl.file)}; "
@@ -977,6 +986,9 @@ class Checker:
             sig = st.methods.get(e.name)
             if sig is None:
                 raise CompileError(f"`{st.name}` has no method `{e.name}`", e.pos)
+            if self.in_new and e.obj is None and len(self.assigned) < len(self.receiver[0].fields):
+                raise CompileError("`new` can't call a method on its own struct until every "
+                                   "field is set", e.pos)
             if st.decl.file != self.file and not sig.decl.public:
                 raise CompileError(
                     f"`{e.name}` is private to {os.path.basename(st.decl.file)}; "
@@ -1214,6 +1226,20 @@ class Checker:
             raise CompileError(f"`stop` takes an actor reference, not {ty}", e.args[0].pos)
         return UNIT
 
+    def build_with_new(self, e, st):
+        """`Name(a: 1, b: 2)` for a struct that has a `new`: the arguments are those of `new`,
+        and it runs on a fresh zeroed value (decision 155)."""
+        if self.fn is None:
+            raise CompileError("constants must be numbers or bools", e.pos)
+        sig = st.new_sig
+        params = [(p.name, ty) for p, (ty, _) in zip(sig.decl.params, sig.params)]
+        self.named_fields(e.name, params, [(n, p) for n, _, p in e.fields], e.pos, of_new=True)
+        self.check_args(f"`{st.name}`'s `new`", sig.params, [value for _, value, _ in e.fields],
+                        e.pos, sig=sig)
+        e.variant, e.new_sig = None, sig
+        e.temp = self.alloc(st.words)
+        return st
+
     def generic_instance(self, base, expected, pos):
         """Which instance of the generic `base` a value being built is: the type of the place it
         goes to. Nothing else decides it, so a value with nowhere to go is an error."""
@@ -1419,11 +1445,15 @@ class Checker:
         e.temp = self.alloc(sent.words)
         return sent
 
-    def named_fields(self, owner, fields, given, pos):
-        """`given` [(name, pos)] must name every field once, in declared order."""
+    def named_fields(self, owner, fields, given, pos, of_new=False):
+        """`given` [(name, pos)] must name every field once, in declared order (every parameter
+        of the struct's `new`, if `of_new`)."""
         wanted = [name for name, _ in fields]
+        what = "parameter" if of_new else "field"
         for name, at in given:
             if name not in wanted:
+                if of_new:
+                    raise CompileError(f"`new` of `{owner}` has no parameter `{name}`", at)
                 raise CompileError(f"`{owner}` has no field `{name}`", at)
         names = [name for name, _ in given]
         if names != wanted:
@@ -1431,8 +1461,8 @@ class Checker:
             if missing:
                 raise CompileError(f"`{owner}(...)` is missing `{missing[0]}`", pos)
             raise CompileError(
-                f"write the fields of `{owner}` once each, in the order they are declared: "
-                f"{', '.join(wanted)}", pos)
+                f"write the {what}s of {'`new` of ' if of_new else ''}`{owner}` once each, in the "
+                f"order they are declared: {', '.join(wanted)}", pos)
 
     def require_unlocked(self, root, action, text, pos):
         if root in self.locked:
@@ -1528,7 +1558,7 @@ class Checker:
         s.target.struct = actor
         s.target.ty = fty
         self.expr(s.value, fty)
-        if name in actor.iso_fields:
+        if name in getattr(actor, "iso_fields", ()):
             self.require_fresh(s.value, f"`.{name}`")
         self.assigned.add(name)
         return False

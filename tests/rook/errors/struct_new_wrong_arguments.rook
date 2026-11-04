@@ -1,0 +1,14 @@
+// A struct with a new is built with new's arguments, not its fields.
+// error: 13:24: `new` of `Couple` has no parameter `total`
+
+struct Couple {
+    total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+}
+
+fn f() {
+    c: Couple = Couple(total: 1)
+}

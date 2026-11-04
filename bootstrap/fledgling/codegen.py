@@ -656,6 +656,24 @@ class Gen:
 
     def struct_lit(self, e):
         st = e.ty
+        if e.new_sig is not None:
+            # A struct with a `new`: start from zeros and run `new` on the value's address,
+            # with the arguments after it (a method call whose receiver is the new value).
+            self.region_addr(e.temp, st.words, "x1")
+            for w in range(st.words):
+                self.emit(f"str xzr, [x1, #{8 * w}]")
+            self.region_addr(e.temp, st.words)
+            self.push()
+            n = 1
+            for _, value, _ in e.fields:
+                self.expr(value)
+                self.push()
+                n += 1
+            for i in reversed(range(n)):
+                self.pop(f"x{i}")
+            self.emit(f"bl {e.new_sig.decl.symbol}")
+            self.region_addr(e.temp, st.words)
+            return
         owner = e.variant if e.variant is not None else st
         for (name, value, _), (_, fty) in zip(e.fields, owner.fields):
             offset, _ = owner.offset(name)

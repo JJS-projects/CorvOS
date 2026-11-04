@@ -1,0 +1,16 @@
+// Every argument of new is given.
+// error: 15:17: `Couple(...)` is missing `b`
+
+struct Couple {
+    first: u64
+    second: u64
+
+    new(a: u64, b: u64) {
+        .first = a
+        .second = b
+    }
+}
+
+fn f() {
+    c: Couple = Couple(a: 1)
+}

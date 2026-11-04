@@ -1148,6 +1148,18 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   A generic struct with private fields cannot be built outside its file (it has no way to be built from
   there yet: how a library `List<T>` is made is the next question).
 
+### 11.20 Rules settled while building `new` in structs (step 5c)
+
+- **A struct may declare `new(params) { }`** (not `pub`, no result), as an actor does. It runs on a
+  fresh zeroed value and must set every field once, at the top level of its body with `.field = value`;
+  it may not read a field, or call a method of its own struct, before every field is set. A struct
+  without a `new` is built field by field as before.
+- **Building.** `Counter(start: 5, step: 3)` writes the type's name with the arguments of `new`, named
+  and in order. A struct with a `new` is built only through it, also in its own file; this is how a type with
+  private fields is made from another file. For a generic struct the instance comes from the place the
+  value goes to (11.19): `s: SupportStack<Local> = SupportStack(first: Local(n: 4))`.
+- `new` is not a method: `value.new(...)` is an error. Enums have no `new`. (Owner's choice, decision 155.)
+
 ## 12. Open questions
 
 - **Namespacing**: names are unique across a whole program, so a larger piece of software

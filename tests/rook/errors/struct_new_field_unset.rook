@@ -1,0 +1,11 @@
+// new must set every field.
+// error: 8:5: `new` must set every field: `.second` is never set
+
+struct Couple {
+    first: u64
+    second: u64
+
+    new(a: u64) {
+        .first = a
+    }
+}

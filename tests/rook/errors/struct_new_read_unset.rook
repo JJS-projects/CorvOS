@@ -1,0 +1,12 @@
+// new does not read a field before it is set.
+// error: 9:20: `.first` is read before `new` sets it
+
+struct Couple {
+    first: u64
+    second: u64
+
+    new(a: u64) {
+        .second = .first
+        .first = a
+    }
+}

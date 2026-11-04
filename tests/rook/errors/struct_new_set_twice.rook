@@ -1,0 +1,11 @@
+// new sets each field once.
+// error: 9:16: `.first` is already set: `new` sets each field once
+
+struct Couple {
+    first: u64
+
+    new(a: u64) {
+        .first = a
+        .first = a + 1
+    }
+}
