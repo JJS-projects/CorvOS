@@ -1,0 +1,18 @@
+// `get` past the end is refused.
+//
+// Worked out: two values are pushed; index 1 is the last (prints 8), index 2 panics.
+// expect: 8
+// expect-panic: index outside List at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: List, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut l: List<u64> = List(region: region)
+    l.push(5)
+    l.push(8)
+    print_u64(l.get(1))
+    print_u64(l.get(2))
+}

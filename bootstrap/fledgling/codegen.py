@@ -509,6 +509,37 @@ class Gen:
         elif isinstance(e, S.Call) and e.callee in LOAD_INSNS:
             self.expr(e.args[0])
             self.emit(f"{LOAD_INSNS[e.callee]}, [x0]")         # exactly one access
+        elif isinstance(e, S.Call) and e.callee == "words_of":
+            self.emit(f"mov x0, #{e.words}")
+        elif isinstance(e, S.Call) and e.callee == "store_element":
+            self.expr(e.args[0])
+            self.push()
+            self.expr(e.args[1])
+            self.push()
+            self.expr(e.args[2])                    # the value (a struct gives its address)
+            self.pop("x2")                          # index
+            self.pop("x3")                          # base
+            self.emit(f"mov x16, #{8 * e.words}")
+            self.emit("mul x2, x2, x16")
+            self.emit("add x1, x3, x2")             # where the slot is
+            if is_aggregate(e.args[2].ty):
+                self.copy_words(e.words)
+            else:
+                self.emit("str x0, [x1]")
+        elif isinstance(e, S.Call) and e.callee == "load_element":
+            self.expr(e.args[0])
+            self.push()
+            self.expr(e.args[1])
+            self.pop("x1")                          # base
+            self.emit(f"mov x16, #{8 * e.words}")
+            self.emit("mul x0, x0, x16")
+            self.emit("add x0, x1, x0")             # where the slot is
+            if is_aggregate(e.ty):
+                self.region_addr(e.temp, e.words, "x1")
+                self.copy_words(e.words)
+                self.region_addr(e.temp, e.words)
+            else:
+                self.emit("ldr x0, [x0]")
         elif isinstance(e, S.Call) and e.callee == "watch":
             self.expr(e.args[0])
             self.push()

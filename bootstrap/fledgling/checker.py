@@ -56,7 +56,8 @@ STORES = {f"store{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
 # reference it holds: `actor_address(reference)` is the reference as a number, and
 # `handler_number("fired")` is the number messages use for the handlers of that name.
 # Both are allowed only inside `unsafe { }` in trusted files, like loads and stores.
-BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "stop", "actor_address", "handler_number"}
+BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "stop", "actor_address", "handler_number",
+                                                  "store_element", "load_element", "words_of"}
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -898,7 +899,7 @@ class Checker:
             return target
 
         if isinstance(e, S.Call) and e.callee in BUILTINS:
-            return self.builtin(e)
+            return self.builtin(e, expected)
 
         if isinstance(e, S.Call):
             sig = self.fns.get(e.callee)
@@ -1123,7 +1124,7 @@ class Checker:
 
     # ---- built-ins and text --------------------------------------------
 
-    def builtin(self, e):
+    def builtin(self, e, expected=None):
         name = e.callee
         if self.fn is None:
             raise CompileError("constants can't call functions", e.pos)
@@ -1146,6 +1147,41 @@ class Checker:
             raise CompileError(
                 f"`{name}` touches memory the compiler can't check, so it is only allowed {where}",
                 e.pos)
+        if name == "words_of":
+            # words_of(value): how many 8-byte words a value of this type takes (a constant; the
+            # argument is only looked at for its type, so it must be a name or a field).
+            if len(e.args) != 1 or not isinstance(e.args[0], (S.Name, S.FieldAccess)):
+                raise CompileError("`words_of` takes one argument: a variable or a field, only "
+                                   "for its type", e.pos)
+            e.words = words(self.expr(e.args[0]))
+            return U64
+        if name == "store_element":
+            # store_element(base, index, value): the words of `value` go to the `index`-th slot
+            # of an array of such values starting at `base` (a slot is 8 bytes per word of the
+            # value). Only Raven's trusted code can say where; used by `List`.
+            if len(e.args) != 3:
+                raise CompileError("`store_element` takes three arguments: an address, an index "
+                                   "and the value", e.pos)
+            self.expr(e.args[0], U64)
+            self.expr(e.args[1], U64)
+            ty = self.expr(e.args[2])
+            e.words = words(ty)
+            return UNIT
+        if name == "load_element":
+            # load_element(base, index): the value in the `index`-th slot; its type is the type
+            # of the place it goes to.
+            if len(e.args) != 2:
+                raise CompileError("`load_element` takes two arguments: an address and an index",
+                                   e.pos)
+            if expected is None:
+                raise CompileError("`load_element` loads whatever type the place it goes to has: "
+                                   "write `x: Type = load_element(...)`", e.pos)
+            self.expr(e.args[0], U64)
+            self.expr(e.args[1], U64)
+            e.words = words(expected)
+            if is_aggregate(expected):
+                e.temp = self.alloc(expected.words)
+            return expected
         if name == "actor_address":
             if len(e.args) != 1:
                 raise CompileError("`actor_address` takes one argument: a reference", e.pos)

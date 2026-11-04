@@ -28,8 +28,17 @@ actor arena. `make_region(peripherals)` makes the one `Region` (only from the wh
 and only once). `region.block(bytes)` returns a zeroed `Block`; nothing is ever freed, because a
 job runs once and ends. A `Block` is read and written by byte (`get`, `set`) or by 64-bit word
 (`get64`, `set64`), every access checked against its length; safe code never sees an address and
-cannot build a `Block` itself (decision 96). `Region.left()` says how much is left. Growable lists
-and maps (step 5c) are built on blocks inside trusted Rook; a full region panics.
+cannot build a `Block` itself (decision 96). `Region.left()` says how much is left. A full region panics.
+A `Region` is a handle: the free address is kept in the actor arena, so a copy of it allocates from
+the same pool (decision 156), and a `List` can hold one and grow itself.
+
+## Lists (step 5c, decision 156)
+
+`List<T>` (in `raven/trusted/region.rook`, `import region: List`) is a growable list of any `T`:
+`List(region: region)` builds an empty one (the element type comes from the place it goes to, as for
+`Some(...)`), `push`, `pop`, `get`, `set`, `len`, `clear`. It takes room from the region on the first
+`push` and doubles when full; indexes are checked; a struct or enum is stored word by word, and `get`
+returns a copy. Built on three trusted-only builtins (`store_element`, `load_element`, `words_of`).
 
 ## Stages
 

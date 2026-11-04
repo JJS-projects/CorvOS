@@ -1,0 +1,32 @@
+// Two lists made from the same region do not overlap, also while both grow (they take turns
+// asking the region for room).
+//
+// Worked out: `a` gets the multiples of 10 (10, 20, ..., 90) and `b` the multiples of 100 (100,
+// 200, ..., 900), pushed alternately, so their growth steps interleave. Afterwards `a` holds nine values
+// summing to 450 and `b` nine summing to 4500; none was overwritten by the other.
+// expect: 450
+// expect: 4500
+
+import devices: Mmio
+import print: print_u64
+import region: List, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut a: List<u64> = List(region: region)
+    mut b: List<u64> = List(region: region)
+    mut n: u64 = 1
+    pushing: loop n <= 9 {
+        a.push(n * 10)
+        b.push(n * 100)
+        n += 1
+    }
+    mut sum_a: u64 = 0
+    mut sum_b: u64 = 0
+    adding: loop i: u64 in 0..9 {
+        sum_a += a.get(i)
+        sum_b += b.get(i)
+    }
+    print_u64(sum_a)
+    print_u64(sum_b)
+}

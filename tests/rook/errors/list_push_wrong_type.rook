@@ -1,0 +1,11 @@
+// A List<u64> takes numbers, not bools.
+// error: 10:12: expected u64, found bool
+
+import devices: Mmio
+import region: List, Region, make_region
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut l: List<u64> = List(region: region)
+    l.push(true)
+}

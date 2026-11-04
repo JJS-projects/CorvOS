@@ -1,0 +1,6 @@
+// load_element is for Raven's trusted code only.
+// error: 5:14: `load_element` touches memory the compiler can't check, so it is only allowed in files under a trusted directory, inside `unsafe { }`
+
+fn f(base: u64) {
+    x: u64 = load_element(base, 0)
+}

@@ -149,6 +149,7 @@ fn test_main() {
 - Text is `"..."` (`Bytes`). `panic("msg")` ends the handler (the actor restarts, 148).
 - Messages carry `val`, `iso` and small structs/enums (up to 8 words copied).
 - Failure and restarts: rook.md §4.3 and §11.16.
+- `List<T>` (`import region: List, Region, make_region`): `l: List<u64> = List(region: region)`, `push`, `get`, `set`, `pop`, `len`, `clear` (§11.21).
 - A struct can declare `new(...)` like an actor and is then built only as `Name(arg: value, ...)` (§11.20).
 - Generics (structs and enums only): `enum Option<T> { Some(value: T)  None }`, used as `x: Option<u64> = Some(value: 3)`; the type comes from the place the value goes to, never from the arguments (§11.19).
 

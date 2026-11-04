@@ -1,0 +1,15 @@
+// `set` past the end is refused, and does not add a value.
+//
+// Worked out: one value is pushed; set(1, ...) is outside and panics.
+// expect-panic: index outside List at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: List, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut l: List<u64> = List(region: region)
+    l.push(5)
+    l.set(1, 9)
+}

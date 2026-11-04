@@ -1,0 +1,14 @@
+// A list with nothing pushed has no storage to read: `get(0)` panics (it does not read memory).
+//
+// Worked out: a new list is empty, so index 0 is outside.
+// expect-panic: index outside List at region.rook:*
+
+import devices: Mmio
+import print: print_u64
+import region: List, Region, make_region
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    l: List<u64> = List(region: region)
+    print_u64(l.get(0))
+}

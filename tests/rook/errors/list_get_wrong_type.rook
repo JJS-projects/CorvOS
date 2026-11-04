@@ -1,0 +1,11 @@
+// get gives the element type.
+// error: 10:17: expected bool, found u64
+
+import devices: Mmio
+import region: List, Region, make_region
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    l: List<u64> = List(region: region)
+    b: bool = l.get(0)
+}

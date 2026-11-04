@@ -1,0 +1,11 @@
+// The fields of a List are private to its file.
+// error: 10:16: `count` is private to region.rook; mark the field `pub` to use it in another file
+
+import devices: Mmio
+import region: List, Region, make_region
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    l: List<u64> = List(region: region)
+    n: u64 = l.count
+}
