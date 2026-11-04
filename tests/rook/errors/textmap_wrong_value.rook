@@ -1,0 +1,14 @@
+// A TextMap<u64> takes numbers as values.
+// error: 13:14: expected u64, found bool
+
+import devices: Mmio
+import region: Region, make_region
+import text: Text
+import textmap: TextMap
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut m: TextMap<u64> = TextMap(region: region)
+    mut k: Text = Text(region: region)
+    m.put(k, true)
+}

@@ -1,0 +1,13 @@
+// The table of a TextMap is private to its file.
+// error: 12:16: `slots` is private to textmap.rook; mark the field `pub` to use it in another file
+
+import devices: Mmio
+import region: Region, make_region
+import text: Text
+import textmap: TextMap
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    m: TextMap<u64> = TextMap(region: region)
+    n: u64 = m.slots.len()
+}

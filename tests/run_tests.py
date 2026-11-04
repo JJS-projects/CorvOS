@@ -719,7 +719,7 @@ def with_serial(mode, run):
 def check_serial_pty():
     """A Rook test passes with its output read from QEMU's serial port on a
     pseudo-terminal, as it will be from a real board's."""
-    test = RookTest.from_file(os.path.join(ROOT, "tests", "rook", "text.rook"))
+    test = RookTest.from_file(os.path.join(ROOT, "tests", "rook", "text_literals.rook"))
     result = with_serial("pty", lambda: test.run_on("raspi3b"))
     return None if result[0] else f"through a pty: {result[1]}"
 

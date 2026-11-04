@@ -151,6 +151,7 @@ fn test_main() {
 - Messages carry `val`, `iso` and small structs/enums (up to 8 words copied).
 - Failure and restarts: rook.md §4.3 and §11.16.
 - `Option<T>`/`Result<T, E>` (`import option: Option, Result`; variants `Some`, `None`, `Ok`, `Err` are taken) and `Text` (`import text: Text`; `t: Text = Text(region: region)`, `push`, `append("..")`, `append_dec`, `equals`, `hash`).
+- `TextMap<V>` (`import textmap: TextMap`): `put(text, v)`, `find(text) -> Option<V>`, `contains`, `len`, `key_at(i)`, `value_at(i)`.
 - `List<T>` (`import region: List, Region, make_region`): `l: List<u64> = List(region: region)`, `push`, `get`, `set`, `pop`, `len`, `clear` (§11.21).
 - A struct can declare `new(...)` like an actor and is then built only as `Name(arg: value, ...)` (§11.20).
 - Generics (structs and enums only): `enum Option<T> { Some(value: T)  None }`, used as `x: Option<u64> = Some(value: 3)`; the type comes from the place the value goes to, never from the arguments (§11.19).

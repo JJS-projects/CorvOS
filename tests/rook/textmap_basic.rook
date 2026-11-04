@@ -1,0 +1,86 @@
+// A map from text to values: `put`, `find`, `contains`, `len`, replacing a value, the order of
+// the entries, growth of the table, and a struct as the value.
+//
+// Worked out: forty keys "k0" to "k39" are put with the value n * n (so the table grows from 16 slots
+// to 32, 64 and 128, as it rehashes when half full). `len` is 40. `find("k7")` is Some(49), `find("k39")`
+// is Some(1521). A key never put, "k40", is None (printed 1000). Putting "k7" again with 5 replaces
+// its value and leaves `len` at 40; the sum of all forty values is then the sum of squares 0..39,
+// 39 * 40 * 79 / 6 = 20540, less 49 plus 5 = 20496. `key_at(0)` is "k0" (2 bytes) and `key_at(39)` is "k39"
+// (3 bytes): the lengths print 2 and 3, in the order added. A key built later from the same bytes finds the
+// same entry (the map copied the key it was given, so changing the first `Text` afterwards changes
+// nothing). The struct map holds Info(id, size): "a" is (1, 10), "b" is (2, 20); the size of "b" is 20.
+// expect: 40
+// expect: 49
+// expect: 1521
+// expect: 1000
+// expect: 40
+// expect: 20496
+// expect: 2
+// expect: 3
+// expect: 49
+// expect: 20
+
+import devices: Mmio
+import option: Option
+import print: print_u64
+import region: Region, make_region
+import text: Text
+import textmap: TextMap
+
+struct Info {
+    id: u64
+    size: u64
+}
+
+fn key_for(region: Region, n: u64) -> Text {
+    mut key: Text = Text(region: region)
+    key.append("k")
+    key.append_dec(n)
+    return key
+}
+
+fn value_or(o: Option<u64>, otherwise: u64) -> u64 {
+    match o {
+        Some(value: v) => return v
+        None => return otherwise
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut map: TextMap<u64> = TextMap(region: region)
+    mut n: u64 = 0
+    putting: loop n < 40 {
+        map.put(key_for(region, n), n * n)
+        n += 1
+    }
+    print_u64(map.len())
+    print_u64(value_or(map.find(key_for(region, 7)), 1000))
+    print_u64(value_or(map.find(key_for(region, 39)), 1000))
+    print_u64(value_or(map.find(key_for(region, 40)), 1000))
+    map.put(key_for(region, 7), 5)
+    print_u64(map.len())
+    mut sum: u64 = 0
+    adding: loop i: u64 in 0..map.len() {
+        sum += map.value_at(i)
+    }
+    print_u64(sum)
+    print_u64(map.key_at(0).len())
+    print_u64(map.key_at(39).len())
+    mut early: Text = Text(region: region)
+    early.append("k7")
+    map.put(early, 49)
+    early.push('!')
+    print_u64(value_or(map.find(key_for(region, 7)), 1000))
+    mut infos: TextMap<Info> = TextMap(region: region)
+    mut a: Text = Text(region: region)
+    a.append("a")
+    infos.put(a, Info(id: 1, size: 10))
+    mut b: Text = Text(region: region)
+    b.append("b")
+    infos.put(b, Info(id: 2, size: 20))
+    match infos.find(b) {
+        Some(value: info) => print_u64(info.size)
+        None => print_u64(0)
+    }
+}

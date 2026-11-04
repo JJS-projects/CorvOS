@@ -1,0 +1,13 @@
+// The keys of a TextMap are Text, not numbers.
+// error: 12:11: expected Text, found u64
+
+import devices: Mmio
+import region: Region, make_region
+import text: Text
+import textmap: TextMap
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut m: TextMap<u64> = TextMap(region: region)
+    m.put(5, 1)
+}

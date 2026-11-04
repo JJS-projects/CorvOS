@@ -42,3 +42,13 @@ pub struct SupportStack<T> {
         return .depth
     }
 }
+
+/// Holds a `SupportBox<T>`: a user of this type need not import `SupportBox` (the names a
+/// generic's text uses are checked in its own file, not in the file that writes `SupportHolder<T>`).
+pub struct SupportHolder<T> {
+    pub inner: SupportBox<T>
+
+    new(first: T) {
+        .inner = SupportBox(value: copy(first))
+    }
+}
