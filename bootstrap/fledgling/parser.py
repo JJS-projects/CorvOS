@@ -183,7 +183,14 @@ class Parser:
             if self.at("pub"):
                 self.advance()
                 member_public = True
-            if self.at("fn") or (self.at("mut") and self.peek(1).kind == "fn"):
+            if self.at("ident") and self.peek().text == "new" and self.peek(1).kind == "(":
+                if member_public:
+                    raise CompileError("`new` is not marked `pub`: whoever can see the type "
+                                       "can build it", self.peek().pos)
+                if any(m.name == "new" for m in methods):
+                    raise CompileError(f"`{name}` already has a `new`", self.peek().pos)
+                methods.append(self.struct_new(name))
+            elif self.at("fn") or (self.at("mut") and self.peek(1).kind == "fn"):
                 mutating = self.at("mut")
                 if mutating:
                     self.advance()
@@ -205,6 +212,26 @@ class Parser:
         self.open_blocks.pop()
         self.end_statement()
         return S.StructDecl(name, fields, methods, start.pos, public, params)
+
+    def struct_new(self, owner):
+        """`new(params) { }` in a struct: it sets every field, and is the only way to build
+        the struct (decision 155)."""
+        start = self.advance()                      # the word `new`
+        self.expect("(")
+        params = []
+        while not self.at(")"):
+            ptok = self.expect("ident", "parameter name")
+            self.expect(":")
+            params.append(S.Param(ptok.text, self.type_ref(), ptok.pos))
+            if not self.at(")"):
+                self.expect(",", "`,` or `)`")
+        self.expect(")")
+        if self.at("->"):
+            raise CompileError("`new` has no result: it sets the fields of the struct it builds",
+                               self.peek().pos)
+        body = self.block({"new"})
+        self.end_statement()
+        return S.FnDecl("new", params, None, body, start.pos, False, True, owner, None)
 
     def actor_decl(self, public):
         start = self.expect("actor")

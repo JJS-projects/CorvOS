@@ -1,0 +1,14 @@
+// A struct has one new.
+// error: 11:5: `Couple` already has a `new`
+
+struct Couple {
+    first: u64
+
+    new(a: u64) {
+        .first = a
+    }
+
+    new(a: u64, b: u64) {
+        .first = a + b
+    }
+}

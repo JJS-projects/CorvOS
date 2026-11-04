@@ -1,0 +1,16 @@
+// new does not call a method of its struct before every field is set.
+// error: 10:20: `new` can't call a method on its own struct until every field is set
+
+struct Couple {
+    first: u64
+    second: u64
+
+    new(a: u64) {
+        .first = a
+        .second = .double()
+    }
+
+    fn double() -> u64 {
+        return .first * 2
+    }
+}

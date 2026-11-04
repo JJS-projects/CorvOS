@@ -104,6 +104,7 @@ class StructLit(Expr):
         super().__post_init__()
         self.temp = None        # set by checker: frame slot of the new value
         self.variant = None     # set by checker: the Variant, for an enum value
+        self.new_sig = None     # set by checker: the struct's `new`, if the value is built by it
 
 
 @dataclass

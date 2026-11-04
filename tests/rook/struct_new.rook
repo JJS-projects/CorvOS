@@ -1,0 +1,44 @@
+// A struct can declare `new`, as an actor does: it runs on a fresh value, sets every field, and is
+// the only way to build the struct. The caller writes the type's name with the arguments of `new`
+// (named, in order).
+//
+// Worked out: `Counter(start: 5, step: 3)` sets total = 5 and step = 3 and a `limit` of 5 + 3 * 4 = 17
+// computed in `new` from the arguments. `bump` twice makes the total 5 + 3 + 3 = 11 and `left()` is
+// 17 - 11 = 6. A second counter `Counter(start: 0, step: 1)` has limit 4 and total 0, so after one
+// `bump` its `left()` is 3. They don't share anything.
+// expect: 11
+// expect: 6
+// expect: 3
+
+import print: print_u64
+
+struct Counter {
+    total: u64
+    step: u64
+    limit: u64
+
+    new(start: u64, step: u64) {
+        .total = start
+        .step = step
+        .limit = start + step * 4
+    }
+
+    mut fn bump() {
+        .total = .total + .step
+    }
+
+    fn left() -> u64 {
+        return .limit - .total
+    }
+}
+
+fn test_main() {
+    mut a: Counter = Counter(start: 5, step: 3)
+    a.bump()
+    a.bump()
+    print_u64(a.total)
+    print_u64(a.left())
+    mut b: Counter = Counter(start: 0, step: 1)
+    b.bump()
+    print_u64(b.left())
+}
