@@ -1219,6 +1219,9 @@ class Checker:
         goes to. Nothing else decides it, so a value with nowhere to go is an error."""
         if expected is not None and is_aggregate(expected) and expected.decl.generic_base == base:
             return expected
+        if expected is not None and (is_aggregate(expected) or is_int(expected) or expected == BOOL):
+            raise CompileError(f"expected {expected}, found a value of the generic type `{base}`",
+                               pos)
         raise CompileError(
             f"`{base}` is generic: say which type this is by writing the type where the value "
             f"goes, as in `x: {base}<...> = ...`", pos)

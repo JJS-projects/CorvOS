@@ -8,12 +8,16 @@
 // struct copies it, so one source serves both; every instance is checked as written, with its own `T`),
 // and 41 + 1 = 42.
 // The ordinary struct `Flags` is built from the second pair (false, 9); `set_on` makes `active` true,
-// and `describe` adds 10 when `active` is true: 9 + 10 = 19.
+// and `describe` adds 10 when `active` is true: 9 + 10 = 19. Two instances that share their first
+// argument but not the second, `Pair<u64, u64>` (5, 6) and `Pair<u64, bool>` (5, true), are different
+// types: the first's `second` is 6 and prints 5 for `first`; the second's `second` is true, printing 1.
 // expect: 3
 // expect: 1
 // expect: 3
 // expect: 42
 // expect: 19
+// expect: 5
+// expect: 1
 
 import print: print_u64
 
@@ -60,4 +64,7 @@ fn test_main() {
     mut f: Flags = Flags(active: q.first, count: q.second)
     f.set_on()
     print_u64(f.describe())
+    same_first: Pair<u64, u64> = Pair(first: 5, second: 6)
+    print_u64(same_first.first)
+    print_u64(if p.second { 1 } else { 0 })
 }
