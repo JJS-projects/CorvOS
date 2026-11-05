@@ -1,0 +1,4 @@
+# Programs expanded by the self-hosted generics pass and by Fledgling: the results must be the same.
+# A line is the files of one program, in order. `make selfhost-check` does every test program with Raven's files.
+raven/option.rook tests/rook/generics_option.rook
+raven/trusted/region.rook raven/text.rook raven/textmap.rook raven/option.rook tests/rook/support/generic_library.rook tests/rook/generics_files.rook

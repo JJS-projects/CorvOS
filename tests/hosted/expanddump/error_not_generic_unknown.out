@@ -1,0 +1,1 @@
+error a.rook:4:9: `Missing` is not generic, so it takes no type arguments

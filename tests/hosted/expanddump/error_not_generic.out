@@ -1,0 +1,1 @@
+error a.rook:7:9: `Plain` is not generic, so it takes no type arguments

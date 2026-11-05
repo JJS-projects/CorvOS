@@ -1,0 +1,19 @@
+Program
+  Struct 1:1 Plain
+    TypeParams
+    Fields
+      Field 2:5 x
+        Type 2:8 u8
+    Methods
+    File a.rook
+  Fn 4:1 f
+    Params
+      Param 4:6 a
+        Type 4:9 Plain
+          Type 4:15 u64
+      Param 4:21 b
+        Type 4:24 Missing
+          Type 4:32 u8
+    none
+    Block 4:37
+    File a.rook

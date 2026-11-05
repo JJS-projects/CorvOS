@@ -1,0 +1,6 @@
+@@@ trusted a.rook
+fn f( {
+}
+@@@ b.rook
+fn g() {
+}

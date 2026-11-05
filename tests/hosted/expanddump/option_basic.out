@@ -1,0 +1,67 @@
+Program
+  Import 1:1
+    ModuleName 1:8 option
+    ImportName 1:16 Option
+    File main.rook
+  Fn 2:1 f
+    Params
+      Param 2:6 a
+        Type 2:9 Option<u64>
+          VisibleIn main.rook
+      Param 2:22 b
+        Type 2:29 mut Option<bool>
+          VisibleIn main.rook
+    Type 2:46 Option<u64>
+      VisibleIn main.rook
+    Block 2:58
+      Decl 3:5 x
+        Type 3:8 Option<u64>
+          VisibleIn main.rook
+        StructLit 3:22 Some
+          FieldInit 3:27 value
+            Int 3:34 1
+      Decl 4:5 y
+        Type 4:8 Option<bool>
+          VisibleIn main.rook
+        Name 4:23 None
+      Return 5:5
+        Name 5:12 x
+    File main.rook
+  Enum 1:5 pub Option<u64>
+    TypeParams
+    Variants
+      Variant 2:5 Some
+        Fields
+          Field 2:10 value
+            Type main.rook:2:16 u64
+              VisibleIn main.rook
+      Variant 3:5 None
+        none
+    Methods
+      Fn 4:5 is_some
+        Params
+        Type 4:21 bool
+        Block 4:26
+          Return 5:9
+            Bool 5:16 true
+    GenericBase Option
+    File option.rook
+  Enum 1:5 pub Option<bool>
+    TypeParams
+    Variants
+      Variant 2:5 Some
+        Fields
+          Field 2:10 value
+            Type main.rook:2:36 bool
+              VisibleIn main.rook
+      Variant 3:5 None
+        none
+    Methods
+      Fn 4:5 is_some
+        Params
+        Type 4:21 bool
+        Block 4:26
+          Return 5:9
+            Bool 5:16 true
+    GenericBase Option
+    File option.rook

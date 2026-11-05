@@ -1,0 +1,126 @@
+// Stage 5d-3a of the self-hosted compiler: the generics pass, run hosted (docs/self-hosting.md).
+// It reads a stream of files from the UART (ended by the byte 4; each file starts with a line
+// `@@@ PATH` or `@@@ trusted PATH`), parses them, expands the generics and prints the resulting
+// program in the format of `python3 -m fledgling FILES --dump-expanded`: the tree dump of
+// parsedump, a place in another file than its top-level item's written `FILE:LINE:COL`, and
+// `VisibleIn`, `GenericBase` and `File` lines for what the pass sets. If anything fails, the one
+// line is `error FILE:LINE:COL: MESSAGE`.
+
+import bytes: Bytes
+import devices: Mmio
+import generics: Generics
+import parser: Node
+import pl011: Pl011
+import program: Program, SourceFile
+import region: List, Region, make_region
+import text: Text
+
+END_OF_INPUT: u8 = 4
+
+fn put_text(console: Pl011, t: Text) {
+    printing: loop i: u64 in 0..t.len() {
+        console.put(t.at(i))
+    }
+}
+
+fn put_error(console: Pl011, files: List<SourceFile>, file: u64, line: u64, col: u64, message: Text) {
+    console.write("error ")
+    put_text(console, files.get(file - 1).path)
+    console.put(':')
+    console.write_dec(line)
+    console.put(':')
+    console.write_dec(col)
+    console.write(": ")
+    put_text(console, message)
+    console.put('\n')
+}
+
+fn put_indent(console: Pl011, depth: u64) {
+    indenting: loop i: u64 in 0..depth {
+        console.write("  ")
+    }
+}
+
+/// A line for a part the pass adds to a node: `KIND TEXT`.
+fn put_extra(console: Pl011, depth: u64, kind: Bytes, text: Text) {
+    put_indent(console, depth)
+    console.write(kind)
+    console.put(' ')
+    put_text(console, text)
+    console.put('\n')
+}
+
+/// Prints node `index` and, below it, its children. `here` is the file of the top-level item it is in.
+fn put_node(console: Pl011, nodes: List<Node>, files: List<SourceFile>, index: u64, depth: u64, here: u64) {
+    node: Node = nodes.get(index)
+    mut item_file: u64 = here
+    if depth == 1 and node.line != 0 {
+        item_file = node.file
+    }
+    put_indent(console, depth)
+    put_text(console, node.kind)
+    if node.line != 0 {
+        console.put(' ')
+        if node.file != 0 and node.file != item_file {
+            put_text(console, files.get(node.file - 1).path)
+            console.put(':')
+        }
+        console.write_dec(node.line)
+        console.put(':')
+        console.write_dec(node.col)
+    }
+    if node.text.len() > 0 {
+        console.put(' ')
+        put_text(console, node.text)
+    }
+    console.put('\n')
+    children: loop k: u64 in 0..(node.kids.len()) {
+        put_node(console, nodes, files, node.kids.get(k), depth + 1, item_file)
+    }
+    if node.visible_in != 0 {
+        put_extra(console, depth + 1, "VisibleIn", files.get(node.visible_in - 1).path)
+    }
+    if node.generic_base.len() > 0 {
+        put_extra(console, depth + 1, "GenericBase", node.generic_base)
+    }
+    if depth == 1 and node.file != 0 {
+        put_indent(console, depth + 1)
+        console.write("File ")
+        if files.get(node.file - 1).trusted {
+            console.write("trusted ")
+        }
+        put_text(console, files.get(node.file - 1).path)
+        console.put('\n')
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    region: Region = make_region(peripherals)
+    console.write("Hosted: begin\n")
+    mut stream: Text = Text(region: region)
+    reading: loop {
+        if console.has_byte() {
+            b: u8 = console.take()
+            if b == END_OF_INPUT {
+                break reading
+            }
+            stream.push(b)
+        }
+    }
+    mut program: Program = Program(region: region, stream: stream)
+    program.load()
+    if program.failed {
+        put_error(console, program.files, program.error_file, program.error_line, program.error_col, program.error)
+    } else {
+        mut generics: Generics = Generics(region: region, nodes: program.parser.nodes, root: program.root)
+        generics.run()
+        if generics.failed {
+            put_error(console, program.files, generics.error_file, generics.error_line, generics.error_col,
+                      generics.error)
+        } else {
+            put_node(console, generics.nodes, program.files, generics.root, 0, 0)
+        }
+    }
+    console.write("Hosted: end\n")
+}

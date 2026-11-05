@@ -1,0 +1,8 @@
+@@@ a.rook
+pub struct Box<T> {
+    pub x: T
+}
+@@@ b.rook
+import a: Box
+fn f(p: Box<u8>, q: Box) {
+}

@@ -1,0 +1,9 @@
+@@@ a.rook
+struct Box<T> {
+    x: T
+}
+struct Plain {
+    x: u8
+}
+fn f(a: Plain<u64>) {
+}

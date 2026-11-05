@@ -1,0 +1,8 @@
+@@@ a.rook
+struct Box<T> {
+    x: T
+}
+@@@ b.rook
+enum Box<U> {
+    A(x: U)
+}

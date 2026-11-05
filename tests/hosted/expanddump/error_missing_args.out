@@ -1,0 +1,1 @@
+error a.rook:5:9: `Pair` needs type arguments: write `Pair<A, B>` with the types

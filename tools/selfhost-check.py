@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check a self-hosted compiler stage against Fledgling on every Rook file of the repository.
 
-    tools/selfhost-check.py STAGE [FILE...]       STAGE is a hosted program with a reference: lexdump
+    tools/selfhost-check.py STAGE [FILE...]       STAGE is a hosted program with a reference: lexdump, parsedump, expanddump
     make selfhost-check                           the same for every stage, on every .rook file
 
 Runs `compiler/STAGE.rook` in QEMU on each file (the files of the repository's raven/, tests/rook/ and
@@ -28,12 +28,39 @@ def corpus():
     return files
 
 
+def program_corpus():
+    """The programs a whole-program stage is checked on: every test program and compiler program."""
+    files = []
+    for pattern in ("tests/rook/*.rook", "tests/rook/trusted/*.rook", "tests/rook/errors/*.rook",
+                    "tests/rook/errors/trusted/*.rook", "compiler/*.rook"):
+        files += sorted(glob.glob(os.path.join(ROOT, pattern)))
+    return files
+
+
+def program_files(stage, path):
+    """For a stage that works on a whole program: the files of the program `path` is, as the tests
+    compile it (Raven's Rook code, the test support files, the compiler's modules, and the file
+    itself); else ()."""
+    if stage not in run_tests.STREAM_STAGES:
+        return ()
+    rel = os.path.relpath(path, ROOT)
+    lib = run_tests.ROOK_LIB
+    if rel.startswith("tests/rook/errors/"):
+        alone = any(line.strip() == "// alone" for line in open(path) if line.strip().startswith("//"))
+        lib = [] if alone else run_tests.ERROR_LIB
+    elif rel.startswith("compiler/"):
+        lib = lib + sorted(glob.glob(os.path.join(ROOT, "compiler", "lib", "*.rook")))
+    return tuple(os.path.relpath(f, ROOT) for f in lib + [path])
+
+
 def main(argv):
     if not argv or argv[0] not in run_tests.HOSTED_REFERENCE:
         sys.exit(__doc__)
-    stage, files = argv[0], argv[1:] or corpus()
+    stage = argv[0]
+    files = argv[1:] or (program_corpus() if stage in run_tests.STREAM_STAGES else corpus())
     tests = [run_tests.HostedTest(f"{stage}:{os.path.relpath(f, ROOT)}", "", f"build/compiler/{stage}.img",
-                                  f, None, 120.0, True) for f in files]
+                                  f, None, 600.0 if stage in run_tests.STREAM_STAGES else 120.0, True,
+                                  program_files(stage, f)) for f in files]
     jobs = int(os.environ.get("JOBS", run_tests.DEFAULT_JOBS))
     bad = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:

@@ -1,0 +1,79 @@
+Program
+  Import 1:1
+    ModuleName 1:8 a
+    ImportName 1:11 Box
+    ImportName 1:16 Wrapper
+    File b.rook
+  Struct 2:1 Mine
+    TypeParams
+    Fields
+      Field 3:5 n
+        Type 3:8 u8
+    Methods
+    File b.rook
+  Fn 5:1 f
+    Params
+      Param 5:6 w
+        Type 5:9 Wrapper<Mine>
+          VisibleIn b.rook
+      Param 5:24 b
+        Type 5:27 Box<u64>
+          VisibleIn b.rook
+    none
+    Block 5:37
+    File b.rook
+  Struct 7:5 pub Wrapper<Mine>
+    TypeParams
+    Fields
+      Field 8:9 pub inner
+        Type 8:16 Box<Mine>
+          VisibleIn a.rook
+      Field 9:9 pub list
+        Type 9:15 Other<Box<Mine>>
+          VisibleIn a.rook
+    Methods
+    GenericBase Wrapper
+    File a.rook
+  Struct 1:5 pub Box<u64>
+    TypeParams
+    Fields
+      Field 2:9 pub item
+        Type b.rook:5:31 u64
+          VisibleIn b.rook
+    Methods
+      Fn 3:9 pub same
+        Params
+        Type 3:22 Box<u64>
+          VisibleIn a.rook
+        Block 3:29
+          Return 4:9
+            Copy 4:16
+              SelfValue 4:21
+    GenericBase Box
+    File a.rook
+  Struct 1:5 pub Box<Mine>
+    TypeParams
+    Fields
+      Field 2:9 pub item
+        Type b.rook:5:17 Mine
+          VisibleIn b.rook
+    Methods
+      Fn 3:9 pub same
+        Params
+        Type 3:22 Box<Mine>
+          VisibleIn a.rook
+        Block 3:29
+          Return 4:9
+            Copy 4:16
+              SelfValue 4:21
+    GenericBase Box
+    File a.rook
+  Struct 11:5 pub Other<Box<Mine>>
+    TypeParams
+    Fields
+      Field 12:5 u
+        Type 9:21 Box<Mine>
+          VisibleIn a.rook
+    Methods
+    GenericBase Other
+    File a.rook

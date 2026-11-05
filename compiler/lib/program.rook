@@ -1,0 +1,124 @@
+// A whole program for the self-hosted compiler's stages that work on several files (5d-3 on): the
+// files come in one stream, each starting with a line `@@@ PATH` or `@@@ trusted PATH` (the format
+// of `fledgling.dump.split_stream`), and are lexed and parsed one after the other into one arena.
+// The first file that fails stops the load, with its path, as Fledgling's `compile_program` does.
+
+import lexer: Lexer
+import parser: Node, Parser
+import region: List, Region
+import text: Text
+
+pub struct SourceFile {
+    pub path: Text
+    pub trusted: bool
+}
+
+pub struct Program {
+    region: Region
+    stream: Text
+    pub files: List<SourceFile>     // file number n (1, 2, ...) is files.get(n - 1)
+    pub parser: Parser
+    pub root: u64                   // the Program node holding the items of every file
+    pub failed: bool
+    pub error: Text
+    pub error_line: u64
+    pub error_col: u64
+    pub error_file: u64             // the file number the error is in
+
+    new(region: Region, stream: Text) {
+        .region = copy(region)
+        .stream = copy(stream)
+        .files = List(region: region)
+        no_tokens: List<Token> = List(region: region)
+        .parser = Parser(region: region, tokens: no_tokens)
+        .root = 0
+        .failed = false
+        .error = Text(region: region)
+        .error_line = 0
+        .error_col = 0
+        .error_file = 0
+    }
+
+    /// Does a header line begin at byte `at` of the stream?
+    fn header_at(at: u64) -> bool {
+        return at + 4 <= .stream.len() and .stream.at(at) == '@' and .stream.at(at + 1) == '@' and
+            .stream.at(at + 2) == '@' and .stream.at(at + 3) == ' '
+    }
+
+    /// Where the line that starts at `at` ends (the place of its newline, or the end of the stream).
+    fn line_end(at: u64) -> u64 {
+        mut end: u64 = at
+        scanning: loop end < .stream.len() and .stream.at(end) != '\n' {
+            end += 1
+        }
+        return end
+    }
+
+    fn slice(from: u64, to: u64) -> Text {
+        mut piece: Text = Text(region: .region)
+        copying: loop k: u64 in from..to {
+            piece.push(.stream.at(k))
+        }
+        return piece
+    }
+
+    /// Lexes and parses the file whose text is `source` as file number `number`.
+    mut fn load_file(source: Text, number: u64) {
+        mut lexer: Lexer = Lexer(region: .region, source: source)
+        lexer.run()
+        if lexer.failed {
+            .failed = true
+            .error = copy(lexer.error)
+            .error_line = lexer.error_line
+            .error_col = lexer.error_col
+            .error_file = number
+            return
+        }
+        file_root: u64 = .parser.parse_file(lexer.tokens, number)
+        if .parser.failed {
+            .failed = true
+            .error = copy(.parser.error)
+            .error_line = .parser.error_line
+            .error_col = .parser.error_col
+            .error_file = .parser.error_file
+            return
+        }
+        items: List<u64> = copy(.parser.nodes.get(file_root).kids)
+        moving: loop k: u64 in 0..(items.len()) {
+            .parser.add(.root, items.get(k))
+        }
+    }
+
+    pub mut fn load() {
+        .root = .parser.new_program()
+        mut at: u64 = 0
+        mut number: u64 = 0                 // the file being collected (0: none yet)
+        mut start: u64 = 0                  // where its text begins
+        reading: loop at < .stream.len() and not .failed {
+            end: u64 = .line_end(at)
+            if .header_at(at) {
+                if number > 0 {
+                    .load_file(.slice(start, at), number)
+                    if .failed {
+                        break reading
+                    }
+                }
+                mut path: Text = Text(region: .region)
+                mut trusted: bool = false
+                mut from: u64 = at + 4
+                if end - from >= 8 and .slice(from, from + 8).same_as("trusted ") {
+                    trusted = true
+                    from += 8
+                }
+                path = .slice(from, end)
+                .files.push(SourceFile(path: copy(path), trusted: trusted))
+                number += 1
+                start = if end < .stream.len() { end + 1 } else { end }
+            }
+            at = if end < .stream.len() { end + 1 } else { end }
+        }
+        if not .failed and number > 0 {
+            .load_file(.slice(start, .stream.len()), number)
+        }
+    }
+}

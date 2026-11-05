@@ -1,0 +1,323 @@
+// The self-hosted generics pass: a port of bootstrap/fledgling/generics.py (decision 154), step 5d-3a.
+//
+// `enum Option<T> { ... }` is a template. Every `Option<u64>` written in the program makes a real
+// enum named `Option<u64>` (a copy of the template with `T` replaced), and the type reference is
+// rewritten to its name. This runs on the tree of all the files of a program (the arena that
+// compiler/lib/parser.rook made) and changes it in place: templates leave the list of items, the
+// instances are added at the end, in the order they are found. It is checked against Fledgling
+// on the same input as the dump `--dump-expanded` (docs/self-hosting.md).
+//
+// A type's name is the last word of its node's text; what comes before it (`mut`, `val`, `iso`) is kept.
+
+import bytes: Bytes
+import option: Option
+import parser: Node
+import region: List, Region
+import text: Text
+import textmap: TextMap
+
+pub struct Generics {
+    region: Region
+    pub nodes: List<Node>
+    pub root: u64                   // the Program node
+    templates: TextMap<u64>         // name -> the template's node
+    instances: TextMap<u64>         // name of the copy -> its node
+    pending: List<u64>              // instances whose type references are still to be rewritten
+    pub failed: bool
+    pub error: Text
+    pub error_line: u64
+    pub error_col: u64
+    pub error_file: u64
+
+    new(region: Region, nodes: List<Node>, root: u64) {
+        .region = copy(region)
+        .nodes = copy(nodes)
+        .root = root
+        .templates = TextMap(region: region)
+        .instances = TextMap(region: region)
+        .pending = List(region: region)
+        .failed = false
+        .error = Text(region: region)
+        .error_line = 0
+        .error_col = 0
+        .error_file = 0
+    }
+
+    // ---- text ----------------------------------------------------------
+
+    fn empty() -> Text {
+        return Text(region: .region)
+    }
+
+    fn quoted(words: Bytes) -> Text {
+        mut t: Text = Text(region: .region)
+        t.append(words)
+        return t
+    }
+
+    /// The word after the last space (the whole text if there is no space).
+    fn last_word(t: Text) -> Text {
+        mut from: u64 = 0
+        looking: loop k: u64 in 0..t.len() {
+            if t.at(k) == ' ' {
+                from = k + 1
+            }
+        }
+        mut word: Text = .empty()
+        copying: loop k: u64 in from..t.len() {
+            word.push(t.at(k))
+        }
+        return word
+    }
+
+    /// `t` with its last word replaced by `name`.
+    fn with_name(t: Text, name: Text) -> Text {
+        mut from: u64 = 0
+        looking: loop k: u64 in 0..t.len() {
+            if t.at(k) == ' ' {
+                from = k + 1
+            }
+        }
+        mut result: Text = .empty()
+        copying: loop k: u64 in 0..from {
+            result.push(t.at(k))
+        }
+        result.append_text(name)
+        return result
+    }
+
+    /// The words of `t`, as a list.
+    fn words(t: Text) -> List<Text> {
+        mut result: List<Text> = List(region: .region)
+        mut word: Text = .empty()
+        splitting: loop k: u64 in 0..(t.len() + 1) {
+            if k == t.len() or t.at(k) == ' ' {
+                if word.len() > 0 {
+                    result.push(copy(word))
+                    word = .empty()
+                }
+            } else {
+                word.push(t.at(k))
+            }
+        }
+        return result
+    }
+
+    // ---- errors --------------------------------------------------------
+
+    mut fn begin(n: u64) -> bool {
+        if .failed {
+            return false
+        }
+        node: Node = .nodes.get(n)
+        .failed = true
+        .error_line = node.line
+        .error_col = node.col
+        .error_file = node.file
+        return true
+    }
+
+    // ---- the tree ------------------------------------------------------
+
+    fn is_template(item: u64) -> bool {
+        node: Node = .nodes.get(item)
+        if not (node.kind.same_as("Struct") or node.kind.same_as("Enum")) {
+            return false
+        }
+        return .nodes.get(node.kids.get(0)).text.len() > 0
+    }
+
+    mut fn set_kids(n: u64, kids: List<u64>) {
+        mut node: Node = .nodes.get(n)
+        node.kids = copy(kids)
+        .nodes.set(n, node)
+    }
+
+    /// A copy of the subtree at `n`; returns the copy's node.
+    mut fn copy_tree(n: u64) -> u64 {
+        node: Node = .nodes.get(n)
+        mut kids: List<u64> = List(region: .region)
+        copying: loop k: u64 in 0..(node.kids.len()) {
+            kids.push(.copy_tree(node.kids.get(k)))
+        }
+        .nodes.push(Node(kind: copy(node.kind), text: copy(node.text), line: node.line, col: node.col,
+                         parens: node.parens, kids: copy(kids), file: node.file, visible_in: node.visible_in,
+                         generic_base: copy(node.generic_base)))
+        return .nodes.len() - 1
+    }
+
+    /// The template named `name`, or 0.
+    fn template(name: Text) -> u64 {
+        match .templates.find(name) {
+            Some(value: found) => return found
+            None => return 0
+        }
+    }
+
+    /// Replaces each use of a type parameter under `n` by the argument written for it.
+    mut fn substitute(n: u64, names: List<Text>, args: List<u64>, context: u64) {
+        node: Node = .nodes.get(n)
+        if node.kind.same_as("Type") and node.kids.len() == 0 {
+            name: Text = .last_word(node.text)
+            looking: loop k: u64 in 0..(names.len()) {
+                if names.get(k).equals(name) {
+                    arg: Node = .nodes.get(args.get(k))
+                    mut replaced: Node = .nodes.get(n)
+                    replaced.text = .with_name(node.text, .last_word(arg.text))
+                    // Errors about the argument point at where it was written, not into the template.
+                    replaced.visible_in = if arg.visible_in != 0 { arg.visible_in } else { context }
+                    replaced.line = arg.line
+                    replaced.col = arg.col
+                    replaced.file = arg.file
+                    .nodes.set(n, replaced)
+                    break looking
+                }
+            }
+        }
+        visiting: loop k: u64 in 0..(node.kids.len()) {
+            .substitute(node.kids.get(k), names, args, context)
+        }
+    }
+
+    mut fn make_instance(key: Text, decl: u64, args: List<u64>, context: u64) {
+        copied: u64 = .copy_tree(decl)
+        template_node: Node = .nodes.get(decl)
+        mut node: Node = .nodes.get(copied)
+        node.text = .with_name(node.text, key)
+        node.generic_base = .last_word(template_node.text)
+        .nodes.set(copied, node)
+        params_at: u64 = node.kids.get(0)
+        mut params_node: Node = .nodes.get(params_at)
+        names: List<Text> = .words(params_node.text)
+        params_node.text = .empty()
+        .nodes.set(params_at, params_node)
+        .substitute(copied, names, args, context)
+        .instances.put(key, copied)
+        mut root_node: Node = .nodes.get(.root)
+        root_node.kids.push(copied)
+        .nodes.set(.root, root_node)
+        .pending.push(copied)
+    }
+
+    /// Turns the type reference `n` and the references in its arguments into plain references to copies.
+    mut fn visit_type(n: u64, context: u64) {
+        node: Node = .nodes.get(n)
+        name: Text = .last_word(node.text)
+        arguments: loop k: u64 in 0..(node.kids.len()) {
+            .rewrite(node.kids.get(k), context)
+        }
+        if .failed {
+            return
+        }
+        decl: u64 = .template(name)
+        if decl == 0 {
+            if node.kids.len() > 0 {
+                if .begin(n) {
+                    .error.push('`')
+                    .error.append_text(name)
+                    .error.append("` is not generic, so it takes no type arguments")
+                }
+            }
+            return
+        }
+        params: List<Text> = .words(.nodes.get(.nodes.get(decl).kids.get(0)).text)
+        if node.kids.len() == 0 {
+            if .begin(n) {
+                .error.push('`')
+                .error.append_text(name)
+                .error.append("` needs type arguments: write `")
+                .error.append_text(name)
+                .error.push('<')
+                joining: loop k: u64 in 0..(params.len()) {
+                    if k > 0 {
+                        .error.append(", ")
+                    }
+                    .error.append_text(params.get(k))
+                }
+                .error.append(">` with the types")
+            }
+            return
+        }
+        if node.kids.len() != params.len() {
+            if .begin(n) {
+                .error.push('`')
+                .error.append_text(name)
+                .error.append("` takes ")
+                .error.append_dec(params.len())
+                .error.append(" type argument(s), not ")
+                .error.append_dec(node.kids.len())
+            }
+            return
+        }
+        mut key: Text = .empty()
+        key.append_text(name)
+        key.push('<')
+        naming: loop k: u64 in 0..(node.kids.len()) {
+            if k > 0 {
+                key.push(',')
+            }
+            key.append_text(.last_word(.nodes.get(node.kids.get(k)).text))
+        }
+        key.push('>')
+        if not .instances.contains(key) {
+            .make_instance(key, decl, node.kids, context)
+        }
+        mut renamed: Node = .nodes.get(n)
+        renamed.text = .with_name(renamed.text, key)
+        renamed.visible_in = context
+        empty_kids: List<u64> = List(region: .region)
+        renamed.kids = copy(empty_kids)
+        .nodes.set(n, renamed)
+    }
+
+    /// Walks the subtree at `n`, parents first, and rewrites every type reference in it.
+    mut fn rewrite(n: u64, context: u64) {
+        if .failed {
+            return
+        }
+        if .nodes.get(n).kind.same_as("Type") {
+            .visit_type(n, context)
+        }
+        node: Node = .nodes.get(n)
+        visiting: loop k: u64 in 0..(node.kids.len()) {
+            .rewrite(node.kids.get(k), context)
+        }
+    }
+
+    pub mut fn run() {
+        items: List<u64> = copy(.nodes.get(.root).kids)
+        scanning: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            if .is_template(item) {
+                name: Text = .last_word(.nodes.get(item).text)
+                if .templates.contains(name) {
+                    if .begin(item) {
+                        .error.push('`')
+                        .error.append_text(name)
+                        .error.append("` is already defined")
+                    }
+                    return
+                }
+                .templates.put(name, item)
+            }
+        }
+        if .templates.len() == 0 {
+            return
+        }
+        mut kept: List<u64> = List(region: .region)
+        filtering: loop k: u64 in 0..(items.len()) {
+            if not .is_template(items.get(k)) {
+                kept.push(items.get(k))
+            }
+        }
+        .set_kids(.root, kept)
+        rewriting: loop k: u64 in 0..(kept.len()) {
+            item: u64 = kept.get(k)
+            .rewrite(item, .nodes.get(item).file)
+        }
+        finishing: loop .pending.len() > 0 and not .failed {
+            decl: u64 = .pending.pop()
+            .rewrite(decl, .nodes.get(decl).file)
+        }
+    }
+}

@@ -134,6 +134,33 @@ first error is kept in `failed`/`error`/`error_line`/`error_col` and every loop 
 - `make selfhost-check` runs `tools/selfhost-check.py parsedump` on every Rook file of the repository.
 - The Python parser's other fields (the ones the checker fills in) are not part of the tree dump.
 
+## The generics pass, 5d-3a (decision 162)
+
+`compiler/lib/generics.rook` is `Generics`, a port of `bootstrap/fledgling/generics.py` (decision 154) that
+changes the arena of the parser in place; `compiler/lib/program.rook` loads a whole program; and
+`compiler/expanddump.rook` is the hosted program that reads the files, expands the generics and prints the
+program. Fledgling prints the same for the same files with
+`python3 -m fledgling FILE... [--trusted DIR] --dump-expanded`.
+
+**Several files in one stream.** From this stage a program is more than one file (the checker needs Raven's
+library beside the file it checks). The UART stream is the files one after another, each starting with a
+line `@@@ PATH` or `@@@ trusted PATH` (`@` cannot start anything in Rook, so no file has such a line; the
+text of a file ends at the next header). Each file is lexed and parsed with its own number, into one arena.
+The first file that fails stops the load; an error is the one line `error PATH:LINE:COL: MESSAGE`.
+
+**The format** is the tree dump of 5d-2, with these changes: a place in another file than the one its
+top-level item is in is written `PATH:LINE:COL` (a generic's instance has places from the file where its
+type arguments were written); a top-level item ends with a `File [trusted ]PATH` line; a type reference the
+pass rewrote has a `VisibleIn PATH` line (the file whose imports its name is checked in); an instance has a
+`GenericBase NAME` line. The templates are no longer items, and the instances come last, in the order found.
+Node `file`, `visible_in` and `generic_base` are the fields behind those lines.
+
+- `make test` runs `tests/hosted/expanddump/`: cases of one to three files (no generics, `Option`, two
+  parameters, nesting, instances in instances, a template in another file, modifiers, trusted files,
+  templates never used) and every error of the pass, plus the programs in `live.txt` against Fledgling.
+- `make selfhost-check` runs `tools/selfhost-check.py expanddump` on every test program and every compiler
+  program, each with Raven's files as the tests compile it (error tests as their `// alone` header says).
+
 ## Stages
 
 | Step | What | Test |

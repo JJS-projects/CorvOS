@@ -1,0 +1,25 @@
+@@@ a.rook
+pub struct Cell<T> {
+    value: T
+    new(value: T) {
+        .value = value
+    }
+    pub fn get() -> T {
+        return .value
+    }
+    pub mut fn set(v: T) {
+        .value = v
+    }
+}
+actor Holder {
+    c: val Cell<u64>
+    d: iso Cell<u8>
+    reliable on put(v: Cell<u16>) {
+    }
+}
+fn g(x: iso Cell<u32>, y: mut Cell<u64>) -> Cell<i8> {
+    for_each: loop i: Cell<u8> in 0..1 {
+    }
+    z: Cell<u64> = Cell(value: 1)
+    return z.get() as Cell<i8>
+}

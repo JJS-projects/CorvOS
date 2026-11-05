@@ -1,0 +1,9 @@
+@@@ a.rook
+import b: Thing
+fn f() -> u64 {
+    return 1
+}
+@@@ trusted b.rook
+pub struct Thing {
+    x: u64
+}

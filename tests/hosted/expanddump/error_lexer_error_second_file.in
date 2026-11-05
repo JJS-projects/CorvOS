@@ -1,0 +1,7 @@
+@@@ a.rook
+fn f() {
+}
+@@@ b.rook
+fn g() {
+	x
+}
