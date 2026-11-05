@@ -1,0 +1,20 @@
+pub actor Counter: Add, Show {
+    mut count: u64
+    pub name: val Text
+    owned: iso Buffer
+    new(start: u64, label: val Text) {
+        .count = start
+    }
+    reliable on add(n: u64) {
+        .count += n
+    }
+    pub lossy on show(to: mut Shower, data: iso Buffer) {
+        print_u64(.count)
+    }
+}
+interface Add {
+    reliable on add(n: u64)
+    lossy on poke(a: val Text, b: iso Thing, c: mut Other)
+}
+pub interface Empty {
+}

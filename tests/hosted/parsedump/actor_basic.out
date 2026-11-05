@@ -1,0 +1,67 @@
+Program
+  Actor 1:5 pub Counter
+    Implements
+      Interface 1:20 Add
+      Interface 1:25 Show
+    Fields
+      Field 2:9 mut count
+        Type 2:16 u64
+      Field 3:9 pub name
+        Type 3:19 val Text
+      Field 4:5 owned
+        Type 4:16 iso Buffer
+    Fn 5:5 mut new
+      Params
+        Param 5:9 start
+          Type 5:16 u64
+        Param 5:21 label
+          Type 5:32 val Text
+      none
+      Block 5:38
+        Assign 6:16 =
+          Access 6:10 count
+            none
+          Name 6:18 start
+    Handlers
+      Fn 8:14 mut reliable add
+        Params
+          Param 8:21 n
+            Type 8:24 u64
+        none
+        Block 8:29
+          Assign 9:16 +=
+            Access 9:10 count
+              none
+            Name 9:19 n
+      Fn 11:15 pub mut lossy show
+        Params
+          Param 11:23 to
+            Type 11:31 mut Shower
+          Param 11:39 data
+            Type 11:49 iso Buffer
+        none
+        Block 11:57
+          ExprStmt 12:9
+            Call 12:9 print_u64
+              Access 12:20 count
+                none
+  Interface 15:1 Add
+    Handlers
+      Fn 16:14 pub reliable add
+        Params
+          Param 16:21 n
+            Type 16:24 u64
+        none
+        none
+      Fn 17:11 pub lossy poke
+        Params
+          Param 17:19 a
+            Type 17:26 val Text
+          Param 17:32 b
+            Type 17:39 iso Thing
+          Param 17:46 c
+            Type 17:53 mut Other
+        none
+        none
+  Interface 19:5 pub Empty
+    Handlers

@@ -1,0 +1,1 @@
+error 2:9: `new` is not marked `pub`: whoever can see the type can build it

@@ -1,0 +1,1 @@
+error 2:5: an interface's handlers are not marked `pub`: anything that holds the interface can send them

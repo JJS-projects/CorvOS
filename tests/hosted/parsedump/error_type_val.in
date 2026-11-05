@@ -1,0 +1,3 @@
+fn f() {
+    x: val Foo = 1
+}

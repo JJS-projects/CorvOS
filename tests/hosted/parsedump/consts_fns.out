@@ -1,0 +1,29 @@
+Program
+  Const 1:1 K
+    Type 1:4 u64
+    Int 1:10 16
+  Const 2:5 pub NAME
+    Type 2:11 u8
+    Char 2:16 97
+  Fn 3:8 put
+    Params
+      Param 3:15 b
+        Type 3:18 u8
+    none
+    none
+  Fn 4:5 pub add
+    Params
+      Param 4:12 a
+        Type 4:15 u64
+      Param 4:20 b
+        Type 4:27 mut u64
+    Type 4:35 u64
+    Block 4:39
+      Return 5:5
+        Binary 5:14 +
+          Name 5:12 a
+          Name 5:16 b
+  Fn 7:1 nothing
+    Params
+    none
+    Block 7:14

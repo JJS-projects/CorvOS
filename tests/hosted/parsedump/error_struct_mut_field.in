@@ -1,0 +1,3 @@
+struct S {
+    mut x: u64
+}

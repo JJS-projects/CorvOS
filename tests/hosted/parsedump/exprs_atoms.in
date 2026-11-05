@@ -1,0 +1,16 @@
+fn f() {
+    a: u8 = 'a'
+    b: u8 = '\n'
+    c: Bytes = "hi\x41\n"
+    d: bool = true
+    e: u64 = - 5
+    g: u64 = - -5
+    h: i64 = -0
+    i: u64 = -(3)
+    j: u64 = 18446744073709551615
+    k: u64 = 0xFF + 0b11
+    l: u8 = k as u8
+    m: u8 = k wrap u8 as u16
+    n: u64 = -x
+    o: bool = not true
+}

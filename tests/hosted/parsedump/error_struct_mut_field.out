@@ -1,0 +1,1 @@
+error 2:5: struct fields aren't marked `mut`: a field can change when the variable holding the struct is `mut`

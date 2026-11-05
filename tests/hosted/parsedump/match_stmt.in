@@ -1,0 +1,17 @@
+fn f(r: Reply) {
+    match r {
+        Go(value: v) => return
+        Busy(job: _, who: w) => {
+            print(w)
+        }
+        Failed => print(1)
+        1, 2, 3 => print(2)
+        4..9 => print(3)
+        -5..-1 => discard g()
+        'a'..'z' => print(4)
+        else => print(5)
+    }
+    match r {
+        Idle => { }
+    }
+}

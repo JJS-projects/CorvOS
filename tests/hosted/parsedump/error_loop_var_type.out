@@ -1,0 +1,1 @@
+error 2:15: write the loop variable's type, as in `l: loop i: u64 in ...`

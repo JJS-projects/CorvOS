@@ -1,0 +1,1 @@
+error 2:8: `val` goes only on an actor's fields and `new` parameters for now

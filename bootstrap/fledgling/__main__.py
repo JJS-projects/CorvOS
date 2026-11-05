@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from . import compile_program, CompileError
-from .dump import dump_tokens
+from .dump import dump_tokens, dump_tree
 
 
 def main(argv=None):
@@ -19,7 +19,17 @@ def main(argv=None):
     ap.add_argument("--dump-tokens", action="store_true",
                     help="print the tokens of the one input file in the text format the "
                          "self-hosted lexer must match (docs/self-hosting.md), and stop")
+    ap.add_argument("--dump-tree", action="store_true",
+                    help="print the syntax tree of the one input file in the text format the "
+                         "self-hosted parser must match (docs/self-hosting.md), and stop")
     args = ap.parse_args(argv)
+
+    if args.dump_tree:
+        if len(args.inputs) != 1:
+            ap.error("--dump-tree takes exactly one input file")
+        with open(args.inputs[0]) as f:
+            sys.stdout.write(dump_tree(f.read()))
+        return 0
 
     if args.dump_tokens:
         if len(args.inputs) != 1:

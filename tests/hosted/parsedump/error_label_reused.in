@@ -1,0 +1,6 @@
+fn f() {
+    a: loop {
+        a: loop {
+        }
+    }
+}

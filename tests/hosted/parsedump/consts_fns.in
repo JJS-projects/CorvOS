@@ -1,0 +1,8 @@
+K: u64 = 0x10
+pub NAME: u8 = 'a'
+extern fn put(b: u8)
+pub fn add(a: u64, b: mut u64) -> u64 {
+    return a + b
+}
+fn nothing() {
+}

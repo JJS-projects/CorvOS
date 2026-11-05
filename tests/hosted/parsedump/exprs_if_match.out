@@ -1,0 +1,56 @@
+Program
+  Fn 1:1 f
+    Params
+      Param 1:6 r
+        Type 1:9 Reply
+    Type 1:19 u64
+    Block 1:23
+      Decl 2:5 a
+        Type 2:8 u64
+        IfExpr 2:14
+          Name 2:17 x
+          Int 2:21 1
+          Int 2:32 2
+      Decl 3:5 b
+        Type 3:8 u64
+        IfExpr 3:14
+          Name 3:17 x
+          Int 4:9 1
+          IfExpr 5:12
+            Name 5:15 y
+            Int 6:9 2
+            Int 8:9 3
+      Decl 10:5 c
+        Type 10:8 u64
+        IfExpr 10:14
+          Name 10:17 x
+          Int 10:21 1
+          Int 11:12 2
+      Decl 12:5 d
+        Type 12:8 u64
+        MatchExpr 12:14
+          Name 12:20 r
+          Arms
+            Arm 13:9
+              Patterns
+                PatternVariant 13:9 Go
+                  Bind 13:19 value v
+              Name 13:25 v
+            Arm 14:9
+              Patterns
+                PatternValue 14:9
+                  Name 14:9 Failed
+                  none
+              Int 14:19 0
+            Arm 15:9
+              Patterns
+                PatternValue 15:9
+                  Int 15:9 1
+                  Int 15:12 3
+              Return 15:17
+                Int 15:24 7
+            Arm 16:9
+              none
+              Break 16:17 out
+      Return 18:5
+        Name 18:12 d

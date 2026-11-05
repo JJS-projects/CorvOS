@@ -1,0 +1,35 @@
+Program
+  Fn 1:1 f
+    Params
+    none
+    Block 1:8
+      Loop 2:5 a
+        none
+        Block 2:13
+          Loop 3:9 b
+            none
+            Block 3:17
+              If 4:13
+                Name 4:16 x
+                Block 4:18
+                  Break 5:17 a
+                none
+  Struct 8:1 S
+    TypeParams
+    Fields
+      Field 9:5 x
+        Type 9:8 u64
+    Methods
+  Actor 11:1 A
+    Implements
+    Fields
+    none
+    Handlers
+      Fn 12:14 mut reliable go
+        Params
+        none
+        Block 12:22
+          Loop 13:9 c
+            none
+            Block 13:17
+              Break 14:13 c

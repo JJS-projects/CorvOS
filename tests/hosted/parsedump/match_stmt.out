@@ -1,0 +1,84 @@
+Program
+  Fn 1:1 f
+    Params
+      Param 1:6 r
+        Type 1:9 Reply
+    none
+    Block 1:16
+      Match 2:5
+        Name 2:11 r
+        Arms
+          Arm 3:9
+            Patterns
+              PatternVariant 3:9 Go
+                Bind 3:19 value v
+            Return 3:25
+              none
+          Arm 4:9
+            Patterns
+              PatternVariant 4:9 Busy
+                Bind 4:19 job _
+                Bind 4:27 who w
+            Block 4:33
+              ExprStmt 5:13
+                Call 5:13 print
+                  Name 5:19 w
+          Arm 7:9
+            Patterns
+              PatternValue 7:9
+                Name 7:9 Failed
+                none
+            ExprStmt 7:19
+              Call 7:19 print
+                Int 7:25 1
+          Arm 8:9
+            Patterns
+              PatternValue 8:9
+                Int 8:9 1
+                none
+              PatternValue 8:12
+                Int 8:12 2
+                none
+              PatternValue 8:15
+                Int 8:15 3
+                none
+            ExprStmt 8:20
+              Call 8:20 print
+                Int 8:26 2
+          Arm 9:9
+            Patterns
+              PatternValue 9:9
+                Int 9:9 4
+                Int 9:12 9
+            ExprStmt 9:17
+              Call 9:17 print
+                Int 9:23 3
+          Arm 10:9
+            Patterns
+              PatternValue 10:9
+                Int 10:9 -5
+                Int 10:13 -1
+            ExprStmt 10:19 discard
+              Call 10:27 g
+          Arm 11:9
+            Patterns
+              PatternValue 11:9
+                Char 11:9 97
+                Char 11:14 122
+            ExprStmt 11:21
+              Call 11:21 print
+                Int 11:27 4
+          Arm 12:9
+            none
+            ExprStmt 12:17
+              Call 12:17 print
+                Int 12:23 5
+      Match 14:5
+        Name 14:11 r
+        Arms
+          Arm 15:9
+            Patterns
+              PatternValue 15:9
+                Name 15:9 Idle
+                none
+            Block 15:17

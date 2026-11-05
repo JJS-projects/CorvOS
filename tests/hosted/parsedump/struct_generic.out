@@ -1,0 +1,20 @@
+Program
+  Struct 1:1 Pair
+    TypeParams A B
+    Fields
+      Field 2:5 first
+        Type 2:12 A
+      Field 3:5 second
+        Type 3:13 Option
+          Type 3:20 B
+    Methods
+  Enum 5:1 Option
+    TypeParams T
+    Variants
+      Variant 6:5 Some
+        Fields
+          Field 6:10 value
+            Type 6:17 T
+      Variant 7:5 None
+        none
+    Methods

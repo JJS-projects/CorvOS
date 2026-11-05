@@ -1,0 +1,1 @@
+error 1:7: return types are written with `->`, as in `fn f() -> u64`

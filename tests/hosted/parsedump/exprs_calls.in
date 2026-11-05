@@ -1,0 +1,18 @@
+fn f() {
+    a: Point = Point(x: 1, y: 2)
+    b: u64 = g(1, h(2), mut z)
+    c: u64 = a.x.y
+    d: u64 = a.m(1).n(2).o
+    e: Counter = spawn Counter(10, "x")
+    i: Add = narrow(e, Add)
+    j: Point = copy(a)
+    k: Point = consume(a)
+    l: Self = self
+    discard e.add(1)
+}
+struct S {
+    x: u64
+    fn m() -> u64 {
+        return .x + .helper(.) + 1
+    }
+}

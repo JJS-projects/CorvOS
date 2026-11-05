@@ -1,0 +1,1 @@
+error 3:14: each arm of a `match` used as a value is a single expression, without `{ }`

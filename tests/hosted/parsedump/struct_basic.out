@@ -1,0 +1,40 @@
+Program
+  Struct 1:5 pub Point
+    TypeParams
+    Fields
+      Field 2:9 pub x
+        Type 2:12 u64
+      Field 3:5 y
+        Type 3:8 i32
+    Methods
+      Fn 4:5 mut new
+        Params
+          Param 4:9 x
+            Type 4:12 u64
+          Param 4:17 y
+            Type 4:20 i32
+        none
+        Block 4:25
+          Assign 5:12 =
+            Access 5:10 x
+              none
+            Name 5:14 x
+          Assign 6:12 =
+            Access 6:10 y
+              none
+            Name 6:14 y
+      Fn 8:9 pub sum
+        Params
+        Type 8:21 u64
+        Block 8:25
+          Return 9:9
+            Access 9:17 x
+              none
+      Fn 11:9 mut bump
+        Params
+        none
+        Block 11:19
+          Assign 12:12 +=
+            Access 12:10 x
+              none
+            Int 12:15 1

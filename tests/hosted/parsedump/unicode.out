@@ -1,0 +1,11 @@
+Program
+  Fn 1:1 f
+    Params
+    none
+    Block 1:8
+      Decl 2:5 s
+        Type 2:8 Bytes
+        Str 2:16 x68c3a96c6c6f
+      Decl 3:5 e
+        Type 3:8 u64
+        Int 3:14 1

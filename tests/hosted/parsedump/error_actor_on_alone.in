@@ -1,0 +1,4 @@
+actor A {
+    on go() {
+    }
+}

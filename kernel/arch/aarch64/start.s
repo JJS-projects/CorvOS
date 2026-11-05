@@ -86,5 +86,5 @@ halt:
     .section .bss
     .balign 16
 boot_stack:
-    .space  16384
+    .space  262144
 boot_stack_top:
