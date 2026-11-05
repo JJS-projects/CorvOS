@@ -292,7 +292,8 @@ def complete_lines(output):
 
 
 def log_base(name, machine):
-    return os.path.join(LOG_DIR, name.replace("/", "__") + "." + machine)
+    # CI uploads the logs as an artifact, which refuses a name with ":" (live: cases)
+    return os.path.join(LOG_DIR, name.replace("/", "__").replace(":", "_") + "." + machine)
 
 
 def save_log(name, machine, output, qemu_log):
