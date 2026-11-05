@@ -53,6 +53,7 @@ def compile_everything():
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
         del sys.modules[name]
     from fledgling import compile_program
+    from fledgling.dump import dump_tokens
     lib = run_tests.ROOK_LIB
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
@@ -65,6 +66,9 @@ def compile_everything():
     # The two import cases a one-file test can't reach.
     run_tests.check_import_ambiguous()
     run_tests.check_suggest_imports()
+    # The token dump (the check in run_tests holds the module imported before the tracer started).
+    dump_tokens("x: u8 = 1\ns = \"a\"\n")
+    dump_tokens("x\ty\n")
     # Raven itself.
     raven = sorted(glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook"))
                    + glob.glob(os.path.join(ROOT, "raven", "*.rook")))
