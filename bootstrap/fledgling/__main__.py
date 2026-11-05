@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from . import compile_program, CompileError
+from .dump import dump_tokens
 
 
 def main(argv=None):
@@ -15,7 +16,17 @@ def main(argv=None):
                     help="a directory whose files may use `unsafe` and `extern fn`")
     ap.add_argument("--suggest-imports", action="store_true",
                     help="print the imports each file is missing, and generate nothing")
+    ap.add_argument("--dump-tokens", action="store_true",
+                    help="print the tokens of the one input file in the text format the "
+                         "self-hosted lexer must match (docs/self-hosting.md), and stop")
     args = ap.parse_args(argv)
+
+    if args.dump_tokens:
+        if len(args.inputs) != 1:
+            ap.error("--dump-tokens takes exactly one input file")
+        with open(args.inputs[0]) as f:
+            sys.stdout.write(dump_tokens(f.read()))
+        return 0
 
     sources = {}
     for path in args.inputs:

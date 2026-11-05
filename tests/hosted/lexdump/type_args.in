@@ -1,0 +1,6 @@
+p: Pair<u64, bool>
+q: Option<Pair<u64, Option<bool>>>
+flag: bool = n >
+    3
+ok: bool = FLOOR < n and n >
+    3

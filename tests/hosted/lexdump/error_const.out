@@ -1,0 +1,1 @@
+error 1:1: Rook has no `const`: a top-level `NAME: type = value` is a constant

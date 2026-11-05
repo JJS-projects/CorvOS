@@ -1,0 +1,16 @@
+a: u64 = b wrap
+    u8
+c: bool = d and
+    e
+f: bool = not
+    g
+h: u64 = i as
+    u64
+j: u64 = k shl
+    2
+l: u64 = m xor
+    n
+o: u64 = p shr
+    1
+q: bool = r or
+    s

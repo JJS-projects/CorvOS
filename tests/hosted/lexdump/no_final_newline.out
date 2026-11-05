@@ -1,0 +1,7 @@
+1:1 ident x
+1:2 : :
+1:4 ident u64
+1:8 = =
+1:10 int 1 1
+1:11 newline \n
+1:11 eof

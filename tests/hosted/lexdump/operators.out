@@ -1,0 +1,27 @@
+1:1 ident a
+1:3 == ==
+1:6 ident b
+1:8 != !=
+1:11 ident c
+1:13 <= <=
+1:16 ident d
+1:18 >= >=
+1:21 ident e
+1:23 -> ->
+1:26 ident f
+1:28 => =>
+1:31 ident g
+1:33 .. ..
+1:36 ident h
+1:38 += +=
+1:41 ident i
+1:43 -= -=
+1:46 ident j
+1:48 *= *=
+1:51 ident k
+1:53 /= /=
+1:56 ident l
+1:58 %= %=
+1:61 ident m
+1:62 newline \n
+2:1 eof

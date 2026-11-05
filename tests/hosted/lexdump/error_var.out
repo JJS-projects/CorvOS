@@ -1,0 +1,1 @@
+error 1:1: Rook has no `var`: declare with `mut name: type = value`

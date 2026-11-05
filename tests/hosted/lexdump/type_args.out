@@ -1,0 +1,45 @@
+1:1 ident p
+1:2 : :
+1:4 ident Pair
+1:8 < <
+1:9 ident u64
+1:12 , ,
+1:14 ident bool
+1:18 > >
+1:19 newline \n
+2:1 ident q
+2:2 : :
+2:4 ident Option
+2:10 < <
+2:11 ident Pair
+2:15 < <
+2:16 ident u64
+2:19 , ,
+2:21 ident Option
+2:27 < <
+2:28 ident bool
+2:32 > >
+2:33 > >
+2:34 > >
+2:35 newline \n
+3:1 ident flag
+3:5 : :
+3:7 ident bool
+3:12 = =
+3:14 ident n
+3:16 > >
+4:5 int 3 3
+4:6 newline \n
+5:1 ident ok
+5:3 : :
+5:5 ident bool
+5:10 = =
+5:12 ident FLOOR
+5:18 < <
+5:20 ident n
+5:22 and and
+5:26 ident n
+5:28 > >
+6:5 int 3 3
+6:6 newline \n
+7:1 eof

@@ -106,6 +106,7 @@ if board_mode():
     MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError  # noqa: E402
+from fledgling.dump import dump_tokens  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -610,6 +611,9 @@ class ErrorTest:
 # ---------------------------------------------------------------------------
 # hosted/...: a compiler program run on its input (docs/self-hosting.md)
 
+# What Fledgling prints for the same input, for each hosted program that has a reference.
+HOSTED_REFERENCE = {"lexdump": dump_tokens}
+
 HOSTED_BEGIN = "Hosted: begin"
 HOSTED_END = "Hosted: end"
 END_OF_INPUT = b"\x04"
@@ -627,6 +631,19 @@ class HostedTest:
     input_path: str
     expected_path: str
     timeout: float = 30.0
+    live: bool = False      # no .out file: Fledgling's own output for the input is the expectation
+
+    @classmethod
+    def live_files(cls, program, listing):
+        """One test per file named in tests/hosted/PROGRAM/live.txt (paths from the repository
+        root; `#` lines are notes): the file is the input and Fledgling's dump of it the expectation."""
+        tests = []
+        for line in open(listing).read().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                tests.append(cls(f"hosted/{program}/live:{line}", f"{program} on {line}, against Fledgling",
+                                 f"build/compiler/{program}.img", os.path.join(ROOT, line), None, 60.0, True))
+        return tests
 
     @classmethod
     def from_file(cls, in_path):
@@ -637,7 +654,10 @@ class HostedTest:
                    f"build/compiler/{program}.img", in_path, base + ".out")
 
     def run(self):
-        return on_each_machine(self, self.run_on)
+        # The protocol is the UART and the same on both machines (the `numberer` shows it); the
+        # compiler's programs, with many cases each, run on the first machine only.
+        machines = None if self.image.endswith("/numberer.img") else [MACHINES[0]]
+        return on_each_machine(self, self.run_on, machines)
 
     def run_on(self, machine):
         image = os.path.join(ROOT, self.image)
@@ -658,7 +678,10 @@ class HostedTest:
             return False, f"no `{HOSTED_BEGIN}` ... `{HOSTED_END}` output" + (
                 " before the timeout" if timed_out else ""), output
         got = lines[lines.index(HOSTED_BEGIN) + 1:lines.index(HOSTED_END)]
-        want = open(self.expected_path).read().splitlines()
+        if self.live:
+            want = HOSTED_REFERENCE[self.image.split("/")[-1][:-4]](open(self.input_path).read()).splitlines()
+        else:
+            want = open(self.expected_path).read().splitlines()
         if got != want:
             for i, (g, w) in enumerate(zip(got + [None] * len(want), want + [None] * len(got))):
                 if g != w:
@@ -1216,7 +1239,23 @@ def check_hosted_expectations():
     return None
 
 
+def check_dump_tokens():
+    """Fledgling's token dump is the format the self-hosted lexer must match: a line a token, with
+    the text, the value of a number or character, and the bytes of a string in hex; and one line
+    for an error."""
+    got = dump_tokens("x: u8 = 0x1F\nc = 'a'\ns = \"h\\x41\"\n")
+    want = ("1:1 ident x\n1:2 : :\n1:4 ident u8\n1:7 = =\n1:9 int 0x1F 31\n1:13 newline \\n\n"
+            "2:1 ident c\n2:3 = =\n2:5 char 'a' 97\n2:8 newline \\n\n"
+            "3:1 ident s\n3:3 = =\n3:5 str \"h\\x41\" x6841\n3:12 newline \\n\n4:1 eof\n")
+    if got != want:
+        return f"the dump is not as documented: {got!r}"
+    if dump_tokens("x\ty\n") != "error 1:2: tabs aren't allowed; indent with spaces\n":
+        return "a lexer error should be one `error LINE:COL: MESSAGE` line"
+    return None
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/dump_tokens", "Fledgling's token dump has the documented format", check_dump_tokens),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "
@@ -1278,6 +1317,8 @@ def all_tests():
             tests.append(ErrorTest.from_file(path))
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "hosted", "*", "*.in"))):
         tests.append(HostedTest.from_file(path))
+    for path in sorted(glob.glob(os.path.join(ROOT, "tests", "hosted", "*", "live.txt"))):
+        tests.extend(HostedTest.live_files(os.path.basename(os.path.dirname(path)), path))
     return tests
 
 

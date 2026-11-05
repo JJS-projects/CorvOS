@@ -40,6 +40,7 @@ to try it yourself, there are three ways, from easiest:
 | `make` | Build `build/kernel8.img` |
 | `make test` | Build and run every QEMU test (quiet: failures and a summary; `VERBOSE=1` or `-v` for a line per test) |
 | `make quick T="rook/restart"` | Only some tests (default: every Rook and error test); Rook and error tests run in parallel, `JOBS=n` or `-j n` sets how many |
+| `make selfhost-check` | Each self-hosted compiler stage (milestone 5) against Fledgling on every Rook file of the repository (slow; `tools/selfhost-check.py`) |
 | `make difftest` | Random integer arithmetic, checked against a Python model (`SEED=n PROGRAMS=n`; see decision 106) |
 | `make coverage` | Fail if a compiler line is reached by no test, except those listed in `tools/coverage-gaps.txt` (Python's `trace`, no extra install) |
 | `python3 -m fledgling FILES --suggest-imports` | List the `import` lines each file lacks, instead of failing (what a file needs from the others) |
@@ -58,7 +59,7 @@ of test:
 | `boot/...` | `BOOT_TESTS` in `tests/run_tests.py` | The kernel boots in QEMU; expected UART lines appear in order, forbidden ones never do. |
 | `rook/...` | `tests/rook/*.rook` | A Rook program, compiled and booted in QEMU, prints exactly the `// expect:` lines in its header (and panics with the `// expect-panic:` message, if given). |
 | `error/...` | `tests/rook/errors/*.rook` | The compiler rejects the program with the `// error: LINE:COL: message` given in its header. |
-| `hosted/...` | `tests/hosted/PROGRAM/CASE.in` and `.out` | A self-hosted compiler program (`compiler/PROGRAM.rook`) is fed the input on the UART and must write exactly the output (see [self-hosting.md](self-hosting.md)). |
+| `hosted/...` | `tests/hosted/PROGRAM/CASE.in` and `.out` (or, in `PROGRAM/live.txt`, repository files checked against Fledgling's output at test time; the compiler's programs run on the first QEMU machine only) | A self-hosted compiler program (`compiler/PROGRAM.rook`) is fed the input on the UART and must write exactly the output (see [self-hosting.md](self-hosting.md)). |
 | `harness/...` | `HARNESS_TESTS` in `tests/run_tests.py` | The harness and build themselves: things a Rook program can't check, such as that changing the Makefile rebuilds everything. |
 
 - `boot/` and `rook/` tests run on two QEMU machines: `raspi3b` (1 GB) and

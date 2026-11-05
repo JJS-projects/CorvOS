@@ -56,6 +56,26 @@ compiler needs will be keyed by `Text`, not by any type: that needs no hashing i
 `key_at(i)` and `value_at(i)` (the entries in the order they were added, the same every run). The key is
 copied in. A hash table with linear probing over `List`s, doubling when half full; no removal.
 
+## The lexer, 5d-1 (decision 159)
+
+`compiler/lib/lexer.rook` is `Lexer`, a port of `bootstrap/fledgling/lexer.py`; `compiler/lexdump.rook` is
+the hosted program that reads a Rook file from the UART and prints its tokens. The format, which Fledgling
+prints for the same file with `python3 -m fledgling FILE --dump-tokens` (`bootstrap/fledgling/dump.py`):
+
+    LINE:COL KIND [TEXT] [VALUE]
+
+one line per token; `KIND` is `ident`, `int`, `char`, `str`, `newline`, `eof` or the keyword or punctuation
+itself; a number or character has its value in decimal, a string its bytes as `x` and hex; a lexer error is
+the single line `error LINE:COL: MESSAGE`. The two match when they print the same text.
+
+- `make test` runs `tests/hosted/lexdump/`: 42 small cases (every kind of token and every lexer error, the
+  rules for a line that goes on, columns after non-ASCII text) with the expected output from Fledgling
+  committed beside each, and the files listed in `live.txt` against Fledgling's output at test time.
+- `make selfhost-check` runs `tools/selfhost-check.py lexdump` on every Rook file of the repository
+  (1029 of them): **all give the same tokens, or the same error, as Fledgling.**
+- Differences, none of which any file of the repository shows: a number beyond 64 bits is an error here;
+  a letter beyond ASCII outside a string or comment is not part of a name; `\x` needs both hex digits.
+
 ## Stages
 
 | Step | What | Test |
@@ -63,7 +83,7 @@ copied in. A hash table with linear probing over `List`s, doubling when half ful
 | 5a (this PR) | Hosted runner and test kind; `numberer` | `hosted/numberer/*` |
 | 5b (built) | Memory for a batch job: `Region` and `Block` in `raven/trusted/region.rook` (below) | `rook/region_*`, `error/region_*` |
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`; the first step is built, decision 154), then how a library type such as a growable list is made, a map, a text builder | Rook and error tests |
-| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens), parser (tree dump), checker (accept/reject and message), code generator (assembly) | hosted tests comparing with Fledgling's output |
+| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump), checker (accept/reject and message), code generator (assembly) | hosted tests comparing with Fledgling's output |
 | 5e | Stage 2: the Rook compiler compiles itself; compile that result again; the two assembly files are identical. Retire Fledgling | the milestone's "done when" |
 
 ## Limits, said plainly

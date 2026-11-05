@@ -1,0 +1,3 @@
+a: Bytes = "hello\tworld\n"
+b: Bytes = "q\"uote\\ \x7f"
+c: Bytes = ""

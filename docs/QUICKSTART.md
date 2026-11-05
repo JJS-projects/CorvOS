@@ -25,6 +25,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `make quick [T="rook/restart"]` | Only the tests named in T (names or prefixes); default every Rook and error test (~15 s). Not a substitute for `make test` before a push |
 | `python3 tests/run_tests.py [-v] PREFIX...` | Run tests by name or prefix (`rook/restart`, `error/`); `-v` lists every test. Needs images from a `make test` |
 | `make coverage` | Must exit 0 (compiler lines no test reaches, except `tools/coverage-gaps.txt`) |
+| `make selfhost-check` | Each self-hosted compiler stage against Fledgling on every Rook file (slow; not in `make test`) |
 | `make difftest` | Random arithmetic against a Python model |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |
 | `tools/new-error-test.py NAME "desc" < prog.rook` | Make an error test: writes a failing placeholder and shows the real error; read it, then `--accept NAME` fills the `// error:` line |
@@ -47,7 +48,7 @@ Long commands go in the background. `make test` once per change, not per edit.
   caret, then write the line. `// alone` compiles without Raven.
 - `tests/rook/trusted/` and `tests/rook/errors/trusted/`: tests that may use `unsafe`.
 - `hosted/PROGRAM/CASE` = `tests/hosted/PROGRAM/CASE.in` fed to `compiler/PROGRAM.rook` on the UART
-  (ended by byte 4); its output between `Hosted: begin`/`Hosted: end` must equal `CASE.out`
+  (ended by byte 4; or a file listed in `PROGRAM/live.txt`, with Fledgling's output as the expectation); its output between `Hosted: begin`/`Hosted: end` must equal `CASE.out`
   ([self-hosting.md](self-hosting.md)).
 - `boot/` and `harness/` tests are Python in `run_tests.py`.
 - A panic expectation `at file.rook:N` is an exact line for the test's own file. For a
