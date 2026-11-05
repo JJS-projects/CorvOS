@@ -1,0 +1,16 @@
+fn f() {
+    a: loop {
+        b: loop {
+            if x {
+                break a
+            } a
+}
+struct S {
+    x: u64
+} S
+actor A {
+    reliable on go() {
+        c: loop {
+            break c
+        } go
+}

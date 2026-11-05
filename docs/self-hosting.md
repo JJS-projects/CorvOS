@@ -76,6 +76,64 @@ the single line `error LINE:COL: MESSAGE`. The two match when they print the sam
 - Differences, none of which any file of the repository shows: a number beyond 64 bits is an error here;
   a letter beyond ASCII outside a string or comment is not part of a name; `\x` needs both hex digits.
 
+## The parser, 5d-2 (decisions 160, 161)
+
+`compiler/lib/parser.rook` is `Parser`, a port of `bootstrap/fledgling/parser.py` function by function;
+`compiler/parsedump.rook` is the hosted program that reads a Rook file from the UART, lexes and parses it, and
+prints the tree. Fledgling prints the same for the same file with `python3 -m fledgling FILE --dump-tree`
+(`bootstrap/fledgling/dump.py`, `tree()`):
+
+    KIND [LINE:COL] [TEXT]
+
+one node per line, two spaces of indent per level; a parse (or lexer) error is the single line
+`error LINE:COL: MESSAGE`. The two match when they print the same text.
+
+**The tree in Rook** is an arena: `Parser.nodes` is a `List<Node>`, and a node names its children by index
+into it (no pointers). `Node` has `kind: Text`, `line`/`col` (0 when the node has no place), `text: Text`
+and `kids: List<u64>`; it also has `parens` (an expression written in brackets: the parser needs it, the
+dump does not show it). Node 0 is `none`, the part that is not there. There are no exceptions in Rook: the
+first error is kept in `failed`/`error`/`error_line`/`error_col` and every loop stops once it is set.
+
+**Kinds** (text is what follows the place; a group has no place; flags come before a name, in this order):
+
+| Kind | Text | Children |
+|---|---|---|
+| `Program` | | items |
+| `Module` | `public` | |
+| `Import` | | `ModuleName` (text: the module), `ImportName`... |
+| `Const` | `[pub] NAME` | `Type`, value |
+| `Fn` | `[pub] [mut] [lossy\|reliable] NAME` | `Params` (of `Param`: text NAME, child `Type`), return `Type` or `none`, `Block` or `none` (extern, interface) |
+| `Struct` | `[pub] NAME` | `TypeParams` (text: `T U`), `Fields`, `Methods` |
+| `Enum` | `[pub] NAME` | `TypeParams`, `Variants` (of `Variant`: text NAME, child `Fields` or `none`), `Methods` |
+| `Actor` | `[pub] NAME` | `Implements` (of `Interface`), `Fields`, `Fn` (the `new`) or `none`, `Handlers` |
+| `Interface` | `[pub] NAME` | `Handlers` |
+| `Field` | `[pub] [mut] NAME` | `Type` |
+| `Type` | `[mut\|val\|iso] NAME` | type arguments |
+| `Block` | | statements |
+| `Decl` | `[mut] NAME` | `Type`, value |
+| `Assign` | the operator | place, value |
+| `ExprStmt` | `discard` or nothing | expression |
+| `If` | | condition, `Block`, `Block` or `If` or `none` |
+| `Loop` | label | condition or `none`, `Block` |
+| `ForRange` | `LABEL VAR` | `Type`, start, end, `Block` |
+| `Match`, `MatchExpr` | | subject, `Arms` (of `Arm`: `Patterns` or `none` for `else`, then a statement, `Block` or expression) |
+| `PatternVariant` | NAME | `Bind` (text `FIELD NAME`)... |
+| `PatternValue` | | value, end of range or `none` |
+| `Unsafe`, `Return`, `Break`, `Continue` | label (for the last two) | `Block` / value or `none` |
+| `Int`, `Char` | decimal value (negative if written `-5`) | |
+| `Bool`, `Str` | `true`/`false`; `x` and hex of the bytes | |
+| `Name`, `Unary`, `Binary`, `Cast` | name; operator; operator; `as` or `wrap` | operand(s); expression and `Type` |
+| `Call`, `Spawn` | callee, actor | arguments (`MutArg` for `mut x`) |
+| `StructLit` | NAME | `FieldInit` (text: field, child: value) |
+| `Access`, `MethodCall` | field, method | the object or `none` (`.x`), then the arguments |
+| `Copy`, `Consume`, `Narrow` | | value (and `Interface` for `Narrow`) |
+| `SelfRef`, `SelfValue`, `IfExpr` | | `self`; `.`; condition, then, else |
+
+- `make test` runs `tests/hosted/parsedump/`: small cases (every kind of node and one for each parser error)
+  with Fledgling's output committed beside each, and the files in `live.txt` against Fledgling at test time.
+- `make selfhost-check` runs `tools/selfhost-check.py parsedump` on every Rook file of the repository.
+- The Python parser's other fields (the ones the checker fills in) are not part of the tree dump.
+
 ## Stages
 
 | Step | What | Test |
@@ -83,7 +141,7 @@ the single line `error LINE:COL: MESSAGE`. The two match when they print the sam
 | 5a (this PR) | Hosted runner and test kind; `numberer` | `hosted/numberer/*` |
 | 5b (built) | Memory for a batch job: `Region` and `Block` in `raven/trusted/region.rook` (below) | `rook/region_*`, `error/region_*` |
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`; the first step is built, decision 154), then how a library type such as a growable list is made, a map, a text builder | Rook and error tests |
-| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump), checker (accept/reject and message), code generator (assembly) | hosted tests comparing with Fledgling's output |
+| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), checker (accept/reject and message), code generator (assembly) | hosted tests comparing with Fledgling's output |
 | 5e | Stage 2: the Rook compiler compiles itself; compile that result again; the two assembly files are identical. Retire Fledgling | the milestone's "done when" |
 
 ## Limits, said plainly

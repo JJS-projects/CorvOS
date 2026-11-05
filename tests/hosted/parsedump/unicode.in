@@ -1,0 +1,4 @@
+fn f() {
+    s: Bytes = "héllo"
+    e: u64 = 1 // ü
+}

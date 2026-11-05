@@ -1,0 +1,62 @@
+Program
+  Fn 1:1 f
+    Params
+      Param 1:6 a
+        Type 1:9 u64
+    none
+    Block 1:14
+      Decl 2:5 x
+        Type 2:8 u64
+        Int 2:14 1
+      Decl 3:5 mut y
+        Type 3:12 i8
+        Int 3:17 -128
+      Assign 4:7 =
+        Name 4:5 y
+        Int 4:9 3
+      Assign 5:7 +=
+        Name 5:5 y
+        Int 5:10 1
+      Assign 6:7 -=
+        Name 6:5 y
+        Int 6:10 1
+      Assign 7:7 *=
+        Name 7:5 y
+        Int 7:10 2
+      Assign 8:7 /=
+        Name 8:5 y
+        Int 8:10 2
+      Assign 9:7 %=
+        Name 9:5 y
+        Int 9:10 3
+      ExprStmt 10:5 discard
+        Call 10:13 g
+          Name 10:15 y
+      ExprStmt 11:5
+        Call 11:5 h
+          MutArg 11:7
+            Name 11:11 y
+          Name 11:14 a
+      If 12:5
+        Binary 12:10 ==
+          Name 12:8 a
+          Int 12:13 1
+        Block 12:15
+          Return 13:9
+            none
+        If 14:12
+          Binary 14:17 ==
+            Name 14:15 a
+            Int 14:20 2
+          Block 14:22
+            Return 15:9
+              none
+          Block 17:10
+            Return 18:9
+              none
+      Unsafe 20:5
+        Block 20:12
+          ExprStmt 21:9
+            Call 21:9 poke
+              Int 21:14 1
+              Int 21:17 2

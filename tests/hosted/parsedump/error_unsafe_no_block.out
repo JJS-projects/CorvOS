@@ -1,0 +1,1 @@
+error 2:12: `unsafe` marks a block: `unsafe { ... }`

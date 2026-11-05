@@ -1,0 +1,16 @@
+fn f() {
+    outer: loop {
+        inner: loop i: u64 in 0..10 {
+            if i == 3 {
+                continue inner
+            }
+            break outer
+        }
+        w: loop x < 3 {
+            x += 1
+        } w
+    } outer
+    done: loop not stop and go {
+        break done
+    }
+}

@@ -1,0 +1,1642 @@
+// The self-hosted parser: tokens -> syntax tree. A port of bootstrap/fledgling/parser.py, function by
+// function, so that for every file the two make the same tree (as printed by `--dump-tree`) or fail
+// with the same message at the same place (docs/self-hosting.md, step 5d-2).
+//
+// The tree is an arena: `Parser.nodes` is a `List<Node>` and a node names its children by index into
+// it (decision 160). A node has a `kind`, a position, a `text` (a name, an operator, the flags written
+// before a name) and `kids`. Node 0 is `none`, which stands for a part that is not there. A list that
+// sits beside other children is a group node with no position (`Params`, `Fields`, ...). The kinds,
+// their texts and their children are listed in docs/self-hosting.md; the dump of the Python tree
+// (bootstrap/fledgling/dump.py) is the definition.
+//
+// There are no exceptions in Rook: the first error is kept in `failed`/`error`/`error_line`/`error_col`
+// and the parser then runs on harmlessly (every loop stops once `failed` is set), so the first error
+// is the same one the Python parser raises.
+
+import bytes: Bytes
+import lexer: Token
+import region: List, Region
+import text: Text
+
+pub struct Node {
+    pub kind: Text
+    pub text: Text
+    pub line: u64               // 0 for a node with no position (a group, `none`)
+    pub col: u64
+    pub parens: bool            // an expression written inside ( )
+    pub kids: List<u64>
+}
+
+/// Is the first letter of `t` a capital (A-Z)?
+fn par_upper_first(t: Text) -> bool {
+    return t.len() > 0 and t.at(0) >= 'A' and t.at(0) <= 'Z'
+}
+
+pub struct Parser {
+    region: Region
+    tokens: List<Token>
+    i: u64
+    open: List<Text>                // the label of each block now open ("" for none)
+    pub nodes: List<Node>
+    pub root: u64
+    pub failed: bool
+    pub error: Text
+    pub error_line: u64
+    pub error_col: u64
+
+    new(region: Region, tokens: List<Token>) {
+        .region = copy(region)
+        .tokens = copy(tokens)
+        .i = 0
+        .open = List(region: region)
+        .nodes = List(region: region)
+        .root = 0
+        .failed = false
+        .error = Text(region: region)
+        .error_line = 0
+        .error_col = 0
+        discard .mk("none", 0, 0, "")
+    }
+
+    // ---- nodes ---------------------------------------------------------
+
+    /// The text of quoted words.
+    fn quoted(words: Bytes) -> Text {
+        mut t: Text = Text(region: .region)
+        t.append(words)
+        return t
+    }
+
+    /// Adds a node and returns its index.
+    mut fn mk(kind: Bytes, line: u64, col: u64, text: Bytes) -> u64 {
+        return .mk_text(kind, line, col, .quoted(text))
+    }
+
+    mut fn mk_text(kind: Bytes, line: u64, col: u64, text: Text) -> u64 {
+        kids: List<u64> = List(region: .region)
+        .nodes.push(Node(kind: .quoted(kind), text: copy(text), line: line, col: col, parens: false, kids: copy(kids)))
+        return .nodes.len() - 1
+    }
+
+    /// A node at the place of token `t`.
+    mut fn mk_at(kind: Bytes, t: Token, text: Text) -> u64 {
+        return .mk_text(kind, t.line, t.col, text)
+    }
+
+    /// A group: a list of nodes with no position.
+    mut fn group(kind: Bytes) -> u64 {
+        return .mk(kind, 0, 0, "")
+    }
+
+    mut fn add(parent: u64, kid: u64) {
+        mut n: Node = .nodes.get(parent)
+        n.kids.push(kid)
+        .nodes.set(parent, n)
+    }
+
+    fn kid_count(parent: u64) -> u64 {
+        return .nodes.get(parent).kids.len()
+    }
+
+    fn kind_is(n: u64, kind: Bytes) -> bool {
+        return .nodes.get(n).kind.same_as(kind)
+    }
+
+    fn text_is(n: u64, text: Bytes) -> bool {
+        return .nodes.get(n).text.same_as(text)
+    }
+
+    mut fn set_parens(n: u64) {
+        mut node: Node = .nodes.get(n)
+        node.parens = true
+        .nodes.set(n, node)
+    }
+
+    mut fn empty() -> Text {
+        return Text(region: .region)
+    }
+
+    /// `flag1 flag2 flag3 name`: the flags that are not empty, then the name.
+    mut fn words(flag1: Bytes, flag2: Bytes, flag3: Text, name: Text) -> Text {
+        mut t: Text = Text(region: .region)
+        if flag1.len() > 0 {
+            t.append(flag1)
+            t.push(' ')
+        }
+        if flag2.len() > 0 {
+            t.append(flag2)
+            t.push(' ')
+        }
+        if flag3.len() > 0 {
+            t.append_text(flag3)
+            t.push(' ')
+        }
+        t.append_text(name)
+        return t
+    }
+
+    /// `pub name` or `name`.
+    mut fn pub_name(public: bool, name: Text) -> Text {
+        return .words(if public { "pub" } else { "" }, "", .empty(), name)
+    }
+
+    // ---- errors --------------------------------------------------------
+
+    /// Starts an error at (line, col). True if it is the first, and so `error` is to be filled in.
+    mut fn begin(line: u64, col: u64) -> bool {
+        if .failed {
+            return false
+        }
+        .failed = true
+        .error_line = line
+        .error_col = col
+        return true
+    }
+
+    mut fn fail(line: u64, col: u64, message: Bytes) {
+        if .begin(line, col) {
+            .error.append(message)
+        }
+    }
+
+    mut fn fail_tok(t: Token, message: Bytes) {
+        .fail(t.line, t.col, message)
+    }
+
+    /// "PREFIX`WORD`SUFFIX".
+    mut fn fail_word(t: Token, prefix: Bytes, word: Text, suffix: Bytes) {
+        if .begin(t.line, t.col) {
+            .error.append(prefix)
+            .error.append_text(word)
+            .error.append(suffix)
+        }
+    }
+
+    /// "PREFIX`WORD`MIDDLE`WORD`SUFFIX".
+    mut fn fail_word2(t: Token, prefix: Bytes, word: Text, middle: Bytes, suffix: Bytes) {
+        if .begin(t.line, t.col) {
+            .error.append(prefix)
+            .error.append_text(word)
+            .error.append(middle)
+            .error.append_text(word)
+            .error.append(suffix)
+        }
+    }
+
+    /// How the error messages call a kind of token.
+    mut fn describe(kind: Text) {
+        if kind.same_as("ident") {
+            .error.append("a name")
+        } else if kind.same_as("newline") {
+            .error.append("end of line")
+        } else if kind.same_as("eof") {
+            .error.append("end of file")
+        } else if kind.same_as("int") {
+            .error.append("a number")
+        } else {
+            .error.push('`')
+            .error.append_text(kind)
+            .error.push('`')
+        }
+    }
+
+    mut fn describe_tok(t: Token) {
+        if t.kind.same_as("ident") or t.kind.same_as("int") or t.kind.same_as("char") or t.kind.same_as("str") {
+            .error.push('`')
+            .error.append_text(t.text)
+            .error.push('`')
+        } else {
+            .describe(t.kind)
+        }
+    }
+
+    /// "expected WHAT, found TOKEN" at the token.
+    mut fn fail_found(t: Token, what: Bytes) {
+        if .begin(t.line, t.col) {
+            .error.append("expected ")
+            .error.append(what)
+            .error.append(", found ")
+            .describe_tok(t)
+        }
+    }
+
+    // ---- tokens --------------------------------------------------------
+
+    fn tok(ahead: u64) -> Token {
+        mut index: u64 = .i + ahead
+        last: u64 = .tokens.len() - 1
+        if index > last {
+            index = last
+        }
+        return .tokens.get(index)
+    }
+
+    fn at(kind: Bytes) -> bool {
+        return .tok(0).kind.same_as(kind)
+    }
+
+    /// Is the token `ahead` places on of this kind?
+    fn at_next(ahead: u64, kind: Bytes) -> bool {
+        return .tok(ahead).kind.same_as(kind)
+    }
+
+    /// Is the token `ahead` places on the name `word`?
+    fn word_at(ahead: u64, word: Bytes) -> bool {
+        t: Token = .tok(ahead)
+        return t.kind.same_as("ident") and t.text.same_as(word)
+    }
+
+    mut fn advance() -> Token {
+        t: Token = .tok(0)
+        .i = .i + 1
+        return t
+    }
+
+    /// Consumes a token of `kind`; if it is another, fails "expected WHAT" (or the kind's name if
+    /// `what` is empty) and leaves it.
+    mut fn expect(kind: Bytes, what: Bytes) -> Token {
+        t: Token = .tok(0)
+        if not t.kind.same_as(kind) {
+            if .begin(t.line, t.col) {
+                .error.append("expected ")
+                if what.len() > 0 {
+                    .error.append(what)
+                } else {
+                    .describe(.quoted(kind))
+                }
+                .error.append(", found ")
+                .describe_tok(t)
+            }
+            return t
+        }
+        return .advance()
+    }
+
+    mut fn skip_newlines() {
+        skipping: loop .at("newline") {
+            discard .advance()
+        }
+    }
+
+    /// A statement ends at a newline, or just before `}`.
+    mut fn end_statement() {
+        if .at("newline") {
+            discard .advance()
+        } else if not .at("}") and not .at("eof") {
+            .fail_found(.tok(0), "end of line")
+        }
+    }
+
+    // ---- top level -----------------------------------------------------
+
+    pub mut fn run() {
+        program: u64 = .mk("Program", 0, 0, "")
+        .root = program
+        mut others: bool = false            // an item other than an import or `module public` is seen
+        .skip_newlines()
+        items: loop not .at("eof") and not .failed {
+            if .at("module") {
+                if .kid_count(program) > 0 {
+                    .fail_tok(.tok(0), "`module public` is the first line of a file")
+                    break items
+                }
+                start: Token = .advance()
+                word: Token = .tok(0)
+                if not (.at("ident") and word.text.same_as("public")) {
+                    .fail_tok(word, "write `module public`")
+                    break items
+                }
+                discard .advance()
+                .end_statement()
+                .add(program, .mk_at("Module", start, .quoted("public")))
+                .skip_newlines()
+                continue items
+            }
+            if .at("import") {
+                if others {
+                    .fail_tok(.tok(0), "imports go at the top of the file, before anything else")
+                    break items
+                }
+                .add(program, .import_decl())
+                .skip_newlines()
+                continue items
+            }
+            others = true
+            mut public: bool = false
+            if .at("pub") {
+                discard .advance()
+                public = true
+            }
+            if .at("actor") {
+                .add(program, .actor_decl(public))
+            } else if .at("interface") {
+                .add(program, .interface_decl(public))
+            } else if .at("struct") {
+                .add(program, .struct_decl(public))
+            } else if .at("enum") {
+                .add(program, .enum_decl(public))
+            } else if .at("fn") {
+                .add(program, .fn_decl(false, public, false))
+            } else if .at("extern") {
+                discard .advance()
+                .add(program, .fn_decl(true, public, false))
+            } else if .at("mut") {
+                .fail_tok(.tok(0), "there is no global mutable state in Rook: top-level declarations can't be `mut`")
+            } else if .at("ident") and .at_next(1, ":") {
+                .add(program, .const_decl(public))
+            } else {
+                .fail_found(.tok(0), "`fn`, `extern fn`, `struct`, `enum`, `actor`, `interface` or a constant at top level")
+            }
+            .skip_newlines()
+        }
+    }
+
+    /// `import module: Name, Name`: one line.
+    mut fn import_decl() -> u64 {
+        start: Token = .expect("import", "")
+        module_tok: Token = .expect("ident", "a module name")
+        n: u64 = .mk_at("Import", start, .quoted(""))
+        .add(n, .mk_at("ModuleName", module_tok, module_tok.text))
+        discard .expect(":", "`:` and the names to import")
+        names: loop not .failed {
+            name: Token = .expect("ident", "a name to import")
+            if .failed {
+                break names
+            }
+            .add(n, .mk_at("ImportName", name, name.text))
+            if not .at(",") {
+                break names
+            }
+            discard .advance()
+        }
+        .end_statement()
+        return n
+    }
+
+    mut fn push_open(label: Text) {
+        .open.push(label)
+    }
+
+    mut fn pop_open() {
+        discard .open.pop()
+    }
+
+    /// The fields and methods of a struct.
+    mut fn struct_decl(public: bool) -> u64 {
+        start: Token = .expect("struct", "")
+        name: Token = .expect("ident", "struct name")
+        n: u64 = .mk_at("Struct", start, .pub_name(public, name.text))
+        .type_params(n)
+        fields: u64 = .group("Fields")
+        methods: u64 = .group("Methods")
+        .add(n, fields)
+        .add(n, methods)
+        discard .expect("{", "")
+        .push_open(name.text)
+        mut has_new: bool = false
+        members: loop not .failed {
+            .skip_newlines()
+            if .at("}") {
+                .close_block(name.text, start)
+                break members
+            }
+            if .at("eof") {
+                .fail_tok(start, "unclosed `{`")
+                break members
+            }
+            mut member_public: bool = false
+            if .at("pub") {
+                discard .advance()
+                member_public = true
+            }
+            if .word_at(0, "new") and .at_next(1, "(") {
+                if member_public {
+                    .fail_tok(.tok(0), "`new` is not marked `pub`: whoever can see the type can build it")
+                    break members
+                }
+                if has_new {
+                    .fail_word(.tok(0), "`", name.text, "` already has a `new`")
+                    break members
+                }
+                has_new = true
+                .add(methods, .struct_new())
+            } else if .at("fn") or (.at("mut") and .at_next(1, "fn")) {
+                mutating: bool = .at("mut")
+                if mutating {
+                    discard .advance()
+                }
+                .add(methods, .fn_decl(false, member_public, mutating))
+            } else if .at("mut") {
+                .fail_tok(.tok(0), "struct fields aren't marked `mut`: a field can change when the variable holding the struct is `mut`")
+            } else if .at("ident") and .at_next(1, ":") {
+                ftok: Token = .advance()
+                discard .advance()
+                f: u64 = .mk_at("Field", ftok, .pub_name(member_public, ftok.text))
+                .add(f, .type_ref(false, false, false))
+                .add(fields, f)
+                .end_statement()
+            } else {
+                .fail_found(.tok(0), "a field or a method")
+            }
+        }
+        .pop_open()
+        .end_statement()
+        return n
+    }
+
+    /// `new(params) { }` in a struct: it sets every field, and is the only way to build the struct.
+    mut fn struct_new() -> u64 {
+        start: Token = .advance()                   // the word `new`
+        discard .expect("(", "")
+        n: u64 = .mk_at("Fn", start, .quoted("mut new"))
+        params: u64 = .group("Params")
+        .add(n, params)
+        .params(params, false, false, false)
+        discard .expect(")", "")
+        if .at("->") {
+            .fail_tok(.tok(0), "`new` has no result: it sets the fields of the struct it builds")
+            return n
+        }
+        .add(n, 0)
+        .add(n, .block(.quoted("new")))
+        .end_statement()
+        return n
+    }
+
+    /// The parameters up to the `)`, added to `group`. The three flags say which of `mut`, `val`
+    /// and `iso` a type may carry.
+    mut fn params(group: u64, allow_mut: bool, allow_val: bool, allow_iso: bool) {
+        listing: loop not .at(")") and not .failed {
+            ptok: Token = .expect("ident", "parameter name")
+            discard .expect(":", "")
+            p: u64 = .mk_at("Param", ptok, ptok.text)
+            .add(p, .type_ref(allow_mut, allow_val, allow_iso))
+            .add(group, p)
+            if not .at(")") {
+                discard .expect(",", "`,` or `)`")
+            }
+        }
+    }
+
+    mut fn actor_decl(public: bool) -> u64 {
+        start: Token = .expect("actor", "")
+        name: Token = .expect("ident", "actor name")
+        n: u64 = .mk_at("Actor", start, .pub_name(public, name.text))
+        implements: u64 = .group("Implements")
+        fields: u64 = .group("Fields")
+        handlers: u64 = .group("Handlers")
+        .add(n, implements)
+        .add(n, fields)
+        .add(n, 0)
+        .add(n, handlers)
+        if .at(":") {
+            discard .advance()
+            naming: loop not .failed {
+                itok: Token = .expect("ident", "an interface name")
+                if .failed {
+                    break naming
+                }
+                .add(implements, .mk_at("Interface", itok, itok.text))
+                if not .at(",") {
+                    break naming
+                }
+                discard .advance()
+            }
+        }
+        discard .expect("{", "")
+        .push_open(name.text)
+        mut has_new: bool = false
+        members: loop not .failed {
+            .skip_newlines()
+            if .at("}") {
+                .close_block(name.text, start)
+                break members
+            }
+            if .at("eof") {
+                .fail_tok(start, "unclosed `{`")
+                break members
+            }
+            mut member_public: bool = false
+            if .at("pub") {
+                discard .advance()
+                member_public = true
+            }
+            if .word_at(0, "new") and .at_next(1, "(") {
+                if member_public {
+                    .fail_tok(.tok(0), "`new` is not marked `pub`: it runs when the actor is spawned")
+                    break members
+                }
+                if has_new {
+                    .fail_word(.tok(0), "`", name.text, "` already has a `new`")
+                    break members
+                }
+                has_new = true
+                made: u64 = .actor_fn(false, false)
+                mut node: Node = .nodes.get(n)
+                node.kids.set(2, made)           // the third child: Implements, Fields, New, Handlers
+                .nodes.set(n, node)
+            } else if .at("lossy") or .at("reliable") or .at("on") {
+                .add(handlers, .actor_fn(true, member_public))
+            } else if .at("mut") or (.at("ident") and .at_next(1, ":")) {
+                mutable: bool = .at("mut")
+                if mutable {
+                    discard .advance()
+                }
+                ftok: Token = .expect("ident", "a field name")
+                discard .expect(":", "`:` and the field's type")
+                f: u64 = .mk_at("Field", ftok, .words(if member_public { "pub" } else { "" }, if mutable { "mut" } else { "" }, .empty(), ftok.text))
+                .add(f, .type_ref(false, true, true))
+                .add(fields, f)
+                .end_statement()
+            } else {
+                .fail_found(.tok(0), "a field, `new` or a handler")
+            }
+        }
+        .pop_open()
+        .end_statement()
+        return n
+    }
+
+    /// Checks `[lossy|reliable] on`: returns the first word, and fails if it is not followed by `on`.
+    mut fn handler_head() -> Token {
+        if .at("on") {
+            .fail_tok(.tok(0), "a handler is `lossy` or `reliable`: write one of them before `on`")
+            return .tok(0)
+        }
+        kind: Token = .advance()
+        if not .at("on") {
+            here: Token = .tok(0)
+            if .begin(here.line, here.col) {
+                .error.append("`")
+                .error.append_text(kind.kind)
+                .error.append("` goes before `on`, as in `")
+                .error.append_text(kind.kind)
+                .error.append(" on name(...)`")
+            }
+        }
+        return kind
+    }
+
+    /// `interface Name { [lossy|reliable] on name(params) }`: handlers with no bodies.
+    mut fn interface_decl(public: bool) -> u64 {
+        start: Token = .expect("interface", "")
+        name: Token = .expect("ident", "interface name")
+        n: u64 = .mk_at("Interface", start, .pub_name(public, name.text))
+        handlers: u64 = .group("Handlers")
+        .add(n, handlers)
+        discard .expect("{", "")
+        .push_open(name.text)
+        members: loop not .failed {
+            .skip_newlines()
+            if .at("}") {
+                .close_block(name.text, start)
+                break members
+            }
+            if .at("eof") {
+                .fail_tok(start, "unclosed `{`")
+                break members
+            }
+            if .at("pub") {
+                .fail_tok(.tok(0), "an interface's handlers are not marked `pub`: anything that holds the interface can send them")
+                break members
+            }
+            if not (.at("lossy") or .at("reliable") or .at("on")) {
+                .fail_found(.tok(0), "a handler")
+                break members
+            }
+            kind: Token = .handler_head()
+            if .failed {
+                break members
+            }
+            on_tok: Token = .advance()
+            name_tok: Token = .expect("ident", "handler name")
+            discard .expect("(", "")
+            h: u64 = .mk_at("Fn", on_tok, .words("pub", "", kind.kind, name_tok.text))
+            params: u64 = .group("Params")
+            .add(h, params)
+            .params(params, true, true, true)
+            discard .expect(")", "")
+            if .at("->") {
+                .fail_tok(.tok(0), "a handler has no result: to answer, send a message to a reference you were given")
+                break members
+            }
+            if .at("{") {
+                .fail_tok(.tok(0), "an interface only declares handlers: the actor that implements it writes the body")
+                break members
+            }
+            .end_statement()
+            .add(h, 0)
+            .add(h, 0)
+            .add(handlers, h)
+        }
+        .pop_open()
+        .end_statement()
+        return n
+    }
+
+    /// `new(params) { }` or `[lossy|reliable] on name(params) { }` in an actor.
+    mut fn actor_fn(handler: bool, public: bool) -> u64 {
+        mut kind: Text = .empty()
+        mut start: Token = .tok(0)
+        mut name_tok: Token = .tok(0)
+        if handler {
+            first: Token = .handler_head()
+            if .failed {
+                return 0
+            }
+            kind = copy(first.kind)
+            start = .advance()
+            name_tok = .expect("ident", "handler name")
+        } else {
+            start = .advance()                      // the word `new`
+            name_tok = copy(start)
+        }
+        discard .expect("(", "")
+        n: u64 = .mk_at("Fn", start, .words(if public { "pub" } else { "" }, "mut", kind, name_tok.text))
+        params: u64 = .group("Params")
+        .add(n, params)
+        .params(params, true, true, true)
+        discard .expect(")", "")
+        if .at("->") {
+            .fail_tok(.tok(0), "a handler has no result: to answer, send a message to a reference you were given")
+            return n
+        }
+        .add(n, 0)
+        .add(n, .block(name_tok.text))
+        .end_statement()
+        return n
+    }
+
+    mut fn enum_decl(public: bool) -> u64 {
+        start: Token = .expect("enum", "")
+        name: Token = .expect("ident", "enum name")
+        n: u64 = .mk_at("Enum", start, .pub_name(public, name.text))
+        .type_params(n)
+        variants: u64 = .group("Variants")
+        methods: u64 = .group("Methods")
+        .add(n, variants)
+        .add(n, methods)
+        discard .expect("{", "")
+        .push_open(name.text)
+        members: loop not .failed {
+            .skip_newlines()
+            if .at("}") {
+                .close_block(name.text, start)
+                break members
+            }
+            if .at("eof") {
+                .fail_tok(start, "unclosed `{`")
+                break members
+            }
+            mut member_public: bool = false
+            if .at("pub") and (.at_next(1, "fn") or .at_next(1, "mut")) {
+                discard .advance()
+                member_public = true
+            }
+            if .at("fn") or (.at("mut") and .at_next(1, "fn")) {
+                mutating: bool = .at("mut")
+                if mutating {
+                    discard .advance()
+                }
+                .add(methods, .fn_decl(false, member_public, mutating))
+            } else if .at("ident") and .at_next(1, ":") {
+                .fail_tok(.tok(0), "an enum has variants, not fields: write `Name` or `Name(field: type)`")
+            } else if .at("ident") {
+                vtok: Token = .advance()
+                v: u64 = .mk_at("Variant", vtok, vtok.text)
+                if .at("(") {
+                    ptok: Token = .advance()
+                    if .at(")") {
+                        .fail_word(ptok, "a variant with no fields is written without brackets: `", vtok.text, "`")
+                        break members
+                    }
+                    fields: u64 = .group("Fields")
+                    .add(v, fields)
+                    listing: loop not .at(")") and not .failed {
+                        ftok: Token = .expect("ident", "a field name")
+                        discard .expect(":", "`:` and the field's type")
+                        f: u64 = .mk_at("Field", ftok, ftok.text)
+                        .add(f, .type_ref(false, false, false))
+                        .add(fields, f)
+                        if not .at(")") {
+                            discard .expect(",", "`,` or `)`")
+                        }
+                    }
+                    discard .expect(")", "")
+                } else {
+                    .add(v, 0)
+                }
+                .add(variants, v)
+                .end_statement()
+            } else {
+                .fail_found(.tok(0), "a variant or a method")
+            }
+        }
+        .pop_open()
+        .end_statement()
+        return n
+    }
+
+    mut fn fn_decl(is_extern: bool, public: bool, mutating: bool) -> u64 {
+        start: Token = .expect("fn", "")
+        name: Token = .expect("ident", "function name")
+        discard .expect("(", "")
+        n: u64 = .mk_at("Fn", start, .words(if public { "pub" } else { "" }, if mutating { "mut" } else { "" }, .empty(), name.text))
+        params: u64 = .group("Params")
+        .add(n, params)
+        .params(params, true, false, true)
+        discard .expect(")", "")
+        mut ret: u64 = 0
+        if .at("->") {
+            discard .advance()
+            ret = .type_ref(false, false, false)
+        } else if .at(":") {
+            .fail_tok(.tok(0), "return types are written with `->`, as in `fn f() -> u64`")
+            return n
+        }
+        .add(n, ret)
+        if is_extern {
+            if .at("{") {
+                .fail_tok(.tok(0), "`extern fn` declares a function written elsewhere and has no body")
+                return n
+            }
+            .end_statement()
+            .add(n, 0)
+        } else {
+            .add(n, .block(name.text))
+            .end_statement()
+        }
+        return n
+    }
+
+    mut fn const_decl(public: bool) -> u64 {
+        name: Token = .expect("ident", "")
+        discard .expect(":", "")
+        n: u64 = .mk_at("Const", name, .pub_name(public, name.text))
+        .add(n, .type_ref(false, false, false))
+        discard .expect("=", "`=` and a value")
+        .add(n, .expr())
+        .end_statement()
+        return n
+    }
+
+    // ---- types ---------------------------------------------------------
+
+    mut fn type_named(mods: Bytes) -> u64 {
+        name: Token = .expect("ident", "a type")
+        n: u64 = .mk_at("Type", name, .words(mods, "", .empty(), name.text))
+        .type_args(n)
+        return n
+    }
+
+    mut fn type_ref(allow_mut: bool, allow_val: bool, allow_iso: bool) -> u64 {
+        if allow_val and .word_at(0, "val") and .at_next(1, "ident") {
+            discard .advance()
+            return .type_named("val")
+        }
+        if allow_iso and .word_at(0, "iso") and .at_next(1, "ident") {
+            discard .advance()
+            return .type_named("iso")
+        }
+        if not allow_iso and .word_at(0, "iso") and .at_next(1, "ident") {
+            .fail_tok(.tok(0), "`iso` goes only on an actor's fields and on parameters")
+            return 0
+        }
+        if not allow_val and .word_at(0, "val") and .at_next(1, "ident") {
+            .fail_tok(.tok(0), "`val` goes only on an actor's fields and `new` parameters for now")
+            return 0
+        }
+        mut mods: Bytes = ""
+        if .at("mut") {
+            if not allow_mut {
+                .fail_tok(.tok(0), "`mut` goes before the name, as in `mut count: u64 = 0`")
+                return 0
+            }
+            discard .advance()
+            mods = "mut"
+            if .word_at(0, "iso") and .at_next(1, "ident") {
+                .fail_tok(.tok(0), "a parameter is lent as `mut` or owned as `iso`, not both")
+                return 0
+            }
+        }
+        return .type_named(mods)
+    }
+
+    /// `<T, U>` after the name of a generic struct or enum, or nothing: adds a `TypeParams` child to `n`.
+    mut fn type_params(n: u64) {
+        mut names: Text = .empty()
+        mut seen: List<Text> = List(region: .region)
+        if .at("<") {
+            discard .advance()
+            listing: loop not .failed {
+                tok: Token = .expect("ident", "a type parameter")
+                if .failed {
+                    break listing
+                }
+                looking: loop k: u64 in 0..seen.len() {
+                    if seen.get(k).equals(tok.text) {
+                        .fail_word(tok, "the type parameter `", tok.text, "` is written twice")
+                    }
+                }
+                if .failed {
+                    break listing
+                }
+                seen.push(copy(tok.text))
+                if names.len() > 0 {
+                    names.push(' ')
+                }
+                names.append_text(tok.text)
+                if .at(",") {
+                    discard .advance()
+                    continue listing
+                }
+                discard .expect(">", "")
+                break listing
+            }
+        }
+        .add(n, .mk_text("TypeParams", 0, 0, names))
+    }
+
+    /// `<A, B>` after a type's name, or nothing: the arguments become children of `n`.
+    mut fn type_args(n: u64) {
+        if not .at("<") {
+            return
+        }
+        discard .advance()
+        listing: loop not .failed {
+            .add(n, .type_ref(false, false, false))
+            if .at(",") {
+                discard .advance()
+                continue listing
+            }
+            discard .expect(">", "")
+            break listing
+        }
+    }
+
+    // ---- blocks and named closers -------------------------------------
+
+    /// Parses `{ statements }`. `label` is the name a named closer can use for this block ("" for
+    /// none). If a named closer names an outer block, this block ends without consuming it.
+    mut fn block(label: Text) -> u64 {
+        start: Token = .expect("{", "")
+        n: u64 = .mk_at("Block", start, .empty())
+        .push_open(label)
+        stmts: loop not .failed {
+            .skip_newlines()
+            if .at("}") {
+                .close_block(label, start)
+                break stmts
+            }
+            if .at("eof") {
+                .fail_tok(start, "unclosed `{`")
+                break stmts
+            }
+            .add(n, .statement())
+        }
+        .pop_open()
+        return n
+    }
+
+    /// At a `}` that ends the innermost open block. Consumes it (and its name) if it closes this
+    /// block; leaves a named closer for an outer block to consume.
+    mut fn close_block(label: Text, start: Token) {
+        name_tok: Token = .tok(1)
+        if name_tok.kind.same_as("loop") or name_tok.kind.same_as("if") {
+            .fail_word(name_tok, "a closer names a function, struct or loop label, not `", name_tok.kind, "`")
+            return
+        }
+        if not name_tok.kind.same_as("ident") {
+            discard .advance()                      // plain `}`
+            return
+        }
+        if label.len() > 0 and label.equals(name_tok.text) {
+            discard .advance()                      // `} name` closing this block
+            discard .advance()
+            return
+        }
+        outer: loop k: u64 in 0..(.open.len() - 1) {
+            if .open.get(k).equals(name_tok.text) {
+                return                              // closes an outer block too
+            }
+        }
+        .fail_word(name_tok, "`} ", name_tok.text, "` doesn't match any open block")
+    }
+
+    // ---- statements ----------------------------------------------------
+
+    fn is_assign(kind: Text) -> bool {
+        return kind.same_as("=") or kind.same_as("+=") or kind.same_as("-=") or kind.same_as("*=") or
+            kind.same_as("/=") or kind.same_as("%=")
+    }
+
+    fn starts_decl(t: Token) -> bool {
+        return t.kind.same_as("mut") or (t.kind.same_as("ident") and .at_next(1, ":"))
+    }
+
+    mut fn fail_node(n: u64, message: Bytes) {
+        node: Node = .nodes.get(n)
+        .fail(node.line, node.col, message)
+    }
+
+    mut fn statement() -> u64 {
+        t: Token = .tok(0)
+        if t.kind.same_as("ident") and .at_next(1, ":") and .at_next(2, "loop") {
+            label: Token = .advance()
+            discard .advance()
+            enclosing: loop k: u64 in 0..(.open.len()) {
+                if .open.get(k).equals(label.text) {
+                    .fail_word(t, "`", label.text, "` already names an enclosing block")
+                    return 0
+                }
+            }
+            stmt: u64 = .loop_stmt(label.text, t)
+            .end_statement()
+            return stmt
+        }
+        if .starts_decl(t) {
+            mutable: bool = t.kind.same_as("mut")
+            if mutable {
+                discard .advance()
+            }
+            name: Token = .expect("ident", "variable name")
+            if not .at(":") {
+                .fail_tok(.tok(0), "declarations need a type: `mut name: type = value`")
+                return 0
+            }
+            discard .advance()
+            n: u64 = .mk_at("Decl", t, .words(if mutable { "mut" } else { "" }, "", .empty(), name.text))
+            .add(n, .type_ref(false, false, false))
+            discard .expect("=", "`=` (variables must be initialised)")
+            .add(n, .expr())
+            .end_statement()
+            return n
+        }
+        if t.kind.same_as("if") {
+            stmt: u64 = .if_stmt()
+            .end_statement()
+            return stmt
+        }
+        if t.kind.same_as("match") {
+            start: Token = .advance()
+            stmt: u64 = .match_rest(false, start)
+            .end_statement()
+            return stmt
+        }
+        if t.kind.same_as("unsafe") {
+            discard .advance()
+            if not .at("{") {
+                .fail_tok(.tok(0), "`unsafe` marks a block: `unsafe { ... }`")
+                return 0
+            }
+            n: u64 = .mk_at("Unsafe", t, .empty())
+            .add(n, .block(.empty()))
+            .end_statement()
+            return n
+        }
+        if t.kind.same_as("loop") {
+            .fail_tok(t, "every loop is named: write `name: loop ...`")
+            return 0
+        }
+        if t.kind.same_as("break") or t.kind.same_as("continue") {
+            discard .advance()
+            if not .at("ident") {
+                .fail_word2(t, "`", t.kind, "` names the loop it acts on, as in `", " rows`")
+                return 0
+            }
+            label: Token = .advance()
+            .end_statement()
+            if t.kind.same_as("break") {
+                return .mk_at("Break", t, label.text)
+            }
+            return .mk_at("Continue", t, label.text)
+        }
+        if t.kind.same_as("discard") {
+            discard .advance()
+            n: u64 = .mk_at("ExprStmt", t, .quoted("discard"))
+            .add(n, .expr())
+            .end_statement()
+            return n
+        }
+        if t.kind.same_as("return") {
+            discard .advance()
+            n: u64 = .mk_at("Return", t, .empty())
+            if not .at("newline") and not .at("}") {
+                .add(n, .expr())
+            } else {
+                .add(n, 0)
+            }
+            .end_statement()
+            return n
+        }
+        e: u64 = .expr()
+        if .is_assign(.tok(0).kind) {
+            op: Token = .advance()
+            if not (.kind_is(e, "Name") or .kind_is(e, "Access") or .kind_is(e, "SelfValue")) {
+                .fail_node(e, "can only assign to a variable or a field")
+                return 0
+            }
+            n: u64 = .mk_at("Assign", op, op.kind)
+            .add(n, e)
+            .add(n, .expr())
+            .end_statement()
+            return n
+        }
+        .end_statement()
+        n: u64 = .mk_at("ExprStmt", t, .empty())
+        .add(n, e)
+        return n
+    }
+
+    mut fn if_stmt() -> u64 {
+        start: Token = .expect("if", "")
+        n: u64 = .mk_at("If", start, .empty())
+        .add(n, .expr())
+        .add(n, .block(.empty()))
+        // Allow `else` on the line after the closing `}`.
+        save: u64 = .i
+        .skip_newlines()
+        if .at("else") {
+            discard .advance()
+            if .at("if") {
+                .add(n, .if_stmt())
+            } else {
+                .add(n, .block(.empty()))
+            }
+        } else {
+            .i = save
+            .add(n, 0)
+        }
+        return n
+    }
+
+    // ---- match ---------------------------------------------------------
+
+    /// The rest of a `match` after its keyword (the token `start`): a statement or, if `as_value`, an expression.
+    mut fn match_rest(as_value: bool, start: Token) -> u64 {
+        subject: u64 = .expr()
+        open_brace: Token = .expect("{", "`{` to start the arms")
+        n: u64 = .mk_at(if as_value { "MatchExpr" } else { "Match" }, start, .empty())
+        .add(n, subject)
+        .add(n, .match_arms(as_value, start, open_brace))
+        return n
+    }
+
+    mut fn match_arms(as_value: bool, start: Token, open_brace: Token) -> u64 {
+        arms: u64 = .group("Arms")
+        .push_open(.empty())
+        listing: loop not .failed {
+            .skip_newlines()
+            if .at("}") {
+                .close_block(.empty(), open_brace)
+                break listing
+            }
+            if .at("eof") {
+                .fail_tok(open_brace, "unclosed `{`")
+                break listing
+            }
+            .add(arms, .arm(as_value))
+        }
+        .pop_open()
+        if .kid_count(arms) == 0 {
+            .fail_tok(start, "a `match` needs at least one arm")
+        }
+        return arms
+    }
+
+    mut fn arm(as_value: bool) -> u64 {
+        t: Token = .tok(0)
+        n: u64 = .mk_at("Arm", t, .empty())
+        if .at("else") {
+            discard .advance()
+            .add(n, 0)
+        } else {
+            patterns: u64 = .group("Patterns")
+            .add(n, patterns)
+            .add(patterns, .pattern())
+            more: loop .at(",") and not .failed {
+                discard .advance()
+                .add(patterns, .pattern())
+            }
+        }
+        discard .expect("=>", "`=>` after the pattern")
+        if as_value {
+            if .at("return") or .at("break") or .at("continue") {
+                .add(n, .statement())               // leaves the match instead
+            } else if .at("{") {
+                .fail_tok(.tok(0), "each arm of a `match` used as a value is a single expression, without `{ }`")
+            } else {
+                .add(n, .expr())
+                .end_statement()
+            }
+        } else if .at("{") {
+            .add(n, .block(.empty()))
+            .end_statement()
+        } else {
+            here: Token = .tok(0)
+            if .starts_decl(here) {
+                .fail_tok(here, "a declaration in an arm needs a block: `=> { ... }`")
+                return n
+            }
+            .add(n, .statement())
+        }
+        return n
+    }
+
+    mut fn pattern() -> u64 {
+        t: Token = .tok(0)
+        if t.kind.same_as("ident") and par_upper_first(t.text) and .at_next(1, "(") {
+            discard .advance()
+            ptok: Token = .advance()
+            if .at(")") {
+                .fail_word(ptok, "a variant with no fields is written without brackets: `", t.text, "`")
+                return 0
+            }
+            n: u64 = .mk_at("PatternVariant", t, t.text)
+            binding: loop not .at(")") and not .failed {
+                if not (.at("ident") and .at_next(1, ":")) {
+                    .fail_word(.tok(0), "fields are bound by name, as in `", t.text, "(field: name)`")
+                    return n
+                }
+                ftok: Token = .advance()
+                discard .advance()
+                btok: Token = .tok(0)
+                if not btok.kind.same_as("ident") or par_upper_first(btok.text) {
+                    .fail_tok(btok, "a field binds a new name, or `_` to ignore it; patterns can't be nested")
+                    return n
+                }
+                discard .advance()
+                .add(n, .mk_at("Bind", btok, .words("", "", ftok.text, btok.text)))
+                if not .at(")") {
+                    discard .expect(",", "`,` or `)`")
+                }
+            }
+            discard .expect(")", "")
+            return n
+        }
+        n: u64 = .mk_at("PatternValue", t, .empty())
+        .add(n, .unary())
+        if .at("..") {
+            discard .advance()
+            .add(n, .unary())
+        } else {
+            .add(n, 0)
+        }
+        return n
+    }
+
+    mut fn loop_stmt(label: Text, start: Token) -> u64 {
+        discard .expect("loop", "")
+        if .at("{") {
+            n: u64 = .mk_at("Loop", start, label)
+            .add(n, 0)
+            .add(n, .block(label))
+            return n
+        }
+        if .at("ident") and (.at_next(1, "in") or .at_next(1, ":")) {
+            loop_var: Token = .advance()
+            if not .at(":") {
+                here: Token = .tok(0)
+                if .begin(here.line, here.col) {
+                    .error.append("write the loop variable's type, as in `")
+                    .error.append_text(label)
+                    .error.append(": loop ")
+                    .error.append_text(loop_var.text)
+                    .error.append(": u64 in ...`")
+                }
+                return 0
+            }
+            discard .advance()
+            n: u64 = .mk_at("ForRange", start, .words("", "", label, loop_var.text))
+            .add(n, .type_ref(false, false, false))
+            discard .expect("in", "")
+            .add(n, .expr())
+            discard .expect("..", "`..` (a range is written `start..end`)")
+            .add(n, .expr())
+            .add(n, .block(label))
+            return n
+        }
+        n: u64 = .mk_at("Loop", start, label)
+        .add(n, .expr())
+        .add(n, .block(label))
+        return n
+    }
+
+    // ---- expressions ---------------------------------------------------
+
+    mut fn expr() -> u64 {
+        return .binary(0)
+    }
+
+    fn is_comparison(kind: Text) -> bool {
+        return kind.same_as("==") or kind.same_as("!=") or kind.same_as("<") or kind.same_as("<=") or
+            kind.same_as(">") or kind.same_as(">=")
+    }
+
+    fn is_arith(kind: Text) -> bool {
+        return kind.same_as("+") or kind.same_as("-") or kind.same_as("*") or kind.same_as("/") or kind.same_as("%")
+    }
+
+    fn is_shift(kind: Text) -> bool {
+        return kind.same_as("shl") or kind.same_as("shr")
+    }
+
+    /// Is `kind` an operator of precedence `level` (0 loosest)?
+    fn in_level(level: u64, kind: Text) -> bool {
+        if level == 0 {
+            return kind.same_as("or") or kind.same_as("xor")
+        }
+        if level == 1 {
+            return kind.same_as("and")
+        }
+        if level == 3 {
+            return .is_comparison(kind)
+        }
+        if level == 4 {
+            return kind.same_as("+") or kind.same_as("-")
+        }
+        return kind.same_as("*") or kind.same_as("/") or kind.same_as("%") or .is_shift(kind)
+    }
+
+    mut fn binary(level: u64) -> u64 {
+        if level == 6 {
+            return .unary()
+        }
+        if level == 2 {
+            return .not_expr(level)
+        }
+        mut left: u64 = .binary(level + 1)
+        chain: loop .in_level(level, .tok(0).kind) and not .failed {
+            op: Token = .advance()
+            right: u64 = .binary(level + 1)
+            if .is_comparison(op.kind) and .is_comparison(.tok(0).kind) {
+                .fail_tok(.tok(0), "comparisons can't be chained; use `and`")
+                return left
+            }
+            n: u64 = .mk_at("Binary", op, op.kind)
+            .add(n, left)
+            .add(n, right)
+            left = n
+            .require_brackets(n)
+        }
+        return left
+    }
+
+    mut fn not_expr(level: u64) -> u64 {
+        if .at("not") {
+            t: Token = .advance()
+            operand: u64 = .not_expr(level)
+            if .kind_is(operand, "Binary") and .is_comparison(.nodes.get(operand).text) and
+                    not .nodes.get(operand).parens {
+                .fail_tok(t, "`not` before a comparison is ambiguous: write `not (a == b)` or `(not a) == b`")
+                return operand
+            }
+            n: u64 = .mk_at("Unary", t, .quoted("not"))
+            .add(n, operand)
+            return n
+        }
+        return .binary(level + 1)
+    }
+
+    /// `-5` written as one literal, so that -128 is a valid i8 literal: the text of the number negated.
+    mut fn negated(digits: Text) -> Text {
+        mut t: Text = .empty()
+        if digits.len() > 0 and digits.at(0) == '-' {
+            looking: loop k: u64 in 1..digits.len() {
+                t.push(digits.at(k))
+            }
+        } else if digits.same_as("0") {
+            t.push('0')
+        } else {
+            t.push('-')
+            t.append_text(digits)
+        }
+        return t
+    }
+
+    mut fn unary() -> u64 {
+        t: Token = .tok(0)
+        if t.kind.same_as("-") {
+            discard .advance()
+            operand: u64 = .unary()
+            if .kind_is(operand, "Int") {
+                return .mk_at("Int", t, .negated(.nodes.get(operand).text))
+            }
+            n: u64 = .mk_at("Unary", t, .quoted("-"))
+            .add(n, operand)
+            return n
+        }
+        return .cast()
+    }
+
+    mut fn cast() -> u64 {
+        mut e: u64 = .postfix(.primary())
+        casting: loop (.at("as") or .at("wrap")) and not .failed {
+            t: Token = .advance()
+            n: u64 = .mk_at("Cast", t, t.kind)
+            .add(n, e)
+            .add(n, .type_ref(false, false, false))
+            e = n
+        }
+        return e
+    }
+
+    /// Bytes as `x` and hex.
+    mut fn hex_of(data: Text) -> Text {
+        mut t: Text = .empty()
+        t.push('x')
+        writing: loop k: u64 in 0..data.len() {
+            b: u8 = data.at(k)
+            high: u8 = b / 16
+            low: u8 = b % 16
+            t.push(if high < 10 { '0' + high } else { 'a' + (high - 10) })
+            t.push(if low < 10 { '0' + low } else { 'a' + (low - 10) })
+        }
+        return t
+    }
+
+    mut fn number_text(value: u64) -> Text {
+        mut t: Text = .empty()
+        t.append_dec(value)
+        return t
+    }
+
+    mut fn primary() -> u64 {
+        t: Token = .tok(0)
+        if t.kind.same_as("int") {
+            discard .advance()
+            return .mk_at("Int", t, .number_text(t.value))
+        }
+        if t.kind.same_as("char") {
+            discard .advance()
+            return .mk_at("Char", t, .number_text(t.value))
+        }
+        if t.kind.same_as("true") or t.kind.same_as("false") {
+            discard .advance()
+            return .mk_at("Bool", t, t.kind)
+        }
+        if t.kind.same_as("str") {
+            discard .advance()
+            return .mk_at("Str", t, .hex_of(t.bytes))
+        }
+        if t.kind.same_as("if") {
+            return .if_expr()
+        }
+        if t.kind.same_as("match") {
+            start: Token = .advance()
+            return .match_rest(true, start)
+        }
+        if t.kind.same_as("spawn") {
+            discard .advance()
+            name: Token = .expect("ident", "an actor name")
+            if not .at("(") {
+                .fail_word(.tok(0), "write `spawn ", name.text, "(...)` with its arguments")
+                return 0
+            }
+            n: u64 = .mk_at("Spawn", t, name.text)
+            .positional_args(name.text, n)
+            return n
+        }
+        if t.kind.same_as("self") {
+            discard .advance()
+            return .mk_at("SelfRef", t, .empty())
+        }
+        if t.kind.same_as("narrow") {
+            discard .advance()
+            if not .at("(") {
+                .fail_tok(.tok(0), "write `narrow(reference, Interface)`")
+                return 0
+            }
+            discard .advance()
+            value: u64 = .expr()
+            discard .expect(",", "`,` and the interface")
+            itok: Token = .expect("ident", "an interface name")
+            discard .expect(")", "")
+            n: u64 = .mk_at("Narrow", t, itok.text)
+            .add(n, value)
+            .add(n, .mk_at("Interface", itok, itok.text))
+            return n
+        }
+        if t.kind.same_as("consume") {
+            discard .advance()
+            if not .at("(") {
+                .fail_tok(.tok(0), "write `consume(variable)`")
+                return 0
+            }
+            discard .advance()
+            n: u64 = .mk_at("Consume", t, .empty())
+            .add(n, .expr())
+            discard .expect(")", "")
+            return n
+        }
+        if t.kind.same_as("copy") {
+            discard .advance()
+            if not .at("(") {
+                .fail_tok(.tok(0), "write `copy(value)`")
+                return 0
+            }
+            discard .advance()
+            n: u64 = .mk_at("Copy", t, .empty())
+            .add(n, .expr())
+            discard .expect(")", "")
+            return n
+        }
+        if t.kind.same_as(".") and .at_next(1, "ident") {
+            // `.field` or `.method(...)` inside a method: the method's own struct.
+            discard .advance()
+            name: Token = .advance()
+            if .at("(") {
+                n: u64 = .mk_at("MethodCall", name, name.text)
+                .add(n, 0)
+                .positional_args(name.text, n)
+                return n
+            }
+            n: u64 = .mk_at("Access", name, name.text)
+            .add(n, 0)
+            return n
+        }
+        if t.kind.same_as(".") {
+            if .at_next(1, "copy") {
+                .fail_tok(.tok(1), "copying is written `copy(value)`, not as a method")
+                return 0
+            }
+            discard .advance()
+            return .mk_at("SelfValue", t, .empty())     // `.` alone: the method's whole value
+        }
+        if t.kind.same_as("ident") {
+            discard .advance()
+            if .at("(") {
+                if par_upper_first(t.text) {
+                    n: u64 = .mk_at("StructLit", t, t.text)
+                    .field_args(t.text, n)
+                    return n
+                }
+                n: u64 = .mk_at("Call", t, t.text)
+                .positional_args(t.text, n)
+                return n
+            }
+            return .mk_at("Name", t, t.text)
+        }
+        if t.kind.same_as("(") {
+            discard .advance()
+            inner: u64 = .expr()
+            discard .expect(")", "")
+            .set_parens(inner)
+            return inner
+        }
+        .fail_found(t, "an expression")
+        return 0
+    }
+
+    /// `expr.field` and `expr.method(args)`, chained.
+    mut fn postfix(start: u64) -> u64 {
+        mut e: u64 = start
+        chain: loop .at(".") and (.at_next(1, "ident") or .at_next(1, "copy")) and not .failed {
+            if .at_next(1, "copy") {
+                .fail_tok(.tok(1), "copying is written `copy(value)`, not as a method")
+                return e
+            }
+            discard .advance()
+            name: Token = .advance()
+            if .at("(") {
+                n: u64 = .mk_at("MethodCall", name, name.text)
+                .add(n, e)
+                .positional_args(name.text, n)
+                e = n
+            } else {
+                n: u64 = .mk_at("Access", name, name.text)
+                .add(n, e)
+                e = n
+            }
+        }
+        return e
+    }
+
+    /// `(a, mut b, c)` for a function or method call: the arguments become children of `parent`.
+    mut fn positional_args(callee: Text, parent: u64) {
+        discard .expect("(", "")
+        listing: loop not .at(")") and not .failed {
+            if .at("ident") and .at_next(1, ":") {
+                .fail_word(.tok(0), "`", callee, "` is a function: its arguments aren't named")
+                return
+            }
+            if .at("mut") {
+                t: Token = .advance()
+                m: u64 = .mk_at("MutArg", t, .empty())
+                .add(m, .expr())
+                .add(parent, m)
+            } else {
+                .add(parent, .expr())
+            }
+            if not .at(")") {
+                discard .expect(",", "`,` or `)`")
+            }
+        }
+        discard .expect(")", "")
+    }
+
+    /// `(x: 1, y: 2)` for a struct value: every field named.
+    mut fn field_args(type_name: Text, parent: u64) {
+        discard .expect("(", "")
+        listing: loop not .at(")") and not .failed {
+            if not (.at("ident") and .at_next(1, ":")) {
+                .fail_word2(.tok(0), "fields of `", type_name, "` are named, as in `", "(x: 1, y: 2)`")
+                return
+            }
+            ftok: Token = .advance()
+            discard .advance()
+            f: u64 = .mk_at("FieldInit", ftok, ftok.text)
+            .add(f, .expr())
+            .add(parent, f)
+            if not .at(")") {
+                discard .expect(",", "`,` or `)`")
+            }
+        }
+        discard .expect(")", "")
+    }
+
+    /// `if c { a } else { b }` as a value.
+    mut fn if_expr() -> u64 {
+        start: Token = .expect("if", "")
+        n: u64 = .mk_at("IfExpr", start, .empty())
+        .add(n, .expr())
+        .add(n, .branch_value())
+        save: u64 = .i
+        .skip_newlines()
+        if not .at("else") {
+            .i = save
+            .fail_tok(start, "an `if` used as a value needs an `else`")
+            return n
+        }
+        discard .advance()
+        if .at("if") {
+            .add(n, .if_expr())
+        } else {
+            .add(n, .branch_value())
+        }
+        return n
+    }
+
+    mut fn branch_value() -> u64 {
+        discard .expect("{", "")
+        .skip_newlines()
+        value: u64 = .expr()
+        .skip_newlines()
+        if not .at("}") {
+            .fail_tok(.tok(0), "each branch of an `if` used as a value must be a single expression")
+            return value
+        }
+        discard .advance()
+        return value
+    }
+
+    /// Is `child` an operator expression with an operator for which `test` says yes, not in brackets?
+    fn unbracketed_binary(child: u64) -> bool {
+        return .kind_is(child, "Binary") and not .nodes.get(child).parens
+    }
+
+    /// Rejects operator mixes whose meaning readers would disagree about.
+    mut fn require_brackets(e: u64) {
+        node: Node = .nodes.get(e)
+        op: Text = copy(node.text)
+        checking: loop k: u64 in 0..2 {
+            child: u64 = node.kids.get(k)
+            if not .unbracketed_binary(child) {
+                continue checking
+            }
+            cop: Text = copy(.nodes.get(child).text)
+            if op.same_as("or") or op.same_as("xor") {
+                if (op.same_as("or") and cop.same_as("xor")) or (op.same_as("xor") and cop.same_as("or")) {
+                    .fail(node.line, node.col, "mixing `or` and `xor` needs brackets to show the order")
+                }
+                if cop.same_as("and") {
+                    if .begin(node.line, node.col) {
+                        .error.append("`and` inside `")
+                        .error.append_text(op)
+                        .error.append("` needs brackets to show the order, as in `a ")
+                        .error.append_text(op)
+                        .error.append(" (b and c)`")
+                    }
+                }
+            }
+            if .is_arith(op) and .is_shift(cop) {
+                if .begin(node.line, node.col) {
+                    .error.append("mixing `")
+                    .error.append_text(cop)
+                    .error.append("` with `")
+                    .error.append_text(op)
+                    .error.append("` needs brackets to show the order")
+                }
+            }
+            if .is_shift(op) and .is_arith(cop) {
+                if .begin(node.line, node.col) {
+                    .error.append("mixing `")
+                    .error.append_text(op)
+                    .error.append("` with `")
+                    .error.append_text(cop)
+                    .error.append("` needs brackets to show the order")
+                }
+            }
+        }
+    }
+}

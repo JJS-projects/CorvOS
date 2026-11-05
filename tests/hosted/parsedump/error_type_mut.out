@@ -1,0 +1,1 @@
+error 2:8: `mut` goes before the name, as in `mut count: u64 = 0`

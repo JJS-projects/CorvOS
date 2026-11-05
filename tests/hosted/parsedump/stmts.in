@@ -1,0 +1,23 @@
+fn f(a: u64) {
+    x: u64 = 1
+    mut y: i8 = -128
+    y = 3
+    y += 1
+    y -= 1
+    y *= 2
+    y /= 2
+    y %= 3
+    discard g(y)
+    h(mut y, a)
+    if a == 1 {
+        return
+    } else if a == 2 {
+        return
+    }
+    else {
+        return
+    }
+    unsafe {
+        poke(1, 2)
+    }
+}

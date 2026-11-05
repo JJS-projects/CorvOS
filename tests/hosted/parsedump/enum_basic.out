@@ -1,0 +1,29 @@
+Program
+  Enum 1:5 pub Shape
+    TypeParams
+    Variants
+      Variant 2:5 Circle
+        Fields
+          Field 2:12 radius
+            Type 2:20 u64
+      Variant 3:5 Rect
+        Fields
+          Field 3:10 w
+            Type 3:13 u64
+          Field 3:18 h
+            Type 3:21 u64
+      Variant 4:5 Empty
+        none
+    Methods
+      Fn 5:5 area
+        Params
+        Type 5:18 u64
+        Block 5:22
+          Return 6:9
+            Int 6:16 0
+      Fn 8:13 pub mut grow
+        Params
+        none
+        Block 8:23
+          ExprStmt 9:9
+            SelfValue 9:9

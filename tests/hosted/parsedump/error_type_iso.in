@@ -1,0 +1,3 @@
+fn f() {
+    x: iso Foo = 1
+}

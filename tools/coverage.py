@@ -53,7 +53,7 @@ def compile_everything():
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
         del sys.modules[name]
     from fledgling import compile_program
-    from fledgling.dump import dump_tokens
+    from fledgling.dump import dump_tokens, dump_tree, tree
     lib = run_tests.ROOK_LIB
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
@@ -69,6 +69,19 @@ def compile_everything():
     # The token dump (the check in run_tests holds the module imported before the tracer started).
     dump_tokens("x: u8 = 1\ns = \"a\"\n")
     dump_tokens("x\ty\n")
+    # The tree dump: every Rook file of the tests and of Raven, so every kind of node is printed once,
+    # and the two kinds of error.
+    for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
+                       + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))
+                       + glob.glob(os.path.join(ROOT, "raven", "*.rook"))
+                       + glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook"))):
+        dump_tree(open(path).read())
+    dump_tree("x\ty\n")
+    dump_tree("fn f() {\n")
+    try:
+        tree(object())          # a node the dump has no form for is a bug in the dump, not silence
+    except AssertionError:
+        pass
     # Raven itself.
     raven = sorted(glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook"))
                    + glob.glob(os.path.join(ROOT, "raven", "*.rook")))

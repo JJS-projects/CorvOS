@@ -1,0 +1,1 @@
+error 2:17: `and` inside `or` needs brackets to show the order, as in `a or (b and c)`

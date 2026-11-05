@@ -1,0 +1,1 @@
+error 2:9: `new` is not marked `pub`: it runs when the actor is spawned

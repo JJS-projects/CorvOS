@@ -1,0 +1,84 @@
+// Stage 5d-2 of the self-hosted compiler: the parser, run hosted (docs/self-hosting.md). It reads a
+// Rook source file from the UART (ended by the byte 4), lexes and parses it with compiler/lib/lexer.rook
+// and compiler/lib/parser.rook, and prints the syntax tree in the format of
+// `python3 -m fledgling FILE --dump-tree`, one node per line, two spaces of indent per level:
+//     KIND [LINE:COL] [TEXT]
+// If the lexer or the parser fails, the one line is `error LINE:COL: MESSAGE`.
+
+import devices: Mmio
+import lexer: Lexer
+import parser: Node, Parser
+import pl011: Pl011
+import region: List, Region, make_region
+import text: Text
+
+END_OF_INPUT: u8 = 4
+
+fn put_text(console: Pl011, t: Text) {
+    printing: loop i: u64 in 0..t.len() {
+        console.put(t.at(i))
+    }
+}
+
+fn put_error(console: Pl011, line: u64, col: u64, message: Text) {
+    console.write("error ")
+    console.write_dec(line)
+    console.put(':')
+    console.write_dec(col)
+    console.write(": ")
+    put_text(console, message)
+    console.put('\n')
+}
+
+/// Prints node `index` and, below it, its children.
+fn put_node(console: Pl011, nodes: List<Node>, index: u64, depth: u64) {
+    node: Node = nodes.get(index)
+    indenting: loop i: u64 in 0..depth {
+        console.write("  ")
+    }
+    put_text(console, node.kind)
+    if node.line != 0 {
+        console.put(' ')
+        console.write_dec(node.line)
+        console.put(':')
+        console.write_dec(node.col)
+    }
+    if node.text.len() > 0 {
+        console.put(' ')
+        put_text(console, node.text)
+    }
+    console.put('\n')
+    children: loop k: u64 in 0..(node.kids.len()) {
+        put_node(console, nodes, node.kids.get(k), depth + 1)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    region: Region = make_region(peripherals)
+    console.write("Hosted: begin\n")
+    mut source: Text = Text(region: region)
+    reading: loop {
+        if console.has_byte() {
+            b: u8 = console.take()
+            if b == END_OF_INPUT {
+                break reading
+            }
+            source.push(b)
+        }
+    }
+    mut lexer: Lexer = Lexer(region: region, source: source)
+    lexer.run()
+    if lexer.failed {
+        put_error(console, lexer.error_line, lexer.error_col, lexer.error)
+    } else {
+        mut parser: Parser = Parser(region: region, tokens: lexer.tokens)
+        parser.run()
+        if parser.failed {
+            put_error(console, parser.error_line, parser.error_col, parser.error)
+        } else {
+            put_node(console, parser.nodes, parser.root, 0)
+        }
+    }
+    console.write("Hosted: end\n")
+}

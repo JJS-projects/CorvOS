@@ -1,0 +1,14 @@
+pub struct Point {
+    pub x: u64
+    y: i32
+    new(x: u64, y: i32) {
+        .x = x
+        .y = y
+    }
+    pub fn sum() -> u64 {
+        return .x
+    }
+    mut fn bump() {
+        .x += 1
+    }
+}

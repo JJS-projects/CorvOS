@@ -1,0 +1,77 @@
+Program
+  Fn 1:1 f
+    Params
+    none
+    Block 1:8
+      Decl 2:5 a
+        Type 2:8 Point
+        StructLit 2:16 Point
+          FieldInit 2:22 x
+            Int 2:25 1
+          FieldInit 2:28 y
+            Int 2:31 2
+      Decl 3:5 b
+        Type 3:8 u64
+        Call 3:14 g
+          Int 3:16 1
+          Call 3:19 h
+            Int 3:21 2
+          MutArg 3:25
+            Name 3:29 z
+      Decl 4:5 c
+        Type 4:8 u64
+        Access 4:18 y
+          Access 4:16 x
+            Name 4:14 a
+      Decl 5:5 d
+        Type 5:8 u64
+        Access 5:26 o
+          MethodCall 5:21 n
+            MethodCall 5:16 m
+              Name 5:14 a
+              Int 5:18 1
+            Int 5:23 2
+      Decl 6:5 e
+        Type 6:8 Counter
+        Spawn 6:18 Counter
+          Int 6:32 10
+          Str 6:36 x78
+      Decl 7:5 i
+        Type 7:8 Add
+        Narrow 7:14 Add
+          Name 7:21 e
+          Interface 7:24 Add
+      Decl 8:5 j
+        Type 8:8 Point
+        Copy 8:16
+          Name 8:21 a
+      Decl 9:5 k
+        Type 9:8 Point
+        Consume 9:16
+          Name 9:24 a
+      Decl 10:5 l
+        Type 10:8 Self
+        SelfRef 10:15
+      ExprStmt 11:5 discard
+        MethodCall 11:15 add
+          Name 11:13 e
+          Int 11:19 1
+  Struct 13:1 S
+    TypeParams
+    Fields
+      Field 14:5 x
+        Type 14:8 u64
+    Methods
+      Fn 15:5 m
+        Params
+        Type 15:15 u64
+        Block 15:19
+          Return 16:9
+            Binary 16:32 +
+              Binary 16:19 +
+                Access 16:17 x
+                  none
+                MethodCall 16:22 helper
+                  none
+                  SelfValue 16:29
+              Int 16:34 1

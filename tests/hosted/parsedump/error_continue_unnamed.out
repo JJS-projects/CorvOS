@@ -1,0 +1,1 @@
+error 2:5: `continue` names the loop it acts on, as in `continue rows`

@@ -1,0 +1,6 @@
+# Real Rook files parsed by the self-hosted parser and by Fledgling: the trees must be the same.
+# The whole corpus is checked by `make selfhost-check`; these few are the ones `make test` runs.
+raven/trusted/mailbox.rook
+compiler/lib/parser.rook
+tests/rook/supervisor_demo.rook
+tests/rook/text_literals.rook

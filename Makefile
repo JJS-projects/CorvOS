@@ -127,6 +127,7 @@ difftest: $(KERNEL)
 # Every self-hosted compiler stage against Fledgling on every Rook file (slow; see tools/selfhost-check.py).
 selfhost-check: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
 	$(PYTHON) tools/selfhost-check.py lexdump
+	$(PYTHON) tools/selfhost-check.py parsedump
 
 coverage:
 	$(PYTHON) tools/coverage.py

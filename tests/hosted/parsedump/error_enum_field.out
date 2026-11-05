@@ -1,0 +1,1 @@
+error 2:5: an enum has variants, not fields: write `Name` or `Name(field: type)`

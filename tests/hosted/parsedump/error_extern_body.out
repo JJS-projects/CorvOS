@@ -1,0 +1,1 @@
+error 1:15: `extern fn` declares a function written elsewhere and has no body

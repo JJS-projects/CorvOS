@@ -1,0 +1,1 @@
+error 2:11: `new` has no result: it sets the fields of the struct it builds

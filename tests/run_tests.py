@@ -106,7 +106,7 @@ if board_mode():
     MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError  # noqa: E402
-from fledgling.dump import dump_tokens  # noqa: E402
+from fledgling.dump import dump_tokens, dump_tree, tree  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -613,7 +613,7 @@ class ErrorTest:
 # hosted/...: a compiler program run on its input (docs/self-hosting.md)
 
 # What Fledgling prints for the same input, for each hosted program that has a reference.
-HOSTED_REFERENCE = {"lexdump": dump_tokens}
+HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree}
 
 HOSTED_BEGIN = "Hosted: begin"
 HOSTED_END = "Hosted: end"
@@ -1255,7 +1255,29 @@ def check_dump_tokens():
     return None
 
 
+def check_dump_tree():
+    """Fledgling's tree dump is the format the self-hosted parser must match: a node a line, two
+    spaces of indent a level, kind then place then text; a part that is not there is `none`; and
+    one line for an error. Worked out by hand from the grammar."""
+    got = dump_tree("fn f(a: u64) -> u64 {\n    return -a\n}\n")
+    want = ("Program\n  Fn 1:1 f\n    Params\n      Param 1:6 a\n        Type 1:9 u64\n    Type 1:17 u64\n"
+            "    Block 1:21\n      Return 2:5\n        Unary 2:12 -\n          Name 2:13 a\n")
+    if got != want:
+        return f"the dump is not as documented: {got!r}"
+    if dump_tree("fn f() {\n}\n}\n") != ("error 3:1: expected `fn`, `extern fn`, `struct`, `enum`, `actor`, "
+                                          "`interface` or a constant at top level, found `}`\n"):
+        return "a parse error should be one `error LINE:COL: MESSAGE` line"
+    if dump_tree("x\ty\n") != "error 1:2: tabs aren't allowed; indent with spaces\n":
+        return "a lexer error should be the same one line"
+    try:
+        tree(object())
+    except AssertionError:
+        return None
+    return "a node the dump has no form for should be an error, not silence"
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/dump_tree", "Fledgling's tree dump has the documented format", check_dump_tree),
     HarnessTest("harness/dump_tokens", "Fledgling's token dump has the documented format", check_dump_tokens),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),

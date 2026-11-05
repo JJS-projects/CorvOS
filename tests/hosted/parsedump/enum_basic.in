@@ -1,0 +1,11 @@
+pub enum Shape {
+    Circle(radius: u64)
+    Rect(w: u64, h: u64)
+    Empty
+    fn area() -> u64 {
+        return 0
+    }
+    pub mut fn grow() {
+        .
+    }
+}

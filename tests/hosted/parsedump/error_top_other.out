@@ -1,0 +1,1 @@
+error 1:1: expected `fn`, `extern fn`, `struct`, `enum`, `actor`, `interface` or a constant at top level, found `42`
