@@ -1208,10 +1208,10 @@ def check_batch_and_body_tools():
         return f"mutation list misread: {blocks!r}"
     body = load_tool("pr-body")
     import argparse
-    args = argparse.Namespace(summary="SUM", roadmap="ROAD", review="REV", design="", limits="LIM",
+    args = argparse.Namespace(summary="SUM \\x41 \\n", roadmap="ROAD", review="REV", design="", limits="LIM",
                               tests=None, checks="CHK", bugs=None, session=None)
     text = body.fill(open(body.TEMPLATE).read(), args)
-    for piece in ("SUM", "ROAD", "REV", "LIM", "CHK", "No decision in this PR", "CI is green"):
+    for piece in ("SUM \\x41 \\n", "ROAD", "REV", "LIM", "CHK", "No decision in this PR", "CI is green"):
         if piece not in text:
             return f"the PR body lacks {piece!r}"
     if "<!--" in text:

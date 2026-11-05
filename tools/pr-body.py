@@ -36,9 +36,9 @@ def test_evidence(path):
 
 def fill(template, args):
     out = template
-    out = re.sub(r"<!-- One or two sentences.*?-->", args.summary, out, flags=re.S)
+    out = re.sub(r"<!-- One or two sentences.*?-->", lambda m: args.summary, out, flags=re.S)
     out = re.sub(r"(\*\*Roadmap:\*\*) milestone N, <!-- which part -->", lambda m: f"{m.group(1)} {args.roadmap}", out)
-    out = re.sub(r"<!-- Where to look first.*?-->", args.review, out, flags=re.S)
+    out = re.sub(r"<!-- Where to look first.*?-->", lambda m: args.review, out, flags=re.S)
     evidence = [test_evidence(args.tests)] if args.tests else []
     if args.checks:
         evidence.append(args.checks)
@@ -46,8 +46,8 @@ def fill(template, args):
                  lambda m: "```\n" + "\n".join(evidence) + "\n```" + (
                      "\n\nDeliberate-bug checks:\n\n" + open(args.bugs).read().strip() if args.bugs else ""),
                  out)
-    out = re.sub(r"<!-- Decisions made or changed.*?-->", args.design or "No decision in this PR.", out, flags=re.S)
-    out = re.sub(r"<!-- What is deliberately not done.*?-->", args.limits, out, flags=re.S)
+    out = re.sub(r"<!-- Decisions made or changed.*?-->", lambda m: args.design or "No decision in this PR.", out, flags=re.S)
+    out = re.sub(r"<!-- What is deliberately not done.*?-->", lambda m: args.limits, out, flags=re.S)
     if "<!--" in out:
         sys.exit("a template section was left unfilled; the template may have changed")
     footer = "\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)"
