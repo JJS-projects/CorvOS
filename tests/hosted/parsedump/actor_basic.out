@@ -6,62 +6,64 @@ Program
     Fields
       Field 2:9 mut count
         Type 2:16 u64
-      Field 3:9 pub name
-        Type 3:19 val Text
-      Field 4:5 owned
-        Type 4:16 iso Buffer
-    Fn 5:5 mut new
+      Field 3:13 pub mut level
+        Type 3:20 u64
+      Field 4:9 pub name
+        Type 4:19 val Text
+      Field 5:5 owned
+        Type 5:16 iso Buffer
+    Fn 6:5 mut new
       Params
-        Param 5:9 start
-          Type 5:16 u64
-        Param 5:21 label
-          Type 5:32 val Text
+        Param 6:9 start
+          Type 6:16 u64
+        Param 6:21 label
+          Type 6:32 val Text
       none
-      Block 5:38
-        Assign 6:16 =
-          Access 6:10 count
+      Block 6:38
+        Assign 7:16 =
+          Access 7:10 count
             none
-          Name 6:18 start
+          Name 7:18 start
     Handlers
-      Fn 8:14 mut reliable add
+      Fn 9:14 mut reliable add
         Params
-          Param 8:21 n
-            Type 8:24 u64
+          Param 9:21 n
+            Type 9:24 u64
         none
-        Block 8:29
-          Assign 9:16 +=
-            Access 9:10 count
+        Block 9:29
+          Assign 10:16 +=
+            Access 10:10 count
               none
-            Name 9:19 n
-      Fn 11:15 pub mut lossy show
+            Name 10:19 n
+      Fn 12:15 pub mut lossy show
         Params
-          Param 11:23 to
-            Type 11:31 mut Shower
-          Param 11:39 data
-            Type 11:49 iso Buffer
+          Param 12:23 to
+            Type 12:31 mut Shower
+          Param 12:39 data
+            Type 12:49 iso Buffer
         none
-        Block 11:57
-          ExprStmt 12:9
-            Call 12:9 print_u64
-              Access 12:20 count
+        Block 12:57
+          ExprStmt 13:9
+            Call 13:9 print_u64
+              Access 13:20 count
                 none
-  Interface 15:1 Add
+  Interface 16:1 Add
     Handlers
-      Fn 16:14 pub reliable add
+      Fn 17:14 pub reliable add
         Params
-          Param 16:21 n
-            Type 16:24 u64
+          Param 17:21 n
+            Type 17:24 u64
         none
         none
-      Fn 17:11 pub lossy poke
+      Fn 18:11 pub lossy poke
         Params
-          Param 17:19 a
-            Type 17:26 val Text
-          Param 17:32 b
-            Type 17:39 iso Thing
-          Param 17:46 c
-            Type 17:53 mut Other
+          Param 18:19 a
+            Type 18:26 val Text
+          Param 18:32 b
+            Type 18:39 iso Thing
+          Param 18:46 c
+            Type 18:53 mut Other
         none
         none
-  Interface 19:5 pub Empty
+  Interface 20:5 pub Empty
     Handlers

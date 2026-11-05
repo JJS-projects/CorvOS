@@ -55,3 +55,7 @@ Program
         Type 15:8 bool
         Unary 15:15 not
           Bool 15:19 true
+      Decl 16:5 q
+        Type 16:8 i64
+        Unary 16:14 -
+          Char 16:15 97

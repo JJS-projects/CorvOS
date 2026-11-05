@@ -1,5 +1,6 @@
 pub actor Counter: Add, Show {
     mut count: u64
+    pub mut level: u64
     pub name: val Text
     owned: iso Buffer
     new(start: u64, label: val Text) {
