@@ -1,0 +1,6 @@
+# Real Rook files lexed by the self-hosted lexer and by Fledgling: the tokens must be the same.
+# The whole corpus is checked by `make selfhost-check`; these few are the ones `make test` runs.
+raven/trusted/mailbox.rook
+compiler/lib/lexer.rook
+tests/rook/supervisor_demo.rook
+tests/rook/text_literals.rook

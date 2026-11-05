@@ -1,0 +1,576 @@
+// The self-hosted lexer: source text -> tokens. A port of bootstrap/fledgling/lexer.py, line by line
+// where it can be, so that for every file the two make the same tokens at the same places and fail
+// with the same message (docs/self-hosting.md, step 5d-1).
+//
+// Differences, all outside the Rook that exists (decision 159): a number that does not fit in 64
+// bits is an error here; an identifier or other character beyond ASCII outside a string or comment is
+// not read as a letter; a `\x` escape needs both hex digits. Columns count characters, not bytes.
+
+import bytes: Bytes
+import option: Option
+import region: List, Region
+import text: Text
+import textmap: TextMap
+
+KIND_KEYWORD: u64 = 1
+KIND_CONTINUES: u64 = 2     // a newline after this token does not end the statement
+
+/// One token. `kind` is "ident", "int", "char", "str", "newline", "eof", or the keyword or
+/// punctuation text itself. `value` is a number's or character's value; `bytes` is the data of a
+/// string literal. `type_close` marks a `>` that closes a list of type arguments.
+pub struct Token {
+    pub kind: Text
+    pub text: Text
+    pub value: u64
+    pub bytes: Text
+    pub line: u64
+    pub col: u64
+    pub type_close: bool
+}
+
+fn lex_is_letter(b: u8) -> bool {
+    return (b >= 'a' and b <= 'z') or (b >= 'A' and b <= 'Z')
+}
+
+fn lex_is_digit(b: u8) -> bool {
+    return b >= '0' and b <= '9'
+}
+
+/// Is `t` CamelCase: it starts with a capital letter and has a lowercase letter somewhere?
+fn lex_is_camel(t: Text) -> bool {
+    if t.len() == 0 {
+        return false
+    }
+    first: u8 = t.at(0)
+    if first < 'A' or first > 'Z' {
+        return false
+    }
+    looking: loop i: u64 in 0..t.len() {
+        if t.at(i) >= 'a' and t.at(i) <= 'z' {
+            return true
+        }
+    }
+    return false
+}
+
+/// The value of a digit in a base, or 99 if `b` is not one.
+fn lex_digit_value(b: u8, base: u64) -> u64 {
+    mut value: u64 = 99
+    if b >= '0' and b <= '9' {
+        value = (b - '0') as u64
+    }
+    if b >= 'a' and b <= 'f' {
+        value = (b - 'a') as u64 + 10
+    }
+    if b >= 'A' and b <= 'F' {
+        value = (b - 'A') as u64 + 10
+    }
+    if value >= base {
+        return 99
+    }
+    return value
+}
+
+pub struct Lexer {
+    region: Region
+    source: Text
+    keywords: TextMap<u64>          // keywords, and the punctuation after which a line goes on
+    pub tokens: List<Token>
+    brackets: List<u8>              // open brackets; newlines are ignored when the innermost is ( or [
+    pub failed: bool
+    pub error: Text
+    pub error_line: u64
+    pub error_col: u64
+    at: u64                         // the next byte of the source
+    line: u64
+    col: u64
+    angles: u64                     // `<` opened after a type name on this line and not yet closed
+    last_newline: bool              // the last token is a newline (or there is none yet)
+    last_continues: bool
+    last_type_close: bool
+    last_camel: bool                // the last token is an identifier in CamelCase
+    cursor: u64                     // where an escape ended
+
+    new(region: Region, source: Text) {
+        .region = copy(region)
+        .source = copy(source)
+        .keywords = TextMap(region: region)
+        .tokens = List(region: region)
+        .brackets = List(region: region)
+        .failed = false
+        .error = Text(region: region)
+        .error_line = 0
+        .error_col = 0
+        .at = 0
+        .line = 1
+        .col = 1
+        .angles = 0
+        .last_newline = true
+        .last_continues = false
+        .last_type_close = false
+        .last_camel = false
+        .cursor = 0
+        .fill("fn extern pub mut if else loop in break continue return true false as wrap discard", KIND_KEYWORD)
+        .fill("and or xor not shl shr struct copy enum match unsafe actor on spawn self lossy reliable", KIND_KEYWORD)
+        .fill("interface narrow consume import module", KIND_KEYWORD)
+        .fill("as wrap and or xor not shl shr", KIND_CONTINUES)         // keywords too: their flags add up
+        .fill("+ - * / % < > = == != <= >= += -= *= /= %= -> => .. ( [ , : .", KIND_CONTINUES)
+    }
+
+    /// Adds each word of `words` (separated by spaces) to the table with `flags` added to its value.
+    mut fn fill(words: Bytes, flags: u64) {
+        mut word: Text = Text(region: .region)
+        splitting: loop i: u64 in 0..(words.len() + 1) {
+            if i == words.len() or words.at(i) == ' ' {
+                if word.len() > 0 {
+                    mut flags_now: u64 = flags
+                    match .keywords.find(word) {
+                        Some(value: old) => flags_now = flags + old
+                        None => { }
+                    }
+                    .keywords.put(word, flags_now)
+                    word.clear()
+                }
+            } else {
+                word.push(words.at(i))
+            }
+        }
+    }
+
+    /// The byte `ahead` places on, or 0 beyond the end.
+    fn peek(ahead: u64) -> u8 {
+        if .at + ahead >= .source.len() {
+            return 0
+        }
+        return .source.at(.at + ahead)
+    }
+
+    /// The source from `from` up to (not including) `to`, as text.
+    fn slice(from: u64, to: u64) -> Text {
+        mut piece: Text = Text(region: .region)
+        copying: loop k: u64 in from..to {
+            piece.push(.source.at(k))
+        }
+        return piece
+    }
+
+    /// How many characters (not bytes) the source has from `from` up to `to`.
+    fn characters(from: u64, to: u64) -> u64 {
+        mut n: u64 = 0
+        counting: loop k: u64 in from..to {
+            if (.source.at(k) and 0xC0) != 0x80 {
+                n += 1
+            }
+        }
+        return n
+    }
+
+    mut fn fail(line: u64, col: u64, message: Bytes) {
+        if not .failed {
+            .failed = true
+            .error_line = line
+            .error_col = col
+            .error.append(message)
+        }
+    }
+
+    /// Fails with "PREFIX`WORD`SUFFIX".
+    mut fn fail_with(line: u64, col: u64, prefix: Bytes, word: Text, suffix: Bytes) {
+        if not .failed {
+            .fail(line, col, prefix)
+            .error.append_text(word)
+            .error.append(suffix)
+        }
+    }
+
+    mut fn emit(kind: Text, text: Text, value: u64, bytes: Text, line: u64, col: u64, type_close: bool) {
+        flags: u64 = 0
+        match .keywords.find(kind) {
+            Some(value: f) => .last_continues = (f and KIND_CONTINUES) != 0
+            None => .last_continues = false
+        }
+        .last_newline = kind.same_as("newline")
+        .last_type_close = type_close
+        .last_camel = kind.same_as("ident") and lex_is_camel(text)
+        .tokens.push(Token(kind: copy(kind), text: copy(text), value: value, bytes: copy(bytes),
+                           line: line, col: col, type_close: type_close))
+    }
+
+    /// Emits a token whose kind and text are the same quoted text.
+    mut fn emit_plain(word: Bytes, line: u64, col: u64, type_close: bool) {
+        mut kind: Text = Text(region: .region)
+        kind.append(word)
+        empty: Text = Text(region: .region)
+        .emit(kind, kind, 0, empty, line, col, type_close)
+    }
+
+    pub mut fn run() {
+        scanning: loop .at < .source.len() and not .failed {
+            c: u8 = .source.at(.at)
+            at_line: u64 = .line
+            at_col: u64 = .col
+            if c == '\n' {
+                .newline(at_line, at_col)
+                continue scanning
+            }
+            if c == ' ' or c == '\r' {
+                .at = .at + 1
+                .col = .col + 1
+                continue scanning
+            }
+            if c == '\t' {
+                .fail(at_line, at_col, "tabs aren't allowed; indent with spaces")
+                continue scanning
+            }
+            if c == '/' and .peek(1) == '/' {
+                skipping: loop .at < .source.len() and .source.at(.at) != '\n' {
+                    .at = .at + 1
+                }
+                continue scanning
+            }
+            if lex_is_letter(c) or c == '_' {
+                .word(at_line, at_col)
+                continue scanning
+            }
+            if lex_is_digit(c) {
+                .number(at_line, at_col)
+                continue scanning
+            }
+            if c == '"' {
+                .string(at_line, at_col)
+                continue scanning
+            }
+            if c == '\'' {
+                .character(at_line, at_col)
+                continue scanning
+            }
+            .symbol(c, at_line, at_col)
+        }
+        if not .failed {
+            if .tokens.len() > 0 and not .last_newline {
+                .emit_newline(.line, .col)
+            }
+            empty: Text = Text(region: .region)
+            mut kind: Text = Text(region: .region)
+            kind.append("eof")
+            .emit(kind, empty, 0, empty, .line, .col, false)
+        }
+    }
+
+    mut fn emit_newline(line: u64, col: u64) {
+        mut text: Text = Text(region: .region)
+        text.push('\\')
+        text.push('n')
+        mut kind: Text = Text(region: .region)
+        kind.append("newline")
+        empty: Text = Text(region: .region)
+        .emit(kind, text, 0, empty, line, col, false)
+    }
+
+    mut fn newline(at_line: u64, at_col: u64) {
+        mut inside: bool = false
+        if .brackets.len() > 0 {
+            top: u8 = .brackets.get(.brackets.len() - 1)
+            inside = top == '(' or top == '['
+        }
+        if not inside and not .last_newline and (not .last_continues or .last_type_close) {
+            .emit_newline(at_line, at_col)
+        }
+        .angles = 0
+        .at = .at + 1
+        .line = .line + 1
+        .col = 1
+    }
+
+    mut fn word(at_line: u64, at_col: u64) {
+        start: u64 = .at
+        mut end: u64 = start
+        scanning: loop end < .source.len() and (lex_is_letter(.source.at(end)) or
+                                                lex_is_digit(.source.at(end)) or .source.at(end) == '_') {
+            end = end + 1
+        }
+        word: Text = .slice(start, end)
+        if word.same_as("freeze") {
+            .fail_with(at_line, at_col, "`", word,
+                       "` is reserved for a later milestone and not supported by Fledgling yet")
+            return
+        }
+        if word.same_as("let") {
+            .fail(at_line, at_col, "Rook has no `let`: declare with `name: type = value`")
+            return
+        }
+        if word.same_as("var") {
+            .fail(at_line, at_col, "Rook has no `var`: declare with `mut name: type = value`")
+            return
+        }
+        if word.same_as("const") {
+            .fail(at_line, at_col, "Rook has no `const`: a top-level `NAME: type = value` is a constant")
+            return
+        }
+        if word.same_as("while") {
+            .fail(at_line, at_col, "Rook has no `while`: use `loop condition { ... }`")
+            return
+        }
+        if word.same_as("for") {
+            .fail(at_line, at_col, "Rook has no `for`: use `loop i in start..end { ... }`")
+            return
+        }
+        mut kind: Text = Text(region: .region)
+        kind.append("ident")
+        match .keywords.find(word) {
+            Some(value: f) => {
+                if (f and KIND_KEYWORD) != 0 {
+                    kind.clear()
+                    kind.append_text(word)
+                }
+            }
+            None => { }
+        }
+        empty: Text = Text(region: .region)
+        .emit(kind, word, 0, empty, at_line, at_col, false)
+        .col = .col + (end - start)
+        .at = end
+    }
+
+    mut fn number(at_line: u64, at_col: u64) {
+        start: u64 = .at
+        mut base: u64 = 10
+        mut digits_from: u64 = start
+        if .peek(0) == '0' and (.peek(1) == 'x' or .peek(1) == 'X') {
+            base = 16
+            digits_from = start + 2
+        }
+        if .peek(0) == '0' and (.peek(1) == 'b' or .peek(1) == 'B') {
+            base = 2
+            digits_from = start + 2
+        }
+        mut end: u64 = digits_from
+        scanning: loop end < .source.len() and (lex_is_letter(.source.at(end)) or
+                                                lex_is_digit(.source.at(end)) or .source.at(end) == '_') {
+            end = end + 1
+        }
+        mut value: u64 = 0
+        mut seen: u64 = 0
+        mut bad: bool = false
+        reading: loop k: u64 in digits_from..end {
+            b: u8 = .source.at(k)
+            if b != '_' {
+                d: u64 = lex_digit_value(b, base)
+                if d == 99 {
+                    bad = true
+                } else {
+                    if value > (18446744073709551615 - d) / base {
+                        bad = true
+                    } else {
+                        value = value * base + d
+                    }
+                }
+                seen += 1
+            }
+        }
+        if bad or seen == 0 {
+            .fail_with(at_line, at_col, "invalid number `", .slice(start, end), "`")
+            return
+        }
+        empty: Text = Text(region: .region)
+        mut kind: Text = Text(region: .region)
+        kind.append("int")
+        .emit(kind, .slice(start, end), value, empty, at_line, at_col, false)
+        .col = .col + (end - start)
+        .at = end
+    }
+
+    /// Reads the escape whose backslash is at `j`: returns the byte and leaves where it ends in
+    /// `cursor`. Fails (at the token's start) if it is not a good escape.
+    mut fn escape(j: u64, at_line: u64, at_col: u64) -> u8 {
+        if j + 1 >= .source.len() {
+            .fail(at_line, at_col, "unterminated escape")
+            return 0
+        }
+        esc: u8 = .source.at(j + 1)
+        if esc == 'x' {
+            if j + 3 < .source.len() + 0 and lex_digit_value(.source.at(j + 2), 16) != 99 and
+                    lex_digit_value(.source.at(j + 3), 16) != 99 {
+                .cursor = j + 4
+                return (lex_digit_value(.source.at(j + 2), 16) * 16 + lex_digit_value(.source.at(j + 3), 16)) wrap u8
+            }
+            .fail(at_line, at_col, "invalid `\\x` escape (needs two hex digits)")
+            return 0
+        }
+        .cursor = j + 2
+        if esc == 'n' {
+            return 10
+        }
+        if esc == 't' {
+            return 9
+        }
+        if esc == 'r' {
+            return 13
+        }
+        if esc == '0' {
+            return 0
+        }
+        if esc == '\\' {
+            return 92
+        }
+        if esc == '\'' {
+            return 39
+        }
+        if esc == '"' {
+            return 34
+        }
+        mut shown: Text = Text(region: .region)
+        shown.push(esc)
+        .fail_with(at_line, at_col, "unknown escape `\\", shown, "`")
+        return 0
+    }
+
+    mut fn string(at_line: u64, at_col: u64) {
+        start: u64 = .at
+        mut j: u64 = start + 1
+        mut data: Text = Text(region: .region)
+        scanning: loop true {
+            if j >= .source.len() or .source.at(j) == '\n' {
+                .fail(at_line, at_col, "unterminated string literal")
+                return
+            }
+            if .source.at(j) == '"' {
+                j = j + 1
+                break scanning
+            }
+            if .source.at(j) == '\\' {
+                value: u8 = .escape(j, at_line, at_col)
+                if .failed {
+                    return
+                }
+                data.push(value)
+                j = .cursor
+            } else {
+                data.push(.source.at(j))
+                j = j + 1
+            }
+        }
+        mut kind: Text = Text(region: .region)
+        kind.append("str")
+        .emit(kind, .slice(start, j), 0, data, at_line, at_col, false)
+        .col = .col + .characters(start, j)
+        .at = j
+    }
+
+    mut fn character(at_line: u64, at_col: u64) {
+        start: u64 = .at
+        mut j: u64 = start + 1
+        mut value: u64 = 0
+        if j < .source.len() and .source.at(j) == '\\' {
+            value = .escape(j, at_line, at_col) as u64
+            if .failed {
+                return
+            }
+            j = .cursor
+        } else {
+            if j >= .source.len() or .source.at(j) == '\'' or .source.at(j) == '\n' {
+                .fail(at_line, at_col, "empty character literal")
+                return
+            }
+            value = .source.at(j) as u64
+            if value > 127 {
+                .fail(at_line, at_col, "character literals must be ASCII")
+                return
+            }
+            j = j + 1
+        }
+        if j >= .source.len() or .source.at(j) != '\'' {
+            .fail(at_line, at_col, "unterminated character literal")
+            return
+        }
+        j = j + 1
+        empty: Text = Text(region: .region)
+        mut kind: Text = Text(region: .region)
+        kind.append("char")
+        .emit(kind, .slice(start, j), value, empty, at_line, at_col, false)
+        .col = .col + (j - start)
+        .at = j
+    }
+
+    /// Punctuation, and the characters that are errors.
+    mut fn symbol(c: u8, at_line: u64, at_col: u64) {
+        next: u8 = .peek(1)
+        if c == '&' and next == '&' {
+            .fail(at_line, at_col, "Rook writes `&&` as `and`")
+            return
+        }
+        if c == '|' and next == '|' {
+            .fail(at_line, at_col, "Rook writes `||` as `or`")
+            return
+        }
+        if c == '<' and next == '<' {
+            .fail(at_line, at_col, "Rook writes `<<` as `shl`")
+            return
+        }
+        mut length: u64 = 0
+        if next == '=' and (c == '=' or c == '!' or c == '<' or c == '>' or c == '+' or c == '-' or
+                            c == '*' or c == '/' or c == '%') {
+            length = 2
+        }
+        if c == '-' and next == '>' {
+            length = 2
+        }
+        if c == '=' and next == '>' {
+            length = 2
+        }
+        if c == '.' and next == '.' {
+            length = 2
+        }
+        if length == 0 and (c == '+' or c == '-' or c == '*' or c == '/' or c == '%' or c == '<' or
+                            c == '>' or c == '=' or c == '(' or c == ')' or c == '{' or c == '}' or
+                            c == '[' or c == ']' or c == ',' or c == ':' or c == '.') {
+            length = 1
+        }
+        if length == 0 {
+            if c == '!' {
+                .fail(at_line, at_col, "Rook writes `!` as `not`")
+                return
+            }
+            if c == '&' {
+                .fail(at_line, at_col, "Rook writes `&` as `and`")
+                return
+            }
+            if c == '|' {
+                .fail(at_line, at_col, "Rook writes `|` as `or`")
+                return
+            }
+            if c == '^' {
+                .fail(at_line, at_col, "Rook writes `^` as `xor`")
+                return
+            }
+            if c == '~' {
+                .fail(at_line, at_col, "Rook writes `~` as `not`")
+                return
+            }
+            mut shown: Text = Text(region: .region)
+            shown.push(c)
+            .fail_with(at_line, at_col, "unexpected character `", shown, "`")
+            return
+        }
+        punct: Text = .slice(.at, .at + length)
+        if length == 1 and (c == '(' or c == '[' or c == '{') {
+            .brackets.push(c)
+        }
+        if length == 1 and (c == ')' or c == ']' or c == '}') and .brackets.len() > 0 {
+            discard .brackets.pop()
+        }
+        mut closes: bool = false
+        if c == '<' and length == 1 and .last_camel {
+            .angles = .angles + 1
+        } else {
+            if c == '>' and length == 1 and .angles > 0 {
+                .angles = .angles - 1
+                closes = true
+            }
+        }
+        empty: Text = Text(region: .region)
+        .emit(punct, punct, 0, empty, at_line, at_col, closes)
+        .at = .at + length
+        .col = .col + length
+    }
+}

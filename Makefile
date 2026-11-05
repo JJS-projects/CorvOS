@@ -44,7 +44,7 @@ ROOK_TEST_TRUSTED := $(RAVEN_TRUSTED) --trusted tests/rook/support/trusted \
 ROOK_TESTS     := $(wildcard tests/rook/*.rook tests/rook/trusted/*.rook)
 ROOK_TEST_IMGS := $(ROOK_TESTS:tests/rook/%.rook=$(BUILD)/rook-tests/%.img)
 
-.PHONY: all run test quick difftest coverage disasm sdcard clean help
+.PHONY: all run test quick difftest selfhost-check coverage disasm sdcard clean help
 # Keep generated assembly, so it can be read when reviewing or debugging.
 .SECONDARY:
 
@@ -69,9 +69,9 @@ $(BUILD)/rooktest/%.o: %.s Makefile
 # $(BUILD)/$(1). Used for the tests in tests/rook and the generated programs
 # of `make difftest`.
 define ROOK_IMAGE_RULES
-$(BUILD)/$(1)/%.s: $(2) $(FLEDGLING_SRCS) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) Makefile
+$(BUILD)/$(1)/%.s: $(2) $(3) $(FLEDGLING_SRCS) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) Makefile
 	@mkdir -p $$(dir $$@)
-	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $$< -o $$@
+	$(FLEDGLING) $(ROOK_TEST_TRUSTED) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $(3) $$< -o $$@
 
 $(BUILD)/$(1)/%.o: $(BUILD)/$(1)/%.s
 	$(AS) $(ASFLAGS) -o $$@ $$<
@@ -82,7 +82,8 @@ endef
 $(eval $(call ROOK_IMAGE_RULES,rook-tests,tests/rook/%.rook))
 $(eval $(call ROOK_IMAGE_RULES,difftest,$(BUILD)/difftest/%.rook))
 # The self-hosted compiler's programs (milestone 5), each run hosted: see docs/self-hosting.md.
-$(eval $(call ROOK_IMAGE_RULES,compiler,compiler/%.rook))
+COMPILER_LIB := $(wildcard compiler/lib/*.rook)
+$(eval $(call ROOK_IMAGE_RULES,compiler,compiler/%.rook,$(COMPILER_LIB)))
 COMPILER_IMGS := $(patsubst compiler/%.rook,$(BUILD)/compiler/%.img,$(wildcard compiler/*.rook))
 
 $(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS) Makefile
@@ -122,6 +123,10 @@ SEED     ?= 1
 PROGRAMS ?= 12
 difftest: $(KERNEL)
 	$(PYTHON) tools/difftest.py --seed $(SEED) --programs $(PROGRAMS)
+
+# Every self-hosted compiler stage against Fledgling on every Rook file (slow; see tools/selfhost-check.py).
+selfhost-check: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
+	$(PYTHON) tools/selfhost-check.py lexdump
 
 coverage:
 	$(PYTHON) tools/coverage.py

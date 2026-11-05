@@ -1,0 +1,9 @@
+3:1 fn fn
+3:4 ident f
+3:5 ( (
+3:6 ) )
+3:8 { {
+3:9 newline \n
+5:1 } }
+5:2 newline \n
+7:1 eof

@@ -1,0 +1,19 @@
+1:1 ident a
+1:2 : :
+1:4 ident Bytes
+1:10 = =
+1:12 str "hello\tworld\n" x68656c6c6f09776f726c640a
+1:28 newline \n
+2:1 ident b
+2:2 : :
+2:4 ident Bytes
+2:10 = =
+2:12 str "q\"uote\\ \x7f" x7122756f74655c207f
+2:28 newline \n
+3:1 ident c
+3:2 : :
+3:4 ident Bytes
+3:10 = =
+3:12 str "" x
+3:14 newline \n
+4:1 eof

@@ -1,0 +1,1 @@
+error 1:1: Rook has no `for`: use `loop i in start..end { ... }`

@@ -1,0 +1,5 @@
+v: u64 = Count <
+    n
+w: bool = n >
+    3
+ok: u64 = 1

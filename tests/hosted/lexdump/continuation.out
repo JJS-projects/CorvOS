@@ -1,0 +1,20 @@
+1:1 ident x
+1:2 : :
+1:4 ident u64
+1:8 = =
+1:10 int 1 1
+1:12 + +
+2:5 int 2 2
+2:6 newline \n
+3:1 ident y
+3:2 : :
+3:4 ident u64
+3:8 = =
+3:10 ident f
+3:11 ( (
+4:5 int 1 1
+4:6 , ,
+5:5 int 2 2
+5:6 ) )
+5:7 newline \n
+6:1 eof
