@@ -1183,6 +1183,15 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   line otherwise continues the statement, as an operator does. The lexer counts a `<` as opening type
   arguments only after a CamelCase name that is not all capitals, so `FLOOR < x` is a comparison.
 
+### 11.23 `TextMap<V>`, and where a generic's names are checked (step 5c)
+
+- `TextMap<V>` (`raven/textmap.rook`): see self-hosting.md. A generic type with a generic inside it
+  (`TextMap<V>` holds `List<V>`) is an ordinary use of 11.19.
+- **The names a generic's text writes are checked in the generic's own file**, not in the file that writes
+  `Name<Args>`: a user of `TextMap<Info>` imports `TextMap` and `Info`, not `List` or `Text` unless it uses
+  them. The type arguments are checked where they were written. (A bug in 11.19's first version, found when
+  `TextMap` was written; test `rook/generics_files_hidden`.)
+
 ## 12. Open questions
 
 - **Namespacing**: names are unique across a whole program, so a larger piece of software

@@ -1,0 +1,22 @@
+// The names a generic's own text uses are checked in the generic's file, not in the file that
+// writes `SupportHolder<Local>`: the holder contains a `SupportBox<T>`, and this file imports only
+// the holder, never the box.
+//
+// Worked out: the holder is built from Local(3), so `inner.value.n` is 3 and 3 + 4 = 7 for a holder of
+// Local(4) added.
+// expect: 3
+// expect: 7
+
+import generic_library: SupportHolder
+import print: print_u64
+
+struct Local {
+    n: u64
+}
+
+fn test_main() {
+    a: SupportHolder<Local> = SupportHolder(first: Local(n: 3))
+    b: SupportHolder<Local> = SupportHolder(first: Local(n: 4))
+    print_u64(a.inner.value.n)
+    print_u64(a.inner.value.n + b.inner.value.n)
+}

@@ -49,6 +49,13 @@ text, `append_text`, `append_dec`, `at`, `len`, `equals`, `same_as`, `hash`, `cl
 Rook on `List<u8>` (a byte takes a slot of 8 bytes: wasteful, with no unsafe code). The name table the
 compiler needs will be keyed by `Text`, not by any type: that needs no hashing in the language.
 
+## Text-keyed map (step 5c, decision 158)
+
+`raven/textmap.rook` has `TextMap<V>` (`import textmap: TextMap`): `m: TextMap<Info> = TextMap(region: region)`,
+`put(key, value)` (replaces a value for a key already there), `find(key)` (an `Option<V>`), `contains`, `len`,
+`key_at(i)` and `value_at(i)` (the entries in the order they were added, the same every run). The key is
+copied in. A hash table with linear probing over `List`s, doubling when half full; no removal.
+
 ## Stages
 
 | Step | What | Test |

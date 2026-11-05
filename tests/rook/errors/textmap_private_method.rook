@@ -1,0 +1,14 @@
+// slot_for is a private method of TextMap.
+// error: 13:16: `slot_for` is private to textmap.rook; mark the method `pub` to use it in another file
+
+import devices: Mmio
+import region: Region, make_region
+import text: Text
+import textmap: TextMap
+
+fn f(peripherals: Mmio) {
+    region: Region = make_region(peripherals)
+    mut k: Text = Text(region: region)
+    m: TextMap<u64> = TextMap(region: region)
+    n: u64 = m.slot_for(k, 0)
+}

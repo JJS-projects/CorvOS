@@ -1,0 +1,111 @@
+// A map from text to values, for the compiler's tables of names (functions, types, locals). Keys
+// are `Text`; values are any `V`. It is a hash table with linear probing in ordinary Rook, built on
+// `List`: the entries are kept in the order they were added (so a walk over them is the same every
+// time), and a table of slots points into them. A key is copied in, so the caller may go on using
+// its `Text`. There is no removal: a compiler's tables only grow.
+
+import option: Option
+import region: List, Region
+import text: Text
+
+pub struct TextMap<V> {
+    region: Region
+    keys: List<Text>
+    hashes: List<u32>
+    values: List<V>
+    slots: List<u64>        // 0 for a free slot, else the entry number plus one
+
+    new(region: Region) {
+        .region = copy(region)
+        .keys = List(region: region)
+        .hashes = List(region: region)
+        .values = List(region: region)
+        .slots = List(region: region)
+    }
+
+    /// How many keys it holds.
+    pub fn len() -> u64 {
+        return .keys.len()
+    }
+
+    /// The `index`-th key added (a copy of its handle; do not add to it). Panics if outside.
+    pub fn key_at(index: u64) -> Text {
+        return .keys.get(index)
+    }
+
+    /// The value of the `index`-th key added. Panics if outside.
+    pub fn value_at(index: u64) -> V {
+        return .values.get(index)
+    }
+
+    /// The value for `key`, or `None`.
+    pub fn find(key: Text) -> Option<V> {
+        if .slots.len() == 0 {
+            return None
+        }
+        rt_entry: u64 = .slots.get(.slot_for(key, key.hash()))
+        if rt_entry == 0 {
+            return None
+        }
+        return Some(value: .values.get(rt_entry - 1))
+    }
+
+    /// Is `key` in it?
+    pub fn contains(key: Text) -> bool {
+        if .slots.len() == 0 {
+            return false
+        }
+        return .slots.get(.slot_for(key, key.hash())) != 0
+    }
+
+    /// Adds `key` with `value`, or replaces the value if `key` is already there.
+    pub mut fn put(key: Text, value: V) {
+        if .slots.len() == 0 {
+            .rebuild(16)
+        }
+        rt_hash: u32 = key.hash()
+        rt_at: u64 = .slot_for(key, rt_hash)
+        rt_entry: u64 = .slots.get(rt_at)
+        if rt_entry != 0 {
+            .values.set(rt_entry - 1, value)
+            return
+        }
+        mut rt_stored: Text = Text(region: .region)
+        rt_stored.append_text(key)
+        .keys.push(rt_stored)
+        .hashes.push(rt_hash)
+        .values.push(value)
+        .slots.set(rt_at, .keys.len())
+        if .keys.len() * 2 >= .slots.len() {
+            .rebuild(.slots.len() * 2)
+        }
+    }
+
+    /// The slot holding `key`, or the free slot where it would go.
+    fn slot_for(key: Text, hash: u32) -> u64 {
+        rt_mask: u64 = .slots.len() - 1
+        mut rt_at: u64 = (hash as u64) and rt_mask
+        probing: loop {
+            rt_entry: u64 = .slots.get(rt_at)
+            if rt_entry == 0 {
+                return rt_at
+            }
+            if .hashes.get(rt_entry - 1) == hash and .keys.get(rt_entry - 1).equals(key) {
+                return rt_at
+            }
+            rt_at = (rt_at + 1) and rt_mask
+        }
+    }
+
+    /// A table of `size` slots (a power of two) with every entry placed in it again.
+    mut fn rebuild(size: u64) {
+        mut rt_fresh: List<u64> = List(region: .region)
+        filling: loop rt_i: u64 in 0..size {
+            rt_fresh.push(0)
+        }
+        .slots = copy(rt_fresh)
+        placing: loop rt_e: u64 in 0..(.keys.len()) {
+            .slots.set(.slot_for(.keys.get(rt_e), .hashes.get(rt_e)), rt_e + 1)
+        }
+    }
+} TextMap

@@ -80,13 +80,14 @@ def expand(program):
         def substitute(n):
             if isinstance(n, S.TypeRef) and n.name in binding and not n.args:
                 # Errors about the argument point at where it was written, not into the template.
-                n.name, n.visible_in, n.pos = binding[n.name].name, context, binding[n.name].pos
+                arg = binding[n.name]
+                n.name, n.visible_in, n.pos = arg.name, arg.visible_in or context, arg.pos
         walk(new, substitute)
         for m in new.methods:
             m.owner = key
         instances[key] = new
         program.items.append(new)
-        pending.append((new, context))
+        pending.append((new, new.file))      # the names the template wrote are the template's file's
 
     for item in list(program.items):
         rewrite(item, getattr(item, "file", None))
