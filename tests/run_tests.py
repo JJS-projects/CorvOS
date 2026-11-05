@@ -106,7 +106,7 @@ if board_mode():
     MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError  # noqa: E402
-from fledgling.dump import dump_tokens, dump_tree  # noqa: E402
+from fledgling.dump import dump_tokens, dump_tree, tree  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -1269,7 +1269,11 @@ def check_dump_tree():
         return "a parse error should be one `error LINE:COL: MESSAGE` line"
     if dump_tree("x\ty\n") != "error 1:2: tabs aren't allowed; indent with spaces\n":
         return "a lexer error should be the same one line"
-    return None
+    try:
+        tree(object())
+    except AssertionError:
+        return None
+    return "a node the dump has no form for should be an error, not silence"
 
 
 HARNESS_TESTS = [

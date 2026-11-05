@@ -53,7 +53,7 @@ def compile_everything():
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
         del sys.modules[name]
     from fledgling import compile_program
-    from fledgling.dump import dump_tokens, dump_tree
+    from fledgling.dump import dump_tokens, dump_tree, tree
     lib = run_tests.ROOK_LIB
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
@@ -78,6 +78,10 @@ def compile_everything():
         dump_tree(open(path).read())
     dump_tree("x\ty\n")
     dump_tree("fn f() {\n")
+    try:
+        tree(object())          # a node the dump has no form for is a bug in the dump, not silence
+    except AssertionError:
+        pass
     # Raven itself.
     raven = sorted(glob.glob(os.path.join(ROOT, "raven", "trusted", "*.rook"))
                    + glob.glob(os.path.join(ROOT, "raven", "*.rook")))
