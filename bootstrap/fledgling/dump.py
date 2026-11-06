@@ -56,30 +56,33 @@ def _group(kind, items, text=""):
 _annotate = [False]     # set while `dump_bodies` builds a tree: nodes then carry what the checker found
 
 
+NOTE_DEFAULTS = {"words": 1, "stopped": 0, "payload_words": 0, "args_words": 0}   # the parser's value: not a note
+
+NOTE_KEYS = ("slot", "end_slot", "subject_slot", "self_slot", "result_slot", "temp", "args_slot",
+             "args_words", "payload", "payload_words", "handler_index", "words", "number", "stopped",
+             "lo", "hi", "const_value", "nslots")
+
+
 def _notes(n):
     """What the checker recorded on node `n`, as the text ` : TYPE key=value ...` (decision 165): the
-    type first, then the places the code generator needs, in a fixed order. Nothing is written for what
-    the checker did not set."""
+    type first, then the numbers in the order of NOTE_KEYS (`const_value` is written `const`), then
+    `const_str=xHEX`, `variant=`, `struct=`, the flags `scalar` and `send`, and `slots=`. Nothing is
+    written for what the checker did not set, or left at the value the parser gives it (NOTE_DEFAULTS); a function that was not checked has no notes at all."""
     parts = []
     ty = getattr(n, "ty", None)
     if ty is not None:
         parts.append(f": {ty}")
-    for key in ("slot", "end_slot", "subject_slot", "self_slot", "result_slot", "temp", "args_slot",
-                "args_words", "payload", "payload_words", "handler_index", "words", "number",
-                "stopped", "lo", "hi", "const_value"):
+    if isinstance(n, S.FnDecl) and not getattr(n, "checked", False):
+        return " ".join(parts)
+    for key in NOTE_KEYS:
         value = getattr(n, key, None)
-        if value is not None and not (key == "number" and isinstance(n, S.FnDecl)):
+        if value is not None and NOTE_DEFAULTS.get(key) != value:
             parts.append(f"{'const' if key == 'const_value' else key}={int(value)}")
-    if isinstance(n, S.FnDecl) and n.body is not None:
-        parts.append(f"nslots={n.nslots}")
-        if n.number is not None:
-            parts.append(f"number={n.number}")
     if getattr(n, "const_str", None) is not None:
         parts.append(f"const_str=x{n.const_str.data.hex()}")
-    for key in ("variant",):
-        value = getattr(n, key, None)
-        if value is not None:
-            parts.append(f"variant={value.name}")
+    variant = getattr(n, "variant", None)
+    if variant is not None:
+        parts.append(f"variant={variant.name}")
     struct = getattr(n, "struct", None)
     if struct is not None:
         parts.append(f"struct={struct.name}")

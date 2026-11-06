@@ -1,0 +1,6 @@
+@@@ a.rook
+pub struct Bytes {
+    pub address: u64
+    pub length: u64
+}
+A: Bytes = 5

@@ -1,0 +1,7 @@
+@@@ a.rook
+pub struct Bytes {
+    pub address: u64
+    pub length: u64
+}
+HELLO: Bytes = "hi"
+OTHER: Bytes = HELLO

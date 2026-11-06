@@ -1,0 +1,2 @@
+@@@ a.rook
+A: u64 = consume(1)

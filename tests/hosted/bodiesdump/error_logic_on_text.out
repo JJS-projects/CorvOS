@@ -1,0 +1,1 @@
+error a.rook:6:13: `and` needs bools or integers, found Bytes

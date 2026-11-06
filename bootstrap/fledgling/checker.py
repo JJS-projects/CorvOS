@@ -607,6 +607,7 @@ class Checker:
             raise CompileError(
                 f"`{decl.name}` must return a {sig.ret} on every path", decl.pos)
         decl.nslots = self.nslots
+        decl.checked = True
         if self.in_new:
             for name, _ in sig.owner.fields:
                 if name not in self.assigned:

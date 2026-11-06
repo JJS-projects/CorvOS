@@ -1,0 +1,1 @@
+error a.rook:1:9: literal -200 is out of range for i8 (-128 to 127)

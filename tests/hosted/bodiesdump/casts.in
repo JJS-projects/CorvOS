@@ -1,0 +1,11 @@
+@@@ a.rook
+BYTE: u8 = 200
+A: u64 = BYTE as u64
+B: u8 = 300 wrap u8
+C: i8 = 200 wrap i8
+D: u16 = 'a' as u16
+E: u32 = true as u32
+NEGONE: i8 = -1
+F: u8 = NEGONE wrap u8
+G: i64 = 255 wrap i8 as i64
+H: u8 = 5 as u8

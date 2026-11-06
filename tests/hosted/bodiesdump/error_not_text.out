@@ -1,0 +1,1 @@
+error a.rook:6:11: `not` needs a bool or an integer, found Bytes

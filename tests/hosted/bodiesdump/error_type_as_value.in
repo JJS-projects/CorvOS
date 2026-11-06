@@ -1,0 +1,5 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+}
+A: u8 = Pt

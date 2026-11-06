@@ -1,0 +1,10 @@
+@@@ a.rook
+A: u8 = 6 and 3
+B: u8 = 6 or 3
+C: u8 = 6 xor 3
+D: u8 = not 5
+E: i8 = not 5
+F: i8 = -6 and 3
+G: bool = true xor true
+H: bool = true and false
+I: bool = not true

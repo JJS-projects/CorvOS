@@ -1,0 +1,62 @@
+const A bool 1
+const B bool 0
+const M3 i32 -3
+const C bool 1
+const D bool 1
+const E bool 0
+const F bool 0
+const G bool 1
+const H bool 0
+Program
+  Const 1:1 A
+    Type 1:4 bool
+    Binary 1:13 < : bool
+      Int 1:11 3 : u64
+      Int 1:15 4 : u64
+    File a.rook
+  Const 2:1 B
+    Type 2:4 bool
+    Binary 2:13 >= : bool
+      Int 2:11 3 : u64
+      Int 2:16 4 : u64
+    File a.rook
+  Const 3:1 M3
+    Type 3:5 i32
+    Int 3:11 -3 : i32
+    File a.rook
+  Const 4:1 C
+    Type 4:4 bool
+    Binary 4:14 < : bool
+      Name 4:11 M3 : i32 const=-3
+      Int 4:16 2 : i32
+    File a.rook
+  Const 5:1 D
+    Type 5:4 bool
+    Binary 5:13 == : bool
+      Int 5:11 5 : u64
+      Int 5:16 5 : u64
+    File a.rook
+  Const 6:1 E
+    Type 6:4 bool
+    Binary 6:13 != : bool
+      Int 6:11 5 : u64
+      Int 6:16 5 : u64
+    File a.rook
+  Const 7:1 F
+    Type 7:4 bool
+    Binary 7:16 == : bool
+      Bool 7:11 true : bool
+      Bool 7:19 false : bool
+    File a.rook
+  Const 8:1 G
+    Type 8:4 bool
+    Binary 8:13 <= : bool
+      Int 8:11 7 : u64
+      Int 8:16 7 : u64
+    File a.rook
+  Const 9:1 H
+    Type 9:4 bool
+    Binary 9:13 > : bool
+      Int 9:11 7 : u64
+      Int 9:15 7 : u64
+    File a.rook

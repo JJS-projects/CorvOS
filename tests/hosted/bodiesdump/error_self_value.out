@@ -1,0 +1,1 @@
+error a.rook:1:10: `.` on its own is a method's own value, so it only works inside methods

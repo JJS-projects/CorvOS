@@ -1,0 +1,37 @@
+const A u64 5
+const B u64 5
+const C u64 1
+const D u64 2
+Program
+  Struct 1:5 pub Bytes
+    TypeParams
+    Fields
+      Field 2:9 pub address
+        Type 2:18 u64
+      Field 3:9 pub length
+        Type 3:17 u64
+    Methods
+    File a.rook
+  Const 5:1 A
+    Type 5:4 u64
+    Int 5:10 5 : u64
+    File a.rook
+  Const 6:1 B
+    Type 6:4 u64
+    Name 6:10 A : u64 const=5
+    File a.rook
+  Const 7:1 C
+    Type 7:4 u64
+    IfExpr 7:10 : u64
+      Binary 7:15 == : bool
+        Name 7:13 B : u64 const=5
+        Int 7:18 5 : u64
+      Int 7:22 1 : u64
+      Int 7:33 2 : u64
+    File a.rook
+  Const 8:1 D
+    Type 8:4 u64
+    Binary 8:12 + : u64
+      Int 8:10 1 : u64
+      Name 8:14 C : u64 const=1
+    File a.rook

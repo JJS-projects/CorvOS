@@ -1,0 +1,31 @@
+const A u64 18446744073709551615
+const B i64 -9223372036854775808
+const C i8 -128
+const D u8 255
+const E u8 97
+const F u32 7
+Program
+  Const 1:1 A
+    Type 1:4 u64
+    Int 1:10 18446744073709551615 : u64
+    File a.rook
+  Const 2:1 B
+    Type 2:4 i64
+    Int 2:10 -9223372036854775808 : i64
+    File a.rook
+  Const 3:1 C
+    Type 3:4 i8
+    Int 3:9 -128 : i8
+    File a.rook
+  Const 4:1 D
+    Type 4:4 u8
+    Int 4:9 255 : u8
+    File a.rook
+  Const 5:1 E
+    Type 5:4 u8
+    Char 5:9 97 : u8
+    File a.rook
+  Const 6:1 F
+    Type 6:4 u32
+    Int 6:10 7 : u32
+    File a.rook

@@ -1,0 +1,12 @@
+const A bool 1
+Program
+  Const 1:1 A
+    Type 1:4 bool
+    Binary 1:17 and : bool
+      Binary 1:13 < : bool
+        Int 1:11 1 : u64
+        Int 1:15 2 : u64
+      Binary 1:23 < : bool
+        Int 1:21 3 : u64
+        Int 1:25 4 : u64
+    File a.rook

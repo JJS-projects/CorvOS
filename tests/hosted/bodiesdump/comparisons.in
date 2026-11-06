@@ -1,0 +1,10 @@
+@@@ a.rook
+A: bool = 3 < 4
+B: bool = 3 >= 4
+M3: i32 = -3
+C: bool = M3 < 2
+D: bool = 5 == 5
+E: bool = 5 != 5
+F: bool = true == false
+G: bool = 7 <= 7
+H: bool = 7 > 7

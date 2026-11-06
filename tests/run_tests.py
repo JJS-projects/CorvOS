@@ -620,10 +620,11 @@ class ErrorTest:
 
 # What Fledgling prints for the same input, for each hosted program that has a reference.
 HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "expanddump": dump_expanded,
-                    "declsdump": dump_declarations}
+                    "declsdump": dump_declarations,
+                    "bodiesdump": lambda stream: dump_bodies(stream, bodies=False)}
 # Stages that work on a whole program are given a stream of files (`@@@ PATH` header lines, see
 # fledgling.dump.split_stream); in live.txt a line names the files of one stream, in order.
-STREAM_STAGES = {"expanddump", "declsdump"}
+STREAM_STAGES = {"expanddump", "declsdump", "bodiesdump"}
 
 HOSTED_BEGIN = "Hosted: begin"
 HOSTED_END = "Hosted: end"
@@ -1397,7 +1398,7 @@ def check_dump_bodies():
     if dump_bodies(stream, ownership=True) != "error a.rook:9:14: `a` was consumed at 8:18, so it has no value here; assign it again first\n":
         return "with ownership on, reading `a` after `consume(a)` should be the error"
     unchecked = dump_bodies(make_stream([("a.rook", False, "fn f() {\n    c: u64 = 1\n}\n")]), bodies=False)
-    if unchecked != ("Program\n  Fn 1:1 f nslots=0\n    Params\n    none\n    Block 1:8\n      Decl 2:5 c\n"
+    if unchecked != ("Program\n  Fn 1:1 f\n    Params\n    none\n    Block 1:8\n      Decl 2:5 c\n"
                      "        Type 2:8 u64\n        Int 2:14 1\n    File a.rook\n"):
         return f"with no bodies, nothing in a function is checked, so it has no types: {unchecked!r}"
     return None

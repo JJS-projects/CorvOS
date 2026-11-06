@@ -1,0 +1,69 @@
+const BYTE u8 200
+const A u64 200
+const B u8 44
+const C i8 -56
+const D u16 97
+const E u32 1
+const NEGONE i8 -1
+const F u8 255
+const G i64 -1
+const H u8 5
+Program
+  Const 1:1 BYTE
+    Type 1:7 u8
+    Int 1:12 200 : u8
+    File a.rook
+  Const 2:1 A
+    Type 2:4 u64
+    Cast 2:15 as : u64
+      Name 2:10 BYTE : u8 const=200
+      Type 2:18 u64
+    File a.rook
+  Const 3:1 B
+    Type 3:4 u8
+    Cast 3:13 wrap : u8
+      Int 3:9 300 : u64
+      Type 3:18 u8
+    File a.rook
+  Const 4:1 C
+    Type 4:4 i8
+    Cast 4:13 wrap : i8
+      Int 4:9 200 : u64
+      Type 4:18 i8
+    File a.rook
+  Const 5:1 D
+    Type 5:4 u16
+    Cast 5:14 as : u16
+      Char 5:10 97 : u16
+      Type 5:17 u16
+    File a.rook
+  Const 6:1 E
+    Type 6:4 u32
+    Cast 6:15 as : u32
+      Bool 6:10 true : bool
+      Type 6:18 u32
+    File a.rook
+  Const 7:1 NEGONE
+    Type 7:9 i8
+    Int 7:14 -1 : i8
+    File a.rook
+  Const 8:1 F
+    Type 8:4 u8
+    Cast 8:16 wrap : u8
+      Name 8:9 NEGONE : i8 const=-1
+      Type 8:21 u8
+    File a.rook
+  Const 9:1 G
+    Type 9:4 i64
+    Cast 9:22 as : i64
+      Cast 9:14 wrap : i8
+        Int 9:10 255 : u64
+        Type 9:19 i8
+      Type 9:25 i64
+    File a.rook
+  Const 10:1 H
+    Type 10:4 u8
+    Cast 10:11 as : u8
+      Int 10:9 5 : u8
+      Type 10:14 u8
+    File a.rook

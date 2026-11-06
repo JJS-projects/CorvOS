@@ -1,0 +1,6 @@
+@@@ a.rook
+enum Op {
+    Nop
+    Go(n: u64)
+}
+A: Op = Op(n: 1)

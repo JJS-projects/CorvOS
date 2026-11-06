@@ -1,0 +1,6 @@
+@@@ a.rook
+enum Maybe<T> {
+    Has(value: T)
+    Empty
+}
+A: u64 = Empty

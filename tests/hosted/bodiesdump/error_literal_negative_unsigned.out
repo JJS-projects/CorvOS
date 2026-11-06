@@ -1,0 +1,1 @@
+error a.rook:1:9: literal -1 is out of range for u8 (0 to 255)

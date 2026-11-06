@@ -1,0 +1,1 @@
+error a.rook:1:30: both branches of `if` must have the same type, found u8 and bool

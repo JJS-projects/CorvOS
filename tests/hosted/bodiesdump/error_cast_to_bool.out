@@ -1,0 +1,1 @@
+error a.rook:1:16: can only convert to integer types, not bool

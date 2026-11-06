@@ -1,0 +1,1 @@
+error a.rook:1:10: text in quotes is a `Bytes`, which this program doesn't include (it is declared in raven/trusted/bytes.rook)

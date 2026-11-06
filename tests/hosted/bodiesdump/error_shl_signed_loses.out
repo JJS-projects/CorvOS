@@ -1,0 +1,1 @@
+error a.rook:1:12: `shl` would lose set bits of i8

@@ -1,0 +1,1 @@
+error a.rook:1:1: top-level constants are SCREAMING_CASE, like `LIMIT`: `limit`

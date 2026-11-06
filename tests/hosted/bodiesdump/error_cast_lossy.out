@@ -1,0 +1,1 @@
+error a.rook:3:11: `as` can't convert u16 to u8: some values would be lost; use `wrap u8` to keep the low bits on purpose

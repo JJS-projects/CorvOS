@@ -1,0 +1,26 @@
+const A bool 1
+Program
+  Struct 1:1 Pt
+    TypeParams
+    Fields
+      Field 2:5 x
+        Type 2:8 u64
+    Methods
+    File a.rook
+  Fn 4:1 f
+    Params
+      Param 4:6 a
+        Type 4:9 Pt
+      Param 4:13 b
+        Type 4:16 Pt
+    Type 4:23 bool
+    Block 4:28
+      Return 5:5
+        Binary 5:14 ==
+          Name 5:12 a
+          Name 5:17 b
+    File a.rook
+  Const 7:1 A
+    Type 7:4 bool
+    Bool 7:11 true : bool
+    File a.rook

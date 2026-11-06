@@ -1,0 +1,5 @@
+@@@ a.rook
+pub struct Bytes {
+    pub address: u64
+}
+A: u64 = "x"
