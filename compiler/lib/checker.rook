@@ -1306,14 +1306,15 @@ pub struct Checker {
                 }
                 if not same {
                     .fail_node(have.decl)
-                    .say_name(.types.get(act).name)
+                    .say("`")
+                    .say_text(.types.get(act).name)
                     .say(".")
                     .say_text(hname)
-                    .say(" must take the same parameter types as ")
-                    .say_name(name)
+                    .say("` must take the same parameter types as `")
+                    .say_text(name)
                     .say(".")
                     .say_text(hname)
-                    .say(", each `iso` or `val` the same way")
+                    .say("`, each `iso` or `val` the same way")
                     return
                 }
             }
