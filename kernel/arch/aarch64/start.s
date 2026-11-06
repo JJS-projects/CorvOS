@@ -86,5 +86,8 @@ halt:
     .section .bss
     .balign 16
 boot_stack:
-    .space  262144
+    .space  8192                        // kept free: what the panic report and Raven's interrupt code use
+    .global boot_stack_limit
+boot_stack_limit:                       // compiled Rook code panics if its frame would begin below this
+    .space  253952
 boot_stack_top:

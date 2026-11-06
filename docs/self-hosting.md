@@ -212,6 +212,9 @@ function bodies and everything they need are the next steps.
 
 ## Limits, said plainly
 
+- The boot stack is 256 KB and every function checks its frame against a limit (decision 164): a program that
+  recurses too deep panics `stack overflow`. The code generator written in Rook (5d-4) must emit the same check
+  (`ldr x16, =boot_stack_limit; cmp sp, x16; b.lo` to a panic stub) to give byte-identical assembly.
 - Everything is QEMU. The compiler is not run on a Pi.
 - A hosted program is slow (QEMU, one byte at a time over the UART); the tests keep inputs small.
 - Bytes 2, 3 and 4 cannot appear in input or output.
