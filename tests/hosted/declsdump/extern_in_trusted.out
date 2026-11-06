@@ -1,0 +1,5 @@
+generics 
+generic-variants 
+handler-numbers 
+fn raw (u64) -> u64
+fn wrapped (u64) -> u64

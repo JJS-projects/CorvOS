@@ -1,0 +1,7 @@
+@@@ a.rook
+enum Ex {
+    Ax
+}
+struct Sx {
+    x: Ax
+}

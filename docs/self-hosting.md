@@ -161,6 +161,45 @@ Node `file`, `visible_in` and `generic_base` are the fields behind those lines.
 - `make selfhost-check` runs `tools/selfhost-check.py expanddump` on every test program and every compiler
   program, each with Raven's files as the tests compile it (error tests as their `// alone` header says).
 
+## The checker's declarations, 5d-3b (decision 163)
+
+`compiler/lib/checker.rook` is `Checker`, a port of the part of `bootstrap/fledgling/checker.py` that runs
+before constants and function bodies (`Checker.program` up to `implements`): imports and what each file may
+see, the names of types, variants, actors, interfaces and functions, fields, sizes, signatures, handler
+numbers, `implements`. `compiler/declsdump.rook` is the hosted program that reads the files, parses them,
+expands the generics, checks the declarations and prints what the checker knows. Fledgling prints the same for
+the same files with `python3 -m fledgling FILE... [--trusted DIR] --dump-declarations` (it runs its checker
+with `stop="declarations"`).
+
+**The tables.** Types, fields, variants, signatures and parameters are rows of lists that refer to each other by
+number (row 0 of each means none); a type is found by its name (`type_names`). A struct's, actor's or variant's
+fields point to their owner; a signature has a role (function, method, `new`, handler). Nothing in them points
+into Fledgling's classes, so the later steps (bodies, the code generator) read the same rows.
+
+**The format** (one line each; an error is the one line `error FILE:LINE:COL: MESSAGE`):
+
+    imports FILE: NAME<-FROMFILE ...           one line per file that imports, names in order
+    generics NAME ...                          the templates
+    generic-variants VARIANT:ENUM ...
+    handler-numbers NAME=N ...
+    struct NAME words=N                        then, indented: field NAME TYPE [pub]; new (PARAMS); method NAME [mut] (PARAMS) -> TYPE
+    enum NAME words=N                          then: variant NAME tag=N with field lines below it; methods
+    actor NAME words=N                         then: field NAME TYPE [mut] [val] [iso]; new (PARAMS); handler NAME lossy|reliable (PARAMS) number=N; implements NAME
+    interface NAME                             then: handler lines
+    fn NAME (PARAMS) -> TYPE
+
+`PARAMS` is `(T, mut T)` for a function or method and `(iso T, val T)` for a handler or a `new`. Constants,
+function bodies and everything they need are the next steps.
+
+- `make test` runs `tests/hosted/declsdump/`: positive cases (types and sizes, functions and methods, actors
+  and interfaces, generics, imports, trusted files, handler numbers) and a case for every error of this part,
+  plus two whole programs (Raven's files and a test) in `live.txt`.
+- `make selfhost-check` runs `tools/selfhost-check.py declsdump` on every test program and every compiler
+  program with Raven's files: the declarations of each are the same as Fledgling's, or the error is.
+- The generics pass had a latent difference: copying a template copied the shared `none` node into a new one, which
+  the dump of 5d-3a could not show (they print alike) but the checker's tests for a missing return type can.
+  `copy_tree` now leaves node 0 alone.
+
 ## Stages
 
 | Step | What | Test |
@@ -168,7 +207,7 @@ Node `file`, `visible_in` and `generic_base` are the fields behind those lines.
 | 5a (this PR) | Hosted runner and test kind; `numberer` | `hosted/numberer/*` |
 | 5b (built) | Memory for a batch job: `Region` and `Block` in `raven/trusted/region.rook` (below) | `rook/region_*`, `error/region_*` |
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`; the first step is built, decision 154), then how a library type such as a growable list is made, a map, a text builder | Rook and error tests |
-| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), checker (accept/reject and message), code generator (assembly) | hosted tests comparing with Fledgling's output |
+| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), generics pass (**built, 5d-3a**), checker (accept/reject and message; declarations **built, 5d-3b**), code generator (assembly) | hosted tests comparing with Fledgling's output |
 | 5e | Stage 2: the Rook compiler compiles itself; compile that result again; the two assembly files are identical. Retire Fledgling | the milestone's "done when" |
 
 ## Limits, said plainly

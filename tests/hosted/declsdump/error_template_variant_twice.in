@@ -1,0 +1,7 @@
+@@@ a.rook
+enum Opt<T> {
+    Some(value: T)
+}
+enum Other<T> {
+    Some(value: T)
+}

@@ -1,0 +1,1 @@
+error a.rook:9:11: handler `go` would carry 10 words, and a message carries at most 8 (larger data waits for the pool that comes with `freeze`)

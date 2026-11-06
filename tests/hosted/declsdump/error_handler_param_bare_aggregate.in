@@ -1,0 +1,8 @@
+@@@ a.rook
+struct Bx {
+    x: u8
+}
+actor Ax {
+    lossy on go(x: Bx) {
+    }
+}

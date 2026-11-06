@@ -1,0 +1,14 @@
+@@@ trusted t.rook
+module public
+pub struct Slot {
+    pub v: u64
+}
+pub fn make() -> Slot {
+    return Slot(v: 1)
+}
+extern fn raw(x: u64) -> u64
+@@@ u.rook
+import t: Slot, make
+fn use_it(s: Slot) -> Slot {
+    return make()
+}

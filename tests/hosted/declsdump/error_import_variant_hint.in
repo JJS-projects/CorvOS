@@ -1,0 +1,6 @@
+@@@ lib.rook
+pub enum Color {
+    Red
+}
+@@@ app.rook
+import lib: Red

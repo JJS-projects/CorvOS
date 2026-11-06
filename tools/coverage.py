@@ -53,7 +53,7 @@ def compile_everything():
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
         del sys.modules[name]
     from fledgling import compile_program
-    from fledgling.dump import dump_tokens, dump_tree, dump_expanded, make_stream, tree
+    from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, make_stream, tree
     lib = run_tests.ROOK_LIB
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
@@ -84,6 +84,14 @@ def compile_everything():
         path = os.path.join(ROOT, "tests", "rook", name + ".rook")
         dump_expanded(make_stream([(f, False, open(f).read()) for f in (generic_library, path)]))
     dump_expanded("@@@ a.rook\nstruct B<T> {\n}\nfn f(x: B) {\n}\n")
+    # The declarations of whole programs (Raven's files and a test with actors, enums and generics).
+    for name in ("generics_files", "supervisor_demo", "restart_basic", "interfaces_basic", "actors_val_field"):
+        path = os.path.join(ROOT, "tests", "rook", name + ".rook")
+        if os.path.exists(path):
+            dump_declarations(make_stream([(f, run_tests.is_trusted(f, run_tests.TRUSTED_DIRS), open(f).read())
+                                           for f in run_tests.ROOK_LIB + [path]]))
+    dump_declarations("@@@ a.rook\nstruct Bad {\n}\n")
+    dump_declarations("@@@ a.rook\nenum Mode {\n    Fast\n    fn label() -> u8 {\n        return 1\n    }\n}\n")
     try:
         tree(object())          # a node the dump has no form for is a bug in the dump, not silence
     except AssertionError:

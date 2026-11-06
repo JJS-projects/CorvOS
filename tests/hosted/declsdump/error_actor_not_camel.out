@@ -1,0 +1,1 @@
+error a.rook:1:1: actor names are CamelCase, like `Point`: `counter`

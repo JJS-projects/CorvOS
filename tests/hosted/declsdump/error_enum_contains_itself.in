@@ -1,0 +1,5 @@
+@@@ a.rook
+enum Ex {
+    Leaf
+    Node(next: Ex)
+}

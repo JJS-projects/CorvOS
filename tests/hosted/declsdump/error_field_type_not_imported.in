@@ -1,0 +1,8 @@
+@@@ lib.rook
+pub struct Open {
+    x: u64
+}
+@@@ app.rook
+struct Sx {
+    h: Open
+}

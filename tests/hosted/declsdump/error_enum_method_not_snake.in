@@ -1,0 +1,6 @@
+@@@ a.rook
+enum Ex {
+    Ax
+    fn Bad() {
+    }
+}

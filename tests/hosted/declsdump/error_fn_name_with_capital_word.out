@@ -1,0 +1,1 @@
+error a.rook:1:1: function names are snake_case, like `get_thing`: `getThing`

@@ -1,0 +1,9 @@
+@@@ lib.rook
+interface Hidden {
+    lossy on go()
+}
+@@@ app.rook
+actor Ax: Hidden {
+    lossy on go() {
+    }
+}

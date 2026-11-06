@@ -1,0 +1,1 @@
+error a.rook:1:8: `extern fn` can call any code, so it is only allowed in files under a trusted directory, such as raven/trusted/

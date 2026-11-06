@@ -1,0 +1,7 @@
+@@@ a.rook
+actor Ax {
+    lossy on go() {
+    }
+    reliable on go() {
+    }
+}

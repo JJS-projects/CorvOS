@@ -1,0 +1,19 @@
+@@@ a.rook
+interface One {
+    lossy on ping()
+    reliable on pong(n: u8)
+}
+actor Ax: One {
+    lossy on ping() {
+    }
+    reliable on pong(n: u8) {
+    }
+    lossy on extra() {
+    }
+}
+actor Bx {
+    lossy on extra() {
+    }
+    lossy on ping() {
+    }
+}

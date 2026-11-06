@@ -1,0 +1,1 @@
+error a.rook:5:11: `Ax.go` must take the same parameter types as `Ix.go`, each `iso` or `val` the same way

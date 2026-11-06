@@ -1,0 +1,7 @@
+@@@ a.rook
+struct Thing {
+    x: u8
+}
+struct Thing<T> {
+    x: T
+}

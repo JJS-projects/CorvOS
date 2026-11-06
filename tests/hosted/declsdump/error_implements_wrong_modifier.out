@@ -1,0 +1,1 @@
+error a.rook:5:14: `Ix` declares `go` as `lossy`, so `Ax` must too

@@ -1,0 +1,1 @@
+error a.rook:2:11: handler names are snake_case, like `bad`: `Bad`

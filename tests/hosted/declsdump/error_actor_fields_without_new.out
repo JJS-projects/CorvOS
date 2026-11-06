@@ -1,0 +1,1 @@
+error a.rook:1:1: `Ax` has fields, so it needs a `new` that sets them

@@ -1,0 +1,1 @@
+error a.rook:1:6: parameter names are snake_case, like `bad`: `Bad`

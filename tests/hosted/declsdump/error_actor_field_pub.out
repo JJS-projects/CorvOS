@@ -1,0 +1,1 @@
+error a.rook:2:9: an actor's fields are private: other actors reach it with messages

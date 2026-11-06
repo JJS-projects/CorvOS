@@ -1,0 +1,8 @@
+@@@ a.rook
+actor Ax {
+    go: u64
+    new() {
+    }
+    lossy on go() {
+    }
+}

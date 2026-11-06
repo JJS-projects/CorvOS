@@ -1,0 +1,10 @@
+generics 
+generic-variants 
+handler-numbers 
+struct Holder words=4
+  field link Link
+  field more Link
+enum Link words=2
+  variant End tag=0
+  variant Next tag=1
+    field count u64

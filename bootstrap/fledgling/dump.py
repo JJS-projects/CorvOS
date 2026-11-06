@@ -5,6 +5,7 @@ from .errors import CompileError
 from .lexer import lex
 from .parser import parse
 from .generics import expand
+from .checker import check
 from . import syntax as S
 
 
@@ -252,3 +253,78 @@ def dump_expanded(stream):
     except CompileError as err:
         return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
     return _print_tree(tree(program))
+
+
+# ---- the declarations of a checked program -----------------------------------------------------
+
+def _params(sig, flags):
+    """`(T, mut T)` for a function; for a handler or `new`, `(iso T, val T)` from the declaration."""
+    parts = []
+    for (ty, is_mut), p in zip(sig.params, sig.decl.params):
+        if flags:
+            mods = "iso " if p.type.iso else "val " if p.type.val else ""
+        else:
+            mods = "mut " if is_mut else ""
+        parts.append(f"{mods}{ty}")
+    return "(" + ", ".join(parts) + ")"
+
+
+def _signature(sig, flags=False):
+    return f"{_params(sig, flags)} -> {sig.ret}"
+
+
+def dump_declarations(stream):
+    """What the checker knows about a program once every declaration is checked (names, types,
+    sizes, signatures, handler numbers, imports), before constants and bodies. An error is one
+    line, `error FILE:LINE:COL: MESSAGE`. The self-hosted program is compiler/declsdump.rook."""
+    program = S.Program()
+    try:
+        for path, trusted, source in split_stream(stream):
+            for item in parse(lex(source, path)).items:
+                item.file, item.trusted = path, trusted
+                program.items.append(item)
+        expand(program)
+        checker = check(program, stop="declarations")
+    except CompileError as err:
+        return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
+    out = []
+    for file, names in checker.imports.items():
+        out.append(f"imports {file}: " + " ".join(f"{name}<-{target}" for name, target in names.items()))
+    out.append("generics " + " ".join(checker.generic_types))
+    out.append("generic-variants " + " ".join(f"{v}:{e}" for v, e in checker.generic_variants.items()))
+    out.append("handler-numbers " + " ".join(f"{n}={i}" for n, i in checker.handler_numbers.items()))
+    for st in checker.structs.values():
+        out.append(f"struct {st.name} words={st.words}")
+        for name, ty in st.fields:
+            out.append(f"  field {name} {ty}" + (" pub" if name in st.public_fields else ""))
+        if st.new_sig is not None:
+            out.append(f"  new {_params(st.new_sig, True)}")
+        for name, sig in st.methods.items():
+            out.append(f"  method {name}{' mut' if sig.mutating else ''} {_signature(sig)}")
+    for en in checker.enums.values():
+        out.append(f"enum {en.name} words={en.words}")
+        for v in en.variants.values():
+            out.append(f"  variant {v.name} tag={v.tag}")
+            for name, ty in v.fields:
+                out.append(f"    field {name} {ty}")
+        for name, sig in en.methods.items():
+            out.append(f"  method {name}{' mut' if sig.mutating else ''} {_signature(sig)}")
+    for actor in checker.actors.values():
+        out.append(f"actor {actor.name} words={actor.words}")
+        for name, ty in actor.fields:
+            flags = "".join(f" {w}" for w, group in (("mut", actor.mut_fields), ("val", actor.val_fields),
+                                                       ("iso", actor.iso_fields)) if name in group)
+            out.append(f"  field {name} {ty}{flags}")
+        if actor.new_sig is not None:
+            out.append(f"  new {_params(actor.new_sig, True)}")
+        for name, sig in actor.methods.items():
+            out.append(f"  handler {name} {sig.decl.handler} {_params(sig, True)} number={sig.decl.number}")
+        for iface in actor.implements:
+            out.append(f"  implements {iface.name}")
+    for iface in checker.interfaces.values():
+        out.append(f"interface {iface.name}")
+        for name, sig in iface.methods.items():
+            out.append(f"  handler {name} {sig.decl.handler} {_params(sig, True)} number={sig.decl.number}")
+    for name, sig in checker.fns.items():
+        out.append(f"fn {name} {_signature(sig)}")
+    return "\n".join(out) + "\n"

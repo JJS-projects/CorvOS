@@ -1,0 +1,1619 @@
+// The self-hosted checker, declarations half: a port of the part of bootstrap/fledgling/checker.py that
+// runs before constants and function bodies (`Checker.program` up to `implements`), step 5d-3b. It
+// reads the tree of a program after the generics pass (compiler/lib/generics.rook) and either fails with
+// the message and place Fledgling gives, or has the tables that part of the checker builds: the types
+// (with sizes), fields, variants, signatures, handler numbers, imports. They are compared with Fledgling
+// as the text `--dump-declarations` (docs/self-hosting.md).
+//
+// Types, fields, variants and signatures are rows of tables (lists), and refer to each other by number
+// (row 0 of each table means "none"). Names have one meaning wherever they are seen (principle 4), so a
+// type is found by its name.
+
+import bytes: Bytes
+import option: Option
+import parser: Node
+import program: SourceFile
+import region: List, Region
+import text: Text
+import textmap: TextMap
+
+CHK_NONE: u64 = 0
+CHK_INT: u64 = 1
+CHK_BOOL: u64 = 2
+CHK_UNIT: u64 = 3
+CHK_STRUCT: u64 = 4
+CHK_ENUM: u64 = 5
+CHK_ACTOR: u64 = 6
+CHK_INTERFACE: u64 = 7
+
+CHK_ROLE_FN: u64 = 1            // what a signature is: a function, a method, `new`, a handler
+CHK_ROLE_METHOD: u64 = 2
+CHK_ROLE_NEW: u64 = 3
+CHK_ROLE_HANDLER: u64 = 4
+
+CHK_FIELD_MUT: u64 = 1          // flags of an actor's field
+CHK_FIELD_VAL: u64 = 2
+CHK_FIELD_ISO: u64 = 4
+
+CHK_MESSAGE_PARAMS: u64 = 4     // a handler takes at most 4 parameters
+CHK_MESSAGE_WORDS: u64 = 8      // and a message carries at most 8 words (decision 135)
+CHK_NEW_PARAMS: u64 = 7
+CHK_NEW_WORDS: u64 = 16         // words of `new` arguments Raven keeps to restart an actor
+
+pub struct TypeInfo {
+    pub kind: u64
+    pub name: Text
+    pub decl: u64               // the node that declares it (0 for a built-in type)
+    pub words: u64              // size in words, once known
+    pub sized: bool
+    pub new_sig: u64            // a struct's or actor's `new` (row of the signatures), or 0
+}
+
+/// A field of a struct, an actor or a variant (`owner` is a row of the types, or of the variants).
+pub struct FieldInfo {
+    pub owner: u64
+    pub in_variant: bool
+    pub name: Text
+    pub ty: u64
+    pub public: bool
+    pub flags: u64
+}
+
+pub struct VariantInfo {
+    pub enum_id: u64
+    pub name: Text
+    pub tag: u64
+}
+
+pub struct SigInfo {
+    pub decl: u64
+    pub owner: u64              // the struct, enum, actor or interface (0 for a function)
+    pub role: u64
+    pub ret: u64
+    pub mutating: bool
+    pub number: u64             // a handler's number in messages
+    pub handler: Text           // "lossy" or "reliable" for a handler
+}
+
+pub struct ParamInfo {
+    pub sig: u64
+    pub ty: u64
+    pub is_mut: bool
+    pub modifier: u64           // as written before the type: 1 `mut`, 2 `val`, 3 `iso`, 0 none
+}
+
+pub struct ImplInfo {
+    pub actor_id: u64
+    pub iface_id: u64
+}
+
+pub struct Checker {
+    region: Region
+    nodes: List<Node>
+    files: List<SourceFile>
+    root: u64
+    generics: TextMap<u64>              // the templates: name -> node, in the order found
+    pub types: List<TypeInfo>
+    pub fields: List<FieldInfo>
+    pub variants: List<VariantInfo>
+    pub sigs: List<SigInfo>
+    pub params: List<ParamInfo>
+    pub impls: List<ImplInfo>
+    pub type_names: TextMap<u64>        // every type that can be written, by name
+    pub struct_ids: List<u64>           // in the order they are declared
+    pub enum_ids: List<u64>
+    pub actor_ids: List<u64>
+    pub interface_ids: List<u64>
+    pub fns: TextMap<u64>               // function name -> signature
+    declared: TextMap<u64>              // names of functions, constants, structs, enums, actors, interfaces
+    variant_names: TextMap<u64>         // variant name -> row of the variants
+    generic_variants: TextMap<u64>      // variant of a generic enum -> that enum's template
+    generic_types: TextMap<u64>         // the templates declared so far
+    methods: TextMap<u64>               // "Owner.name" -> signature (methods, handlers)
+    builtins: TextMap<u64>
+    pub handler_numbers: TextMap<u64>
+    pub imports: List<TextMap<u64>>     // by file number: name -> the file number it is imported from
+    pub import_order: List<u64>         // the files that have imports, in the order of their first
+    exports: List<TextMap<u64>>         // by file number: name -> the declaring node
+    unit: u64
+    file: u64                           // the file of the code being checked
+    pub failed: bool
+    building: bool                      // the first error is being written
+    pub error: Text
+    pub error_line: u64
+    pub error_col: u64
+    pub error_file: u64
+
+    new(region: Region, nodes: List<Node>, files: List<SourceFile>, root: u64, generics: TextMap<u64>) {
+        .region = copy(region)
+        .nodes = copy(nodes)
+        .files = copy(files)
+        .root = root
+        .generics = copy(generics)
+        .types = List(region: region)
+        .fields = List(region: region)
+        .variants = List(region: region)
+        .sigs = List(region: region)
+        .params = List(region: region)
+        .impls = List(region: region)
+        .type_names = TextMap(region: region)
+        .struct_ids = List(region: region)
+        .enum_ids = List(region: region)
+        .actor_ids = List(region: region)
+        .interface_ids = List(region: region)
+        .fns = TextMap(region: region)
+        .declared = TextMap(region: region)
+        .variant_names = TextMap(region: region)
+        .generic_variants = TextMap(region: region)
+        .generic_types = TextMap(region: region)
+        .methods = TextMap(region: region)
+        .builtins = TextMap(region: region)
+        .handler_numbers = TextMap(region: region)
+        .imports = List(region: region)
+        .import_order = List(region: region)
+        .exports = List(region: region)
+        .unit = 0
+        .file = 0
+        .failed = false
+        .building = false
+        .error = Text(region: region)
+        .error_line = 0
+        .error_col = 0
+        .error_file = 0
+        .start()
+    }
+
+    // ---- text ----------------------------------------------------------
+
+    fn empty() -> Text {
+        return Text(region: .region)
+    }
+
+    fn quoted(words: Bytes) -> Text {
+        mut t: Text = Text(region: .region)
+        t.append(words)
+        return t
+    }
+
+    /// The word after the last space (the whole text if there is no space).
+    fn last_word(t: Text) -> Text {
+        mut from: u64 = 0
+        looking: loop k: u64 in 0..t.len() {
+            if t.at(k) == ' ' {
+                from = k + 1
+            }
+        }
+        mut word: Text = .empty()
+        copying: loop k: u64 in from..t.len() {
+            word.push(t.at(k))
+        }
+        return word
+    }
+
+    /// Is `word` one of the words of `t` (separated by spaces)?
+    fn has_word(t: Text, word: Bytes) -> bool {
+        mut start: u64 = 0
+        scanning: loop k: u64 in 0..(t.len() + 1) {
+            if k == t.len() or t.at(k) == ' ' {
+                if k - start == word.len() {
+                    mut same: bool = true
+                    comparing: loop j: u64 in 0..word.len() {
+                        if t.at(start + j) != word.at(j) {
+                            same = false
+                        }
+                    }
+                    if same {
+                        return true
+                    }
+                }
+                start = k + 1
+            }
+        }
+        return false
+    }
+
+    /// The text after the last `/` of a path.
+    fn basename(path: Text) -> Text {
+        mut from: u64 = 0
+        looking: loop k: u64 in 0..path.len() {
+            if path.at(k) == '/' {
+                from = k + 1
+            }
+        }
+        mut name: Text = .empty()
+        copying: loop k: u64 in from..path.len() {
+            name.push(path.at(k))
+        }
+        return name
+    }
+
+    /// A module is a file, named by the file's name without `.rook`.
+    fn module_of(file: u64) -> Text {
+        base: Text = .basename(.files.get(file - 1).path)
+        mut dot: u64 = base.len()
+        looking: loop k: u64 in 0..base.len() {
+            if base.at(k) == '.' and k > 0 {
+                dot = k
+            }
+        }
+        mut name: Text = .empty()
+        copying: loop k: u64 in 0..dot {
+            name.push(base.at(k))
+        }
+        return name
+    }
+
+    // ---- errors --------------------------------------------------------
+
+    /// Starts the first error at (line, col) in `file`; later calls to `say` add to it.
+    mut fn fail_at(line: u64, col: u64, file: u64) {
+        if .failed {
+            .building = false
+            return
+        }
+        .failed = true
+        .building = true
+        .error_line = line
+        .error_col = col
+        .error_file = file
+    }
+
+    mut fn fail_node(n: u64) {
+        node: Node = .nodes.get(n)
+        .fail_at(node.line, node.col, node.file)
+    }
+
+    mut fn say(words: Bytes) {
+        if .building {
+            .error.append(words)
+        }
+    }
+
+    mut fn say_text(t: Text) {
+        if .building {
+            .error.append_text(t)
+        }
+    }
+
+    /// Adds `t` between backticks.
+    mut fn say_name(t: Text) {
+        .say("`")
+        .say_text(t)
+        .say("`")
+    }
+
+    mut fn say_number(n: u64) {
+        if .building {
+            .error.append_dec(n)
+        }
+    }
+
+    // ---- names ---------------------------------------------------------
+
+    /// `Point`-like: a capital, then letters and digits, with a lowercase letter somewhere.
+    fn is_camel(name: Text) -> bool {
+        if name.len() == 0 or name.at(0) < 'A' or name.at(0) > 'Z' {
+            return false
+        }
+        mut lower: bool = false
+        scanning: loop k: u64 in 0..name.len() {
+            b: u8 = name.at(k)
+            if b >= 'a' and b <= 'z' {
+                lower = true
+            } else if not ((b >= 'A' and b <= 'Z') or (b >= '0' and b <= '9')) {
+                return false
+            }
+        }
+        return lower
+    }
+
+    /// `snake_case`: lowercase words and digits joined by single underscores, starting with a letter.
+    fn is_snake(name: Text) -> bool {
+        if name.len() == 0 or name.at(0) < 'a' or name.at(0) > 'z' {
+            return false
+        }
+        if name.at(name.len() - 1) == '_' {
+            return false
+        }
+        scanning: loop k: u64 in 0..name.len() {
+            b: u8 = name.at(k)
+            if b == '_' {
+                if name.at(k - 1) == '_' {
+                    return false
+                }
+            } else if not ((b >= 'a' and b <= 'z') or (b >= '0' and b <= '9')) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// `GetThing` -> `get_thing`: an underscore before each capital that follows a lowercase letter or
+    /// digit, all lowercase, underscores run together, none at either end; `name` if nothing is left.
+    fn to_snake(name: Text) -> Text {
+        mut spaced: Text = .empty()
+        scanning: loop k: u64 in 0..name.len() {
+            b: u8 = name.at(k)
+            if k > 0 and b >= 'A' and b <= 'Z' {
+                before: u8 = name.at(k - 1)
+                if (before >= 'a' and before <= 'z') or (before >= '0' and before <= '9') {
+                    spaced.push('_')
+                }
+            }
+            spaced.push(if b >= 'A' and b <= 'Z' { b + 32 } else { b })
+        }
+        mut result: Text = .empty()
+        collapsing: loop k: u64 in 0..spaced.len() {
+            b: u8 = spaced.at(k)
+            if b == '_' {
+                if result.len() > 0 and result.at(result.len() - 1) != '_' {
+                    result.push('_')
+                }
+            } else {
+                result.push(b)
+            }
+        }
+        if result.len() > 0 and result.at(result.len() - 1) == '_' {
+            mut trimmed: Text = .empty()
+            copying: loop k: u64 in 0..(result.len() - 1) {
+                trimmed.push(result.at(k))
+            }
+            result = copy(trimmed)
+        }
+        if result.len() == 0 {
+            return .quoted("name")
+        }
+        return result
+    }
+
+    mut fn require_camel(name: Text, what: Bytes, at: u64) {
+        if not .is_camel(name) {
+            .fail_node(at)
+            .say(what)
+            .say(" names are CamelCase, like `Point`: ")
+            .say_name(name)
+        }
+    }
+
+    mut fn require_snake(name: Text, what: Bytes, at: u64) {
+        if not .is_snake(name) {
+            .fail_node(at)
+            .say(what)
+            .say(" names are snake_case, like ")
+            .say_name(.to_snake(name))
+            .say(": ")
+            .say_name(name)
+        }
+    }
+
+    // ---- the tree ------------------------------------------------------
+
+    fn kid(n: u64, k: u64) -> u64 {
+        return .nodes.get(n).kids.get(k)
+    }
+
+    fn kind_is(n: u64, kind: Bytes) -> bool {
+        return .nodes.get(n).kind.same_as(kind)
+    }
+
+    fn name_of(n: u64) -> Text {
+        return .last_word(.nodes.get(n).text)
+    }
+
+    fn is_public(n: u64) -> bool {
+        return .has_word(.nodes.get(n).text, "pub")
+    }
+
+    fn file_of(n: u64) -> u64 {
+        return .nodes.get(n).file
+    }
+
+    fn trusted_file(file: u64) -> bool {
+        return .files.get(file - 1).trusted
+    }
+
+    // ---- types ---------------------------------------------------------
+
+    mut fn add_type(kind: u64, name: Text, decl: u64) -> u64 {
+        .types.push(TypeInfo(kind: kind, name: copy(name), decl: decl, words: 0, sized: false, new_sig: 0))
+        return .types.len() - 1
+    }
+
+    mut fn start() {
+        discard .add_type(CHK_NONE, .quoted("?"), 0)
+        discard .add_signature_row(0, 0, 0, 0, false, .empty())
+        .builtin_types()
+        .unit = .add_type(CHK_UNIT, .quoted("()"), 0)
+        .fill_builtins("load8 load16 load32 load64 store8 store16 store32 store64 panic watch stop actor_address")
+        .fill_builtins("handler_number store_element load_element words_of")
+        .imports.push(TextMap(region: .region))
+        .exports.push(TextMap(region: .region))
+        filling: loop k: u64 in 0..(.files.len()) {
+            .imports.push(TextMap(region: .region))
+            .exports.push(TextMap(region: .region))
+        }
+    }
+
+    mut fn builtin_types() {
+        .named_type("u8")
+        .named_type("u16")
+        .named_type("u32")
+        .named_type("u64")
+        .named_type("i8")
+        .named_type("i16")
+        .named_type("i32")
+        .named_type("i64")
+        id: u64 = .add_type(CHK_BOOL, .quoted("bool"), 0)
+        .type_names.put(.quoted("bool"), id)
+    }
+
+    mut fn named_type(name: Bytes) {
+        id: u64 = .add_type(CHK_INT, .quoted(name), 0)
+        .type_names.put(.quoted(name), id)
+    }
+
+    mut fn fill_builtins(names: Bytes) {
+        mut word: Text = .empty()
+        splitting: loop k: u64 in 0..(names.len() + 1) {
+            if k == names.len() or names.at(k) == ' ' {
+                if word.len() > 0 {
+                    .builtins.put(copy(word), 1)
+                    word = .empty()
+                }
+            } else {
+                word.push(names.at(k))
+            }
+        }
+    }
+
+    fn is_aggregate(ty: u64) -> bool {
+        kind: u64 = .types.get(ty).kind
+        return kind == CHK_STRUCT or kind == CHK_ENUM
+    }
+
+    fn is_actor(ty: u64) -> bool {
+        kind: u64 = .types.get(ty).kind
+        return kind == CHK_ACTOR or kind == CHK_INTERFACE
+    }
+
+    /// Size in words: an aggregate's size once known, else 1.
+    fn words_of_type(ty: u64) -> u64 {
+        if .is_aggregate(ty) {
+            return .types.get(ty).words
+        }
+        return 1
+    }
+
+    mut fn add_signature_row(decl: u64, owner: u64, role: u64, ret: u64, mutating: bool, handler: Text) -> u64 {
+        .sigs.push(SigInfo(decl: decl, owner: owner, role: role, ret: ret, mutating: mutating, number: 0,
+                           handler: copy(handler)))
+        return .sigs.len() - 1
+    }
+
+    /// The type named by the reference `ref` (a `Type` node), or 0 after an error.
+    mut fn resolve_type(ref: u64) -> u64 {
+        node: Node = .nodes.get(ref)
+        name: Text = .last_word(node.text)
+        mut ty: u64 = 0
+        match .type_names.find(name) {
+            Some(value: id) => ty = id
+            None => ty = 0
+        }
+        if ty != 0 and (.is_aggregate(ty) or .is_actor(ty)) {
+            .require_visible(.types.get(ty).decl, .types.get(ty).name, ref, node.visible_in)
+        }
+        if ty == 0 {
+            .fail_node(ref)
+            match .variant_names.find(name) {
+                Some(value: row) => {
+                    .say_name(name)
+                    .say(" is a variant of ")
+                    .say_name(.types.get(.variants.get(row).enum_id).name)
+                    .say(", not a type")
+                }
+                None => {
+                    .say("unknown type ")
+                    .say_name(name)
+                }
+            }
+        }
+        return ty
+    }
+
+    /// Without `pub`, an item can only be used in its own file (decision 49). `file` is the file whose
+    /// imports count, if not the one being checked (0: this one).
+    mut fn require_visible(decl: u64, name: Text, at: u64, file_given: u64) {
+        file: u64 = if file_given != 0 { file_given } else { .file }
+        declaration: Node = .nodes.get(decl)
+        mut shown: Text = copy(name)
+        if declaration.generic_base.len() > 0 {
+            shown = copy(declaration.generic_base)
+        }
+        if declaration.file != file and not .is_public(decl) {
+            .fail_node(at)
+            .say_name(shown)
+            .say(" is private to ")
+            .say_text(.basename(.files.get(declaration.file - 1).path))
+            .say("; mark it `pub` to use it in another file")
+            return
+        }
+        if declaration.file != file {
+            mut imported_from: u64 = 0
+            match .imports.get(file).find(shown) {
+                Some(value: from_file) => imported_from = from_file
+                None => imported_from = 0
+            }
+            if imported_from != declaration.file {
+                modname: Text = .module_of(declaration.file)
+                .fail_node(at)
+                .say_name(shown)
+                .say(" is defined in module ")
+                .say_name(modname)
+                .say(": write `import ")
+                .say_text(modname)
+                .say(": ")
+                .say_text(shown)
+                .say("` at the top of this file")
+            }
+        }
+    }
+
+    mut fn declare_unique(name: Text, at: u64) {
+        if .builtins.contains(name) {
+            .fail_node(at)
+            .say_name(name)
+            .say(" is built in; choose another name")
+            return
+        }
+        match .variant_names.find(name) {
+            Some(value: row) => {
+                .fail_node(at)
+                .say_name(name)
+                .say(" is already a variant of ")
+                .say_name(.types.get(.variants.get(row).enum_id).name)
+                return
+            }
+            None => { }
+        }
+        match .generic_variants.find(name) {
+            Some(value: template) => {
+                .fail_node(at)
+                .say_name(name)
+                .say(" is already a variant of ")
+                .say_name(.name_of(template))
+                return
+            }
+            None => { }
+        }
+        if .generic_types.contains(name) or .declared.contains(name) {
+            .fail_node(at)
+            .say_name(name)
+            .say(" is already defined")
+        }
+    }
+
+    // ---- imports -------------------------------------------------------
+
+    /// The root's items, then the generic templates (which the checker also needs to know).
+    mut fn all_items() -> List<u64> {
+        mut items: List<u64> = List(region: .region)
+        top: List<u64> = copy(.nodes.get(.root).kids)
+        adding: loop k: u64 in 0..(top.len()) {
+            items.push(top.get(k))
+        }
+        templates: loop k: u64 in 0..(.generics.len()) {
+            items.push(.generics.value_at(k))
+        }
+        return items
+    }
+
+    /// Works out which names each file imports, and checks each import line.
+    mut fn register_imports() {
+        items: List<u64> = .all_items()
+        mut module_first: TextMap<u64> = TextMap(region: .region)     // module name -> its first file
+        mut module_count: TextMap<u64> = TextMap(region: .region)     // ... and how many files have it
+        mut seen: List<u64> = List(region: .region)                    // files whose module is counted
+        mut public_files: List<u64> = List(region: .region)
+        filling: loop k: u64 in 0..(.files.len() + 1) {
+            seen.push(0)
+            public_files.push(0)
+        }
+        scanning: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            node: Node = .nodes.get(item)
+            file: u64 = node.file
+            if seen.get(file) == 0 {
+                seen.set(file, 1)
+                modname: Text = .module_of(file)
+                match module_count.find(modname) {
+                    Some(value: count) => module_count.put(modname, count + 1)
+                    None => {
+                        module_first.put(modname, file)
+                        module_count.put(modname, 1)
+                    }
+                }
+            }
+            if node.kind.same_as("Module") {
+                if not .trusted_file(file) {
+                    .fail_node(item)
+                    .say("`module public` is for files in a trusted directory: other files are open to everyone already")
+                    return
+                }
+                public_files.set(file, 1)
+            }
+            if node.kind.same_as("Fn") or node.kind.same_as("Struct") or node.kind.same_as("Enum") or
+                    node.kind.same_as("Actor") or node.kind.same_as("Interface") or node.kind.same_as("Const") {
+                mut table: TextMap<u64> = .exports.get(file)
+                table.put(.last_word(node.text), item)
+                .exports.set(file, table)
+            }
+        }
+        mut variant_set: TextMap<u64> = TextMap(region: .region)
+        collecting: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            if .kind_is(item, "Enum") {
+                group: Node = .nodes.get(.kid(item, 1))
+                inner: loop j: u64 in 0..(group.kids.len()) {
+                    variant_set.put(.name_of(group.kids.get(j)), 1)
+                }
+            }
+        }
+        top: List<u64> = copy(.nodes.get(.root).kids)
+        importing: loop k: u64 in 0..(top.len()) {
+            item: u64 = top.get(k)
+            if not .kind_is(item, "Import") {
+                continue importing
+            }
+            node: Node = .nodes.get(item)
+            module_node: u64 = node.kids.get(0)
+            modname: Text = copy(.nodes.get(module_node).text)
+            mut count: u64 = 0
+            match module_count.find(modname) {
+                Some(value: found) => count = found
+                None => count = 0
+            }
+            if count == 0 {
+                .fail_node(module_node)
+                .say("unknown module ")
+                .say_name(modname)
+                .say(": a module is a file, named without `.rook`")
+                return
+            }
+            if count > 1 {
+                .fail_node(module_node)
+                .say_name(modname)
+                .say(" names more than one file, so it can't be imported")
+                return
+            }
+            mut target: u64 = 0
+            match module_first.find(modname) {
+                Some(value: first) => target = first
+                None => target = 0
+            }
+            if target == node.file {
+                .fail_node(module_node)
+                .say("a file doesn't import itself")
+                return
+            }
+            if .trusted_file(target) and public_files.get(target) == 0 and not .trusted_file(node.file) {
+                .fail_node(module_node)
+                .say_name(modname)
+                .say(" is an internal module of Raven, so application code can't import it (a trusted module opens itself with `module public`)")
+                return
+            }
+            mut table: TextMap<u64> = .imports.get(node.file)
+            if table.len() == 0 {
+                .import_order.push(node.file)
+            }
+            mut fresh: bool = true
+            names: loop j: u64 in 1..(node.kids.len()) {
+                name_node: u64 = node.kids.get(j)
+                name: Text = copy(.nodes.get(name_node).text)
+                mut found_at: u64 = 0
+                match .exports.get(target).find(name) {
+                    Some(value: declared_at) => found_at = declared_at
+                    None => found_at = 0
+                }
+                if found_at == 0 {
+                    .fail_node(name_node)
+                    .say("module ")
+                    .say_name(modname)
+                    .say(" has no ")
+                    .say_name(name)
+                    if variant_set.contains(name) {
+                        .say("; it is a variant, so import its enum")
+                    }
+                    return
+                }
+                if not .is_public(found_at) {
+                    .fail_node(name_node)
+                    .say_name(name)
+                    .say(" is private to ")
+                    .say_text(.basename(.files.get(target - 1).path))
+                    .say("; mark it `pub` to import it")
+                    return
+                }
+                if table.contains(name) {
+                    .fail_node(name_node)
+                    .say_name(name)
+                    .say(" is already imported")
+                    return
+                }
+                table.put(name, target)
+            }
+            .imports.set(node.file, table)
+        }
+    }
+
+    // ---- declarations --------------------------------------------------
+
+    /// `mut`, `val` or `iso` before the name of a type reference: 1, 2, 3, or 0 for none.
+    fn type_mod(ref: u64) -> u64 {
+        text: Text = copy(.nodes.get(ref).text)
+        if .has_word(text, "mut") {
+            return 1
+        }
+        if .has_word(text, "val") {
+            return 2
+        }
+        if .has_word(text, "iso") {
+            return 3
+        }
+        return 0
+    }
+
+    /// The rows of the fields owned by `owner` (a type, or a variant if `in_variant`).
+    fn fields_of(owner: u64, in_variant: bool) -> List<u64> {
+        mut rows: List<u64> = List(region: .region)
+        scanning: loop k: u64 in 0..(.fields.len()) {
+            f: FieldInfo = .fields.get(k)
+            if f.owner == owner and f.in_variant == in_variant {
+                rows.push(k)
+            }
+        }
+        return rows
+    }
+
+    /// Checks the `Field` nodes in `group` and adds them to the fields of `owner`.
+    mut fn field_list(group: u64, owner: u64, in_variant: bool, owner_name: Text) {
+        kids: List<u64> = copy(.nodes.get(group).kids)
+        mut seen: TextMap<u64> = TextMap(region: .region)
+        listing: loop k: u64 in 0..(kids.len()) {
+            f: u64 = kids.get(k)
+            name: Text = .name_of(f)
+            .require_snake(name, "field", f)
+            if .failed {
+                return
+            }
+            if seen.contains(name) {
+                .fail_node(f)
+                .say_name(owner_name)
+                .say(" already has a field ")
+                .say_name(name)
+                return
+            }
+            seen.put(name, 1)
+            ty: u64 = .resolve_type(.kid(f, 0))
+            if .failed {
+                return
+            }
+            .fields.push(FieldInfo(owner: owner, in_variant: in_variant, name: copy(name), ty: ty,
+                                   public: .is_public(f), flags: 0))
+        }
+    }
+
+    /// Size in words. A struct or enum can't contain itself by value.
+    mut fn size(ty: u64, path: List<u64>) -> u64 {
+        info: TypeInfo = .types.get(ty)
+        if info.kind != CHK_STRUCT and info.kind != CHK_ENUM {
+            return 1
+        }
+        if info.sized {
+            return info.words
+        }
+        inside: loop k: u64 in 0..(path.len()) {
+            if path.get(k) == ty {
+                .fail_node(info.decl)
+                .say_name(info.name)
+                .say(" contains itself, so it would have no fixed size")
+                return 0
+            }
+        }
+        mut deeper: List<u64> = List(region: .region)
+        copying: loop k: u64 in 0..(path.len()) {
+            deeper.push(path.get(k))
+        }
+        deeper.push(ty)
+        mut total: u64 = 0
+        if info.kind == CHK_STRUCT {
+            rows: List<u64> = .fields_of(ty, false)
+            adding: loop k: u64 in 0..(rows.len()) {
+                total += .size(.fields.get(rows.get(k)).ty, deeper)
+                if .failed {
+                    return 0
+                }
+            }
+        } else {
+            mut largest: u64 = 0
+            counting: loop v: u64 in 0..(.variants.len()) {
+                if .variants.get(v).enum_id == ty {
+                    mut sum: u64 = 0
+                    rows: List<u64> = .fields_of(v, true)
+                    adding: loop k: u64 in 0..(rows.len()) {
+                        sum += .size(.fields.get(rows.get(k)).ty, deeper)
+                        if .failed {
+                            return 0
+                        }
+                    }
+                    if sum > largest {
+                        largest = sum
+                    }
+                }
+            }
+            total = 1 + largest
+        }
+        mut sized: TypeInfo = .types.get(ty)
+        sized.words = total
+        sized.sized = true
+        .types.set(ty, sized)
+        return total
+    }
+
+    /// Adds the signature of `decl` (a function or method) and its parameters; returns its row, or 0
+    /// after an error.
+    mut fn signature(decl: u64, owner: u64, role: u64) -> u64 {
+        group: Node = .nodes.get(.kid(decl, 0))
+        mut tys: List<u64> = List(region: .region)
+        mut muts: List<u64> = List(region: .region)
+        mut mods: List<u64> = List(region: .region)
+        listing: loop k: u64 in 0..(group.kids.len()) {
+            p: u64 = group.kids.get(k)
+            .require_snake(.name_of(p), "parameter", p)
+            type_node: u64 = .kid(p, 0)
+            ty: u64 = .resolve_type(type_node)
+            if .failed {
+                return 0
+            }
+            if .type_mod(type_node) == 3 and not .is_aggregate(ty) {
+                .fail_node(type_node)
+                .say("`iso` is for structs and enums; ")
+                .say_text(.types.get(ty).name)
+                .say(" is already a plain value")
+                return 0
+            }
+            tys.push(ty)
+            muts.push(if .type_mod(type_node) == 1 { 1 } else { 0 })
+            mods.push(.type_mod(type_node))
+        }
+        limit: u64 = if owner != 0 { 7 } else { 8 }
+        if tys.len() > limit {
+            .fail_node(decl)
+            .say("Fledgling supports at most ")
+            .say_number(limit)
+            .say(" parameters here")
+            return 0
+        }
+        mut ret: u64 = .unit
+        if .kid(decl, 1) != 0 {
+            ret = .resolve_type(.kid(decl, 1))
+            if .failed {
+                return 0
+            }
+        }
+        text: Text = copy(.nodes.get(decl).text)
+        row: u64 = .add_signature_row(decl, owner, role, ret, .has_word(text, "mut"), .handler_word(text))
+        pushing: loop k: u64 in 0..(tys.len()) {
+            .params.push(ParamInfo(sig: row, ty: tys.get(k), is_mut: muts.get(k) == 1, modifier: mods.get(k)))
+        }
+        return row
+    }
+
+    /// "lossy" or "reliable" if the text of a declaration has it, else "".
+    fn handler_word(text: Text) -> Text {
+        if .has_word(text, "lossy") {
+            return .quoted("lossy")
+        }
+        if .has_word(text, "reliable") {
+            return .quoted("reliable")
+        }
+        return .empty()
+    }
+
+    /// The signature of a handler or of an actor's `new`. `what` names it in messages.
+    mut fn actor_signature(owner: u64, decl: u64, limit: u64, is_new: bool, what: Text, role: u64) -> u64 {
+        group: Node = .nodes.get(.kid(decl, 0))
+        mut tys: List<u64> = List(region: .region)
+        mut mods: List<u64> = List(region: .region)
+        listing: loop k: u64 in 0..(group.kids.len()) {
+            p: u64 = group.kids.get(k)
+            .require_snake(.name_of(p), "parameter", p)
+            type_node: u64 = .kid(p, 0)
+            modifier: u64 = .type_mod(type_node)
+            if modifier == 1 {
+                .fail_node(p)
+                .say("a message can't carry a borrow: a `mut` parameter is lent to a call, not sent")
+                return 0
+            }
+            ty: u64 = .resolve_type(type_node)
+            if .failed {
+                return 0
+            }
+            if modifier == 2 and not .is_aggregate(ty) {
+                .fail_node(type_node)
+                .say("`val` is for structs and enums; ")
+                .say_text(.types.get(ty).name)
+                .say(" is already a plain value")
+                return 0
+            }
+            if modifier == 3 and not .is_aggregate(ty) {
+                .fail_node(type_node)
+                .say("`iso` is for structs and enums; ")
+                .say_text(.types.get(ty).name)
+                .say(" is already a plain value")
+                return 0
+            }
+            if is_new and (modifier == 2 or modifier == 3) {
+                tys.push(ty)                        // data handed to the new actor
+                mods.push(modifier)
+                continue listing
+            }
+            if .is_aggregate(ty) and modifier != 2 and modifier != 3 {
+                .fail_node(type_node)
+                if is_new {
+                    .say("`new` takes a struct or enum as owned or read-only data: write `iso ")
+                } else {
+                    .say("a message carries a struct or enum owned or read-only: write `iso ")
+                }
+                .say_text(.types.get(ty).name)
+                .say("` or `val ")
+                .say_text(.types.get(ty).name)
+                .say("`")
+                return 0
+            }
+            tys.push(ty)
+            mods.push(modifier)
+        }
+        if tys.len() > limit {
+            .fail_node(decl)
+            .say_text(what)
+            .say(" takes at most ")
+            .say_number(limit)
+            .say(" parameters for now")
+            return 0
+        }
+        mut carried: u64 = 0
+        summing: loop k: u64 in 0..(tys.len()) {
+            carried += .words_of_type(tys.get(k))
+        }
+        if is_new and carried > CHK_NEW_WORDS {
+            .fail_node(decl)
+            .say("`new` would take ")
+            .say_number(carried)
+            .say(" words of arguments, and Raven keeps at most ")
+            .say_number(CHK_NEW_WORDS)
+            .say(" for a restart")
+            return 0
+        }
+        if not is_new and carried > CHK_MESSAGE_WORDS {
+            .fail_node(decl)
+            .say_text(what)
+            .say(" would carry ")
+            .say_number(carried)
+            .say(" words, and a message carries at most ")
+            .say_number(CHK_MESSAGE_WORDS)
+            .say(" (larger data waits for the pool that comes with `freeze`)")
+            return 0
+        }
+        text: Text = copy(.nodes.get(decl).text)
+        row: u64 = .add_signature_row(decl, owner, role, .unit, false, .handler_word(text))
+        pushing: loop k: u64 in 0..(tys.len()) {
+            .params.push(ParamInfo(sig: row, ty: tys.get(k), is_mut: false, modifier: mods.get(k)))
+        }
+        return row
+    }
+
+    /// The key of a method or handler in `methods`: "Owner.name".
+    fn method_key(owner: u64, name: Text) -> Text {
+        mut key: Text = .empty()
+        key.append_text(.types.get(owner).name)
+        key.push('.')
+        key.append_text(name)
+        return key
+    }
+
+    mut fn actor_fields(act: u64) {
+        decl: u64 = .types.get(act).decl
+        group: Node = .nodes.get(.kid(decl, 1))
+        actor_name: Text = copy(.types.get(act).name)
+        mut seen: TextMap<u64> = TextMap(region: .region)
+        listing: loop k: u64 in 0..(group.kids.len()) {
+            f: u64 = group.kids.get(k)
+            name: Text = .name_of(f)
+            .require_snake(name, "field", f)
+            if .failed {
+                return
+            }
+            if seen.contains(name) {
+                .fail_node(f)
+                .say_name(actor_name)
+                .say(" already has a field ")
+                .say_name(name)
+                return
+            }
+            seen.put(name, 1)
+            if .is_public(f) {
+                .fail_node(f)
+                .say("an actor's fields are private: other actors reach it with messages")
+                return
+            }
+            type_node: u64 = .kid(f, 0)
+            modifier: u64 = .type_mod(type_node)
+            ty: u64 = .resolve_type(type_node)
+            if .failed {
+                return
+            }
+            tyname: Text = copy(.types.get(ty).name)
+            if modifier == 2 and not .is_aggregate(ty) {
+                .fail_node(type_node)
+                .say("`val` is for structs and enums; ")
+                .say_text(tyname)
+                .say(" is already a plain value")
+                return
+            }
+            if modifier == 3 and not .is_aggregate(ty) {
+                .fail_node(type_node)
+                .say("`iso` is for structs and enums; ")
+                .say_text(tyname)
+                .say(" is already a plain value")
+                return
+            }
+            mutable: bool = .has_word(.nodes.get(f).text, "mut")
+            if modifier == 2 and mutable {
+                .fail_node(f)
+                .say("a `val` field is read-only, so it can't be `mut`")
+                return
+            }
+            if .is_aggregate(ty) and modifier != 2 and modifier != 3 {
+                .fail_node(type_node)
+                .say("an actor's field holds a number, a bool, a reference, owned data written `iso ")
+                .say_text(tyname)
+                .say("`, or read-only data written `val ")
+                .say_text(tyname)
+                .say("`, not a bare ")
+                .say_text(tyname)
+                return
+            }
+            mut flags: u64 = 0
+            if modifier == 2 {
+                flags += CHK_FIELD_VAL
+            }
+            if modifier == 3 {
+                flags += CHK_FIELD_ISO
+            }
+            if mutable {
+                flags += CHK_FIELD_MUT
+            }
+            .fields.push(FieldInfo(owner: act, in_variant: false, name: copy(name), ty: ty, public: false,
+                                   flags: flags))
+        }
+        if group.kids.len() > 0 and .kid(decl, 2) == 0 {
+            .fail_node(decl)
+            .say_name(actor_name)
+            .say(" has fields, so it needs a `new` that sets them")
+        }
+    }
+
+    mut fn actor_signatures(act: u64) {
+        decl: u64 = .types.get(act).decl
+        if .kid(decl, 2) != 0 {
+            made: u64 = .actor_signature(act, .kid(decl, 2), CHK_NEW_PARAMS, true, .quoted("`new`"), CHK_ROLE_NEW)
+            if .failed {
+                return
+            }
+            mut info: TypeInfo = .types.get(act)
+            info.new_sig = made
+            .types.set(act, info)
+        }
+        handlers: Node = .nodes.get(.kid(decl, 3))
+        listing: loop k: u64 in 0..(handlers.kids.len()) {
+            h: u64 = handlers.kids.get(k)
+            name: Text = .name_of(h)
+            .require_snake(name, "handler", h)
+            if .failed {
+                return
+            }
+            rows: List<u64> = .fields_of(act, false)
+            clash: loop j: u64 in 0..(rows.len()) {
+                if .fields.get(rows.get(j)).name.equals(name) {
+                    .fail_node(h)
+                    .say_name(name)
+                    .say(" is already a field of ")
+                    .say_name(.types.get(act).name)
+                    return
+                }
+            }
+            key: Text = .method_key(act, name)
+            if .methods.contains(key) {
+                .fail_node(h)
+                .say_name(.types.get(act).name)
+                .say(" already has a handler ")
+                .say_name(name)
+                return
+            }
+            mut what: Text = .quoted("handler `")
+            what.append_text(name)
+            what.push('`')
+            made: u64 = .actor_signature(act, h, CHK_MESSAGE_PARAMS, false, what, CHK_ROLE_HANDLER)
+            if .failed {
+                return
+            }
+            .methods.put(key, made)
+        }
+    }
+
+    mut fn interface_signatures(iface: u64) {
+        decl: u64 = .types.get(iface).decl
+        handlers: Node = .nodes.get(.kid(decl, 0))
+        listing: loop k: u64 in 0..(handlers.kids.len()) {
+            h: u64 = handlers.kids.get(k)
+            name: Text = .name_of(h)
+            .require_snake(name, "handler", h)
+            if .failed {
+                return
+            }
+            key: Text = .method_key(iface, name)
+            if .methods.contains(key) {
+                .fail_node(h)
+                .say_name(.types.get(iface).name)
+                .say(" already has a handler ")
+                .say_name(name)
+                return
+            }
+            mut what: Text = .quoted("handler `")
+            what.append_text(name)
+            what.push('`')
+            made: u64 = .actor_signature(iface, h, CHK_MESSAGE_PARAMS, false, what, CHK_ROLE_HANDLER)
+            if .failed {
+                return
+            }
+            .methods.put(key, made)
+        }
+    }
+
+    /// A handler's number in a message is chosen by its name, program-wide (decision 128).
+    mut fn number_handlers() {
+        top: List<u64> = copy(.nodes.get(.root).kids)
+        scanning: loop k: u64 in 0..(top.len()) {
+            item: u64 = top.get(k)
+            if .kind_is(item, "Actor") or .kind_is(item, "Interface") {
+                group: Node = .nodes.get(if .kind_is(item, "Actor") { .kid(item, 3) } else { .kid(item, 0) })
+                inner: loop j: u64 in 0..(group.kids.len()) {
+                    name: Text = .name_of(group.kids.get(j))
+                    if not .handler_numbers.contains(name) {
+                        .handler_numbers.put(name, .handler_numbers.len())
+                    }
+                }
+            }
+        }
+        numbering: loop row: u64 in 0..(.sigs.len()) {
+            sig: SigInfo = .sigs.get(row)
+            if sig.role == CHK_ROLE_HANDLER {
+                mut numbered: SigInfo = .sigs.get(row)
+                match .handler_numbers.find(.name_of(sig.decl)) {
+                    Some(value: number) => numbered.number = number
+                    None => numbered.number = 0
+                }
+                .sigs.set(row, numbered)
+            }
+        }
+    }
+
+    /// The parameters of signature `row` as a list of (type, mut) rows of `params`.
+    fn params_of(row: u64) -> List<u64> {
+        mut rows: List<u64> = List(region: .region)
+        scanning: loop k: u64 in 0..(.params.len()) {
+            if .params.get(k).sig == row {
+                rows.push(k)
+            }
+        }
+        return rows
+    }
+
+    /// `actor Name: Interface` promises every handler of the interface, with the same modifier and
+    /// parameter types.
+    mut fn implements(act: u64) {
+        decl: u64 = .types.get(act).decl
+        group: Node = .nodes.get(.kid(decl, 0))
+        listing: loop k: u64 in 0..(group.kids.len()) {
+            at: u64 = group.kids.get(k)
+            name: Text = copy(.nodes.get(at).text)
+            mut iface: u64 = 0
+            match .type_names.find(name) {
+                Some(value: found) => iface = found
+                None => iface = 0
+            }
+            if iface == 0 or .types.get(iface).kind != CHK_INTERFACE {
+                .fail_node(at)
+                if iface != 0 and .types.get(iface).kind != CHK_INTERFACE {
+                    .say_name(name)
+                    .say(" is not an interface")
+                } else {
+                    .say("unknown interface ")
+                    .say_name(name)
+                }
+                return
+            }
+            .require_visible(.types.get(iface).decl, .types.get(iface).name, at, 0)
+            if .failed {
+                return
+            }
+            already: loop j: u64 in 0..(.impls.len()) {
+                if .impls.get(j).actor_id == act and .impls.get(j).iface_id == iface {
+                    .fail_node(at)
+                    .say_name(.types.get(act).name)
+                    .say(" already implements ")
+                    .say_name(name)
+                    return
+                }
+            }
+            promised: loop row: u64 in 0..(.sigs.len()) {
+                want: SigInfo = .sigs.get(row)
+                if want.owner != iface or want.role != CHK_ROLE_HANDLER {
+                    continue promised
+                }
+                hname: Text = .name_of(want.decl)
+                mut have_row: u64 = 0
+                match .methods.find(.method_key(act, hname)) {
+                    Some(value: found_row) => have_row = found_row
+                    None => have_row = 0
+                }
+                if have_row == 0 {
+                    .fail_node(at)
+                    .say_name(.types.get(act).name)
+                    .say(" implements ")
+                    .say_name(name)
+                    .say(", so it needs a handler ")
+                    .say_name(hname)
+                    return
+                }
+                have: SigInfo = .sigs.get(have_row)
+                if not have.handler.equals(want.handler) {
+                    .fail_node(have.decl)
+                    .say_name(name)
+                    .say(" declares ")
+                    .say_name(hname)
+                    .say(" as ")
+                    .say_name(want.handler)
+                    .say(", so ")
+                    .say_name(.types.get(act).name)
+                    .say(" must too")
+                    return
+                }
+                have_params: List<u64> = .params_of(have_row)
+                want_params: List<u64> = .params_of(row)
+                mut same: bool = have_params.len() == want_params.len()
+                if same {
+                    comparing: loop j: u64 in 0..(have_params.len()) {
+                        if .params.get(have_params.get(j)).ty != .params.get(want_params.get(j)).ty {
+                            same = false
+                        }
+                        have_mod: u64 = .type_mod(.kid(.kid(.kid(have.decl, 0), j), 0))
+                        want_mod: u64 = .type_mod(.kid(.kid(.kid(want.decl, 0), j), 0))
+                        if (have_mod == 3) != (want_mod == 3) or (have_mod == 2) != (want_mod == 2) {
+                            same = false
+                        }
+                    }
+                }
+                if not same {
+                    .fail_node(have.decl)
+                    .say("`")
+                    .say_text(.types.get(act).name)
+                    .say(".")
+                    .say_text(hname)
+                    .say("` must take the same parameter types as `")
+                    .say_text(name)
+                    .say(".")
+                    .say_text(hname)
+                    .say("`, each `iso` or `val` the same way")
+                    return
+                }
+            }
+            .impls.push(ImplInfo(actor_id: act, iface_id: iface))
+        }
+    }
+
+    /// Checks every declaration, up to (not including) constants and function bodies.
+    pub mut fn run() {
+        .register_imports()
+        if .failed {
+            return
+        }
+        // Generic templates: only their names are known here; each instance is a type of its own.
+        templates: loop k: u64 in 0..(.generics.len()) {
+            tpl: u64 = .generics.value_at(k)
+            name: Text = .name_of(tpl)
+            .require_camel(name, "type", tpl)
+            .declare_unique(name, tpl)
+            if .failed {
+                return
+            }
+            .generic_types.put(name, tpl)
+            if .kind_is(tpl, "Enum") {
+                group: Node = .nodes.get(.kid(tpl, 1))
+                inner: loop j: u64 in 0..(group.kids.len()) {
+                    vd: u64 = group.kids.get(j)
+                    vname: Text = .name_of(vd)
+                    .require_camel(vname, "variant", vd)
+                    .declare_unique(vname, vd)
+                    if .failed {
+                        return
+                    }
+                    .generic_variants.put(vname, tpl)
+                }
+            }
+        }
+        items: List<u64> = copy(.nodes.get(.root).kids)
+        // Type and variant names first, so types can refer to each other in any order.
+        names: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            if not (.kind_is(item, "Struct") or .kind_is(item, "Enum")) {
+                continue names
+            }
+            instance: bool = .nodes.get(item).generic_base.len() > 0
+            name: Text = .name_of(item)
+            if not instance {
+                .require_camel(name, "type", item)
+                .declare_unique(name, item)
+                if .failed {
+                    return
+                }
+            }
+            if .kind_is(item, "Struct") {
+                id: u64 = .add_type(CHK_STRUCT, name, item)
+                .type_names.put(name, id)
+                .declared.put(name, 1)
+                .struct_ids.push(id)
+            } else {
+                id: u64 = .add_type(CHK_ENUM, name, item)
+                .type_names.put(name, id)
+                .declared.put(name, 1)
+                .enum_ids.push(id)
+                group: Node = .nodes.get(.kid(item, 1))
+                if group.kids.len() == 0 {
+                    .fail_node(item)
+                    .say_name(name)
+                    .say(" has no variants")
+                    return
+                }
+                tags: loop tag: u64 in 0..(group.kids.len()) {
+                    vd: u64 = group.kids.get(tag)
+                    vname: Text = .name_of(vd)
+                    if not instance {
+                        .require_camel(vname, "variant", vd)
+                        .declare_unique(vname, vd)
+                        if .failed {
+                            return
+                        }
+                        .variant_names.put(vname, .variants.len())
+                    }
+                    .variants.push(VariantInfo(enum_id: id, name: copy(vname), tag: tag))
+                }
+            }
+        }
+        kinds: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            if .kind_is(item, "Actor") {
+                name: Text = .name_of(item)
+                .require_camel(name, "actor", item)
+                .declare_unique(name, item)
+                if .failed {
+                    return
+                }
+                id: u64 = .add_type(CHK_ACTOR, name, item)
+                .type_names.put(name, id)
+                .declared.put(name, 1)
+                .actor_ids.push(id)
+            } else if .kind_is(item, "Interface") {
+                name: Text = .name_of(item)
+                .require_camel(name, "interface", item)
+                .declare_unique(name, item)
+                if .failed {
+                    return
+                }
+                id: u64 = .add_type(CHK_INTERFACE, name, item)
+                .type_names.put(name, id)
+                .declared.put(name, 1)
+                .interface_ids.push(id)
+            }
+        }
+        structs: loop k: u64 in 0..(.struct_ids.len()) {
+            st: u64 = .struct_ids.get(k)
+            decl: u64 = .types.get(st).decl
+            .file = .file_of(decl)
+            .field_list(.kid(decl, 1), st, false, copy(.types.get(st).name))
+            if .failed {
+                return
+            }
+            if .nodes.get(.kid(decl, 1)).kids.len() == 0 {
+                .fail_node(decl)
+                .say_name(.types.get(st).name)
+                .say(" has no fields")
+                return
+            }
+        }
+        enums: loop k: u64 in 0..(.enum_ids.len()) {
+            en: u64 = .enum_ids.get(k)
+            decl: u64 = .types.get(en).decl
+            .file = .file_of(decl)
+            group: Node = .nodes.get(.kid(decl, 1))
+            mut row: u64 = 0
+            finding: loop v: u64 in 0..(.variants.len()) {
+                if .variants.get(v).enum_id == en {
+                    row = v
+                    break finding
+                }
+            }
+            variants: loop j: u64 in 0..(group.kids.len()) {
+                vd: u64 = group.kids.get(j)
+                if .kid(vd, 0) != 0 {
+                    .field_list(.kid(vd, 0), row + j, true, copy(.variants.get(row + j).name))
+                    if .failed {
+                        return
+                    }
+                }
+            }
+        }
+        sizes: loop k: u64 in 0..(.struct_ids.len() + .enum_ids.len()) {
+            ty: u64 = if k < .struct_ids.len() { .struct_ids.get(k) } else { .enum_ids.get(k - .struct_ids.len()) }
+            no_path: List<u64> = List(region: .region)
+            discard .size(ty, no_path)
+            if .failed {
+                return
+            }
+        }
+        actors: loop k: u64 in 0..(.actor_ids.len()) {
+            act: u64 = .actor_ids.get(k)
+            .file = .file_of(.types.get(act).decl)
+            .actor_fields(act)
+            if .failed {
+                return
+            }
+        }
+        // Signatures next, so functions and methods can call each other in any order.
+        functions: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            if not .kind_is(item, "Fn") {
+                continue functions
+            }
+            .file = .file_of(item)
+            name: Text = .name_of(item)
+            .require_snake(name, "function", item)
+            if .failed {
+                return
+            }
+            if .kid(item, 2) == 0 and not .trusted_file(.file) {
+                .fail_node(item)
+                .say("`extern fn` can call any code, so it is only allowed in files under a trusted directory, such as raven/trusted/")
+                return
+            }
+            .declare_unique(name, item)
+            if .failed {
+                return
+            }
+            made: u64 = .signature(item, 0, CHK_ROLE_FN)
+            if .failed {
+                return
+            }
+            .declared.put(name, 1)
+            .fns.put(name, made)
+        }
+        aggregates: loop k: u64 in 0..(.struct_ids.len() + .enum_ids.len()) {
+            ty: u64 = if k < .struct_ids.len() { .struct_ids.get(k) } else { .enum_ids.get(k - .struct_ids.len()) }
+            decl: u64 = .types.get(ty).decl
+            .file = .file_of(decl)
+            methods: Node = .nodes.get(.kid(decl, 2))
+            owner_fields: List<u64> = .fields_of(ty, false)
+            listing: loop j: u64 in 0..(methods.kids.len()) {
+                m: u64 = methods.kids.get(j)
+                name: Text = .name_of(m)
+                .require_snake(name, "method", m)
+                if .failed {
+                    return
+                }
+                mut clash: bool = false
+                if .types.get(ty).kind == CHK_STRUCT {
+                    comparing: loop i: u64 in 0..(owner_fields.len()) {
+                        if .fields.get(owner_fields.get(i)).name.equals(name) {
+                            clash = true
+                        }
+                    }
+                }
+                if clash {
+                    .fail_node(m)
+                    .say_name(name)
+                    .say(" is already a field of ")
+                    .say_name(.types.get(ty).name)
+                    return
+                }
+                key: Text = .method_key(ty, name)
+                if .methods.contains(key) {
+                    .fail_node(m)
+                    .say_name(.types.get(ty).name)
+                    .say(" already has a method ")
+                    .say_name(name)
+                    return
+                }
+                if name.same_as("new") {
+                    made: u64 = .signature(m, ty, CHK_ROLE_NEW)
+                    if .failed {
+                        return
+                    }
+                    mut info: TypeInfo = .types.get(ty)
+                    info.new_sig = made
+                    .types.set(ty, info)
+                } else {
+                    made: u64 = .signature(m, ty, CHK_ROLE_METHOD)
+                    if .failed {
+                        return
+                    }
+                    .methods.put(key, made)
+                }
+            }
+        }
+        interfaces: loop k: u64 in 0..(.interface_ids.len()) {
+            iface: u64 = .interface_ids.get(k)
+            .file = .file_of(.types.get(iface).decl)
+            .interface_signatures(iface)
+            if .failed {
+                return
+            }
+        }
+        signing: loop k: u64 in 0..(.actor_ids.len()) {
+            act: u64 = .actor_ids.get(k)
+            .file = .file_of(.types.get(act).decl)
+            .actor_signatures(act)
+            if .failed {
+                return
+            }
+        }
+        .number_handlers()
+        promising: loop k: u64 in 0..(.actor_ids.len()) {
+            act: u64 = .actor_ids.get(k)
+            .file = .file_of(.types.get(act).decl)
+            .implements(act)
+            if .failed {
+                return
+            }
+        }
+    }
+
+    // ---- for the dump --------------------------------------------------
+
+    pub fn nodes_name(n: u64) -> Text {
+        return .name_of(n)
+    }
+
+    pub fn size_of(ty: u64) -> u64 {
+        return .words_of_type(ty)
+    }
+
+    pub fn template_count() -> u64 {
+        return .generic_types.len()
+    }
+
+    pub fn template_name(k: u64) -> Text {
+        return .name_of(.generic_types.value_at(k))
+    }
+
+    pub fn generic_variant_count() -> u64 {
+        return .generic_variants.len()
+    }
+
+    pub fn generic_variant_name(k: u64) -> Text {
+        return .generic_variants.key_at(k)
+    }
+
+    pub fn generic_variant_of(k: u64) -> Text {
+        return .name_of(.generic_variants.value_at(k))
+    }
+}

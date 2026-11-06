@@ -1,0 +1,5 @@
+@@@ lib.rook
+fn secret() {
+}
+@@@ app.rook
+import lib: secret

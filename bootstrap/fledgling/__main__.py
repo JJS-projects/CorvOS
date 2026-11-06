@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from . import compile_program, CompileError
-from .dump import dump_tokens, dump_tree, dump_expanded, make_stream
+from .dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, make_stream
 from . import is_trusted
 
 
@@ -26,7 +26,15 @@ def main(argv=None):
     ap.add_argument("--dump-expanded", action="store_true",
                     help="print the program of the input files after generics are expanded, in the text "
                          "format the self-hosted generics pass must match, and stop")
+    ap.add_argument("--dump-declarations", action="store_true",
+                    help="print what the checker knows once every declaration is checked, in the text "
+                         "format the self-hosted checker must match, and stop")
     args = ap.parse_args(argv)
+
+    if args.dump_declarations:
+        files = [(path, is_trusted(path, args.trusted), open(path).read()) for path in args.inputs]
+        sys.stdout.write(dump_declarations(make_stream(files)))
+        return 0
 
     if args.dump_expanded:
         files = [(path, is_trusted(path, args.trusted), open(path).read()) for path in args.inputs]

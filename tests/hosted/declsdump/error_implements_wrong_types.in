@@ -1,0 +1,8 @@
+@@@ a.rook
+interface Ix {
+    lossy on go(x: u8)
+}
+actor Ax: Ix {
+    lossy on go(x: u16) {
+    }
+}

@@ -1,0 +1,6 @@
+@@@ lib.rook
+pub fn one() {
+}
+@@@ app.rook
+import lib: one
+import lib: one

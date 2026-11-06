@@ -1,0 +1,5 @@
+@@@ trusted raven/inner.rook
+pub fn hidden() {
+}
+@@@ app.rook
+import inner: hidden
