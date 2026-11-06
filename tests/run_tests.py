@@ -1414,6 +1414,10 @@ def check_dump_bodies():
         return "an actor's handlers are not checked unless asked"
     if dump_bodies(stream_a, actors=True) != "error a.rook:7:14: expected u64, found bool\n":
         return "with actors on, the handler's type error should be reported: " + dump_bodies(stream_a, actors=True)
+    boxed = ("struct Box<T> {\n    value: T\n    fn get() -> T {\n        return copy(.value)\n    }\n}\n"
+             "fn f() -> u64 {\n    b: Box<u64> = Box(value: 1)\n    return b.get()\n}\n")
+    if "Copy 4:16 : u64 scalar" not in dump_bodies(make_stream([("a.rook", False, boxed)])):
+        return "copying a number inside a generic type is noted as `scalar`"
     unchecked = dump_bodies(make_stream([("a.rook", False, "fn f() {\n    c: u64 = 1\n}\n")]), bodies=False)
     if unchecked != ("Program\n  Fn 1:1 f\n    Params\n    none\n    Block 1:8\n      Decl 2:5 c\n"
                      "        Type 2:8 u64\n        Int 2:14 1\n    File a.rook\n"):
