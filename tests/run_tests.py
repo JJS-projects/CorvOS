@@ -648,7 +648,9 @@ class HostedTest:
             line = line.strip()
             if line and not line.startswith("#"):
                 names = tuple(line.split()) if program in STREAM_STAGES else ()
-                tests.append(cls(f"hosted/{program}/live:{line}", f"{program} on {line}, against Fledgling",
+                # (a program of many files is named by its last file, so the name and the log's name stay short)
+                shown = f"{names[-1]} (+{len(names) - 1} files)" if len(names) > 1 else line
+                tests.append(cls(f"hosted/{program}/live:{shown}", f"{program} on {line}, against Fledgling",
                                  f"build/compiler/{program}.img", os.path.join(ROOT, names[-1] if names else line),
                                  None, 60.0, True, names))
         return tests
