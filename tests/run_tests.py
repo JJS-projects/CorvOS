@@ -1397,6 +1397,23 @@ def check_dump_bodies():
         return f"the dump is not as documented: {got!r}"
     if dump_bodies(stream, ownership=True) != "error a.rook:9:14: `a` was consumed at 8:18, so it has no value here; assign it again first\n":
         return "with ownership on, reading `a` after `consume(a)` should be the error"
+    # The other ownership checks, on the error tests that need nothing but themselves: a lock held by a
+    # `match` and a value lent twice. Both are errors with ownership on, and accepted with it off.
+    for name in ("match_lock", "lend_twice"):
+        text = open(os.path.join(ROOT, "tests", "rook", "errors", name + ".rook")).read()
+        stream_n = make_stream([("a.rook", False, text)])
+        if not dump_bodies(stream_n, ownership=True).startswith("error a.rook:"):
+            return f"{name}: with ownership on this should be an error"
+        if dump_bodies(stream_n).startswith("error"):
+            return f"{name}: with ownership off this should be accepted"
+    # An actor's `new` and handlers are checked only with `actors`: the type error in the handler shows then.
+    actor = ("actor Bot {\n    mut n: u64\n    new() {\n        .n = 0\n    }\n"
+             "    lossy on go() {\n        .n = true\n    }\n}\n")
+    stream_a = make_stream([("a.rook", False, actor)])
+    if dump_bodies(stream_a).startswith("error"):
+        return "an actor's handlers are not checked unless asked"
+    if dump_bodies(stream_a, actors=True) != "error a.rook:7:14: expected u64, found bool\n":
+        return "with actors on, the handler's type error should be reported: " + dump_bodies(stream_a, actors=True)
     unchecked = dump_bodies(make_stream([("a.rook", False, "fn f() {\n    c: u64 = 1\n}\n")]), bodies=False)
     if unchecked != ("Program\n  Fn 1:1 f\n    Params\n    none\n    Block 1:8\n      Decl 2:5 c\n"
                      "        Type 2:8 u64\n        Int 2:14 1\n    File a.rook\n"):
