@@ -1,0 +1,13 @@
+const SHOWN u64 5
+const A u64 6
+Program
+  Import 1:1
+    ModuleName 1:8 lib
+    ImportName 1:13 SHOWN
+    File a.rook
+  Const 2:1 A
+    Type 2:4 u64
+    Binary 2:16 + : u64
+      Name 2:10 SHOWN : u64 const=5
+      Int 2:18 1 : u64
+    File a.rook

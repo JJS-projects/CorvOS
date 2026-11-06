@@ -1,0 +1,5 @@
+@@@ lib.rook
+pub SHOWN: u64 = 5
+@@@ a.rook
+import lib: SHOWN
+A: u64 = SHOWN + 1

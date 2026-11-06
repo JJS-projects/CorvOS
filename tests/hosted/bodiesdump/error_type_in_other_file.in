@@ -1,0 +1,6 @@
+@@@ lib.rook
+struct Hidden {
+    x: u64
+}
+@@@ a.rook
+A: Hidden = Hidden(x: 1)

@@ -1,0 +1,13 @@
+const A u64 1
+const B u64 2
+const C u64 3
+Program
+  Const 1:5 pub C
+    Type 1:8 u64
+    Int 1:14 3 : u64
+    File a.rook
+  Fn 2:1 f
+    Params
+    none
+    Block 2:8
+    File a.rook

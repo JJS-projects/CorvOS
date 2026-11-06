@@ -1,0 +1,1 @@
+error a.rook:1:10: `SHOWN` is defined in module `lib`: write `import lib: SHOWN` at the top of this file

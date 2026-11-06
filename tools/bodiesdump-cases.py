@@ -23,6 +23,8 @@ cases = {
  "error_text_from_name": BYTES + "HELLO: Bytes = \"hi\"\nOTHER: Bytes = HELLO\n",
  "no_constants": "fn f() {\n}\n",
  "empty_program": "",
+ "imported_constant": [("lib.rook", False, "pub SHOWN: u64 = 5\n"), ("a.rook", False, "import lib: SHOWN\nA: u64 = SHOWN + 1\n")],
+ "two_files": [("lib.rook", False, "pub A: u64 = 1\nB: u64 = 2\n"), ("a.rook", False, "pub C: u64 = 3\nfn f() {\n}\n")],
  "wide_bool": "A: bool = 1 < 2 and 3 < 4\n",
 }
 errors = {
@@ -82,10 +84,25 @@ errors = {
  "error_message_order": "A: u8 = 1 + 300\n",
  "error_expected_in_unary": "A: i8 = -200\n",
  "error_arith_literal_second": "A: u8 = 1\nB: u8 = 300 + A\n",
+
+ "error_overflow_u64_add": "A: u64 = 18446744073709551615 + 1\n",
+ "error_overflow_u64_mul": "A: u64 = 4294967296 * 4294967296\n",
+ "error_overflow_i64_negate": "A: i64 = -9223372036854775808\nB: i64 = -A\n",
+ "error_literal_first_takes_type": "A: u8 = 5\nB: bool = 300 > A\n",
+ "error_if_literal_first": "A: u8 = 5\nB: bool = if true { 300 } else { A }\n",
+ "error_shift_by_width": "A: u8 = 1 shl 8\n",
+ "error_shift_negative_amount": "A: i8 = 1\nB: i8 = 1 shl A\nC: i8 = -1\nD: i8 = 1 shl C\n",
+ "error_private_constant": [("lib.rook", False, "HIDDEN: u64 = 5\n"), ("a.rook", False, "import lib: HIDDEN\nA: u64 = HIDDEN\n")],
+ "error_private_constant_used": [("lib.rook", False, "HIDDEN: u64 = 5\n"), ("a.rook", False, "A: u64 = HIDDEN\n")],
+ "error_constant_not_imported": [("lib.rook", False, "pub SHOWN: u64 = 5\n"), ("a.rook", False, "A: u64 = SHOWN\n")],
+ "error_generic_variant_in_constant": "enum Maybe<T> {\n    Has(value: T)\n    Empty\n}\nA: Maybe<u64> = Empty\n",
+ "error_type_in_other_file": [("lib.rook", False, "struct Hidden {\n    x: u64\n}\n"), ("a.rook", False, "A: Hidden = Hidden(x: 1)\n")],
+ "error_private_fields_literal": [("lib.rook", False, "pub struct Pair {\n    pub a: u64\n    b: u64\n}\n"), ("a.rook", False, "import lib: Pair\nX: Pair = Pair(a: 1, b: 2)\n")],
  "error_generic_variant": "enum Maybe<T> {\n    Has(value: T)\n    Empty\n}\nA: u64 = Empty\n",
 }
 for name, src in {**cases, **errors}.items():
-    stream = make_stream([("a.rook", False, src)])
+    files = src if isinstance(src, list) else [("a.rook", False, src)]
+    stream = make_stream(files)
     open(f"{here}/{name}.in", "w").write(stream)
     open(f"{here}/{name}.out", "w").write(dump_bodies(stream, bodies=False))
 print(len(cases), len(errors))
