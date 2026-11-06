@@ -1,0 +1,1 @@
+error a.rook:4:15: `Ax` already implements `Ix`

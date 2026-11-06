@@ -1,0 +1,7 @@
+@@@ a.rook
+enum Opt<T> {
+    Some(value: T)
+}
+struct Some {
+    x: u8
+}

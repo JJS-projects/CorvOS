@@ -1,0 +1,6 @@
+@@@ a.rook
+fn f() {
+}
+@@@ b.rook
+fn Bad() {
+}

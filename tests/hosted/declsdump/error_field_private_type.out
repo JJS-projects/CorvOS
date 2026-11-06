@@ -1,0 +1,1 @@
+error app.rook:2:8: `Hidden` is private to lib.rook; mark it `pub` to use it in another file

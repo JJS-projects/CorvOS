@@ -1,0 +1,1 @@
+error a.rook:5:5: `Some` is already a variant of `Opt`

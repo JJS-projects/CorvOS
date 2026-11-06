@@ -1,0 +1,30 @@
+@@@ a.rook
+struct Big {
+    a: u64
+    b: u64
+}
+interface Add {
+    reliable on add(n: u64)
+}
+interface Poke {
+    lossy on poke(data: iso Big, shared: val Big)
+}
+actor Counter: Add, Poke {
+    mut count: u64
+    items: val Big
+    owned: iso Big
+    new(start: u64, seed: val Big) {
+        .count = start
+    }
+    reliable on add(n: u64) {
+        .count += n
+    }
+    lossy on poke(data: iso Big, shared: val Big) {
+    }
+    pub lossy on show() {
+    }
+}
+actor Idle {
+    lossy on show() {
+    }
+}

@@ -1,0 +1,22 @@
+generics 
+generic-variants 
+handler-numbers add=0 poke=1 show=2
+struct Big words=2
+  field a u64
+  field b u64
+actor Counter words=5
+  field count u64 mut
+  field items Big val
+  field owned Big iso
+  new (u64, val Big)
+  handler add reliable (u64) number=0
+  handler poke lossy (iso Big, val Big) number=1
+  handler show lossy () number=2
+  implements Add
+  implements Poke
+actor Idle words=0
+  handler show lossy () number=2
+interface Add
+  handler add reliable (u64) number=0
+interface Poke
+  handler poke lossy (iso Big, val Big) number=1

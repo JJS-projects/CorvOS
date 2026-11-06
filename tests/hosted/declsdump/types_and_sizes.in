@@ -1,0 +1,19 @@
+@@@ a.rook
+struct Point {
+    x: u64
+    y: i32
+}
+struct Line {
+    from: Point
+    to: Point
+    pub tag: bool
+}
+enum Shape {
+    Dot
+    Seg(a: Point, b: Point)
+    Wide(w: Line)
+}
+enum Tiny {
+    One
+    Two
+}

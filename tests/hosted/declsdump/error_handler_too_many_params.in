@@ -1,0 +1,5 @@
+@@@ a.rook
+actor Ax {
+    lossy on go(a: u8, b: u8, c: u8, d: u8, e: u8) {
+    }
+}

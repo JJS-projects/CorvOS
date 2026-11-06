@@ -1,0 +1,12 @@
+@@@ a.rook
+struct Big {
+    a: u64
+    b: u64
+    c: u64
+    d: u64
+    e: u64
+}
+actor Ax {
+    new(x: iso Big, y: val Big, z: val Big, w: val Big) {
+    }
+}

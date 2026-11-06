@@ -1,0 +1,1 @@
+error a.rook:9:5: `new` would take 20 words of arguments, and Raven keeps at most 16 for a restart

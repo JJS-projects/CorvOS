@@ -106,7 +106,7 @@ if board_mode():
     MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError, is_trusted  # noqa: E402
-from fledgling.dump import dump_tokens, dump_tree, dump_expanded, make_stream, tree  # noqa: E402
+from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, make_stream, tree  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -613,10 +613,11 @@ class ErrorTest:
 # hosted/...: a compiler program run on its input (docs/self-hosting.md)
 
 # What Fledgling prints for the same input, for each hosted program that has a reference.
-HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "expanddump": dump_expanded}
+HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "expanddump": dump_expanded,
+                    "declsdump": dump_declarations}
 # Stages that work on a whole program are given a stream of files (`@@@ PATH` header lines, see
 # fledgling.dump.split_stream); in live.txt a line names the files of one stream, in order.
-STREAM_STAGES = {"expanddump"}
+STREAM_STAGES = {"expanddump", "declsdump"}
 
 HOSTED_BEGIN = "Hosted: begin"
 HOSTED_END = "Hosted: end"
@@ -1315,7 +1316,32 @@ def check_dump_expanded():
     return None
 
 
+def check_dump_declarations():
+    """Fledgling's declarations dump is the format the self-hosted checker must match: sizes, field
+    and method lines, an actor's fields with their flags, handlers with their numbers, signatures.
+    Worked out by hand."""
+    stream = make_stream([("a.rook", False, "struct Pt {\n    x: u64\n    pub y: bool\n}\n"
+                                            "enum Op {\n    Nop\n    Mov(from: Pt)\n}\n"
+                                            "interface Go {\n    lossy on go(n: u8)\n}\n"
+                                            "actor Bot: Go {\n    mut hits: u64\n    new() {\n        .hits = 0\n    }\n    lossy on go(n: u8) {\n    }\n}\n"
+                                            "fn at(p: mut Pt) -> Op {\n    return Nop\n}\n")])
+    want = ("generics \ngeneric-variants \nhandler-numbers go=0\n"
+            "struct Pt words=2\n  field x u64\n  field y bool pub\n"
+            "enum Op words=3\n  variant Nop tag=0\n  variant Mov tag=1\n    field from Pt\n"
+            "actor Bot words=1\n  field hits u64 mut\n  new ()\n  handler go lossy (u8) number=0\n  implements Go\n"
+            "interface Go\n  handler go lossy (u8) number=0\n"
+            "fn at (mut Pt) -> Op\n")
+    got = dump_declarations(stream)
+    if got != want:
+        return f"the dump is not as documented: {got!r}"
+    if dump_declarations("@@@ a.rook\nstruct Bad {\n}\n") != "error a.rook:1:1: `Bad` has no fields\n":
+        return "an error should be one `error FILE:LINE:COL: MESSAGE` line"
+    return None
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/dump_declarations", "Fledgling's declarations dump has the documented format",
+                check_dump_declarations),
     HarnessTest("harness/dump_expanded", "Fledgling's expanded-program dump has the documented format",
                 check_dump_expanded),
     HarnessTest("harness/dump_tree", "Fledgling's tree dump has the documented format", check_dump_tree),

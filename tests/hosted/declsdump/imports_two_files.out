@@ -1,0 +1,9 @@
+imports u.rook: Slot<-t.rook make<-t.rook
+generics 
+generic-variants 
+handler-numbers 
+struct Slot words=1
+  field v u64 pub
+fn make () -> Slot
+fn raw (u64) -> u64
+fn use_it (Slot) -> Slot

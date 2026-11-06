@@ -1,0 +1,7 @@
+@@@ a.rook
+struct Ax {
+    b: Bx
+}
+struct Bx {
+    a: Ax
+}

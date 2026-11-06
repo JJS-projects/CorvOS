@@ -1,0 +1,7 @@
+@@@ a.rook
+struct Px {
+    x: u64
+}
+enum Px {
+    Ax
+}

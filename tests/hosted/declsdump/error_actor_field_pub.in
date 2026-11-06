@@ -1,0 +1,6 @@
+@@@ a.rook
+actor Ax {
+    pub x: u64
+    new() {
+    }
+}

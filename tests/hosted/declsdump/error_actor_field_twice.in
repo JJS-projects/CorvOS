@@ -1,0 +1,7 @@
+@@@ a.rook
+actor Ax {
+    x: u64
+    x: u8
+    new() {
+    }
+}

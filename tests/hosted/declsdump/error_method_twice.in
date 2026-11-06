@@ -1,0 +1,8 @@
+@@@ a.rook
+struct Sx {
+    x: u8
+    fn m() {
+    }
+    fn m() {
+    }
+}

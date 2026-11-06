@@ -1,0 +1,4 @@
+@@@ a.rook
+module public
+fn f() {
+}

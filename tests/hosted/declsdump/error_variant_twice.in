@@ -1,0 +1,8 @@
+@@@ a.rook
+enum Ex {
+    Ax
+    Bx
+}
+enum Fx {
+    Ax
+}

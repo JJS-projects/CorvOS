@@ -1,0 +1,1 @@
+error a.rook:5:8: an actor's field holds a number, a bool, a reference, owned data written `iso Bx`, or read-only data written `val Bx`, not a bare Bx

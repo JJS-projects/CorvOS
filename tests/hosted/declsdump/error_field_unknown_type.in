@@ -1,0 +1,4 @@
+@@@ a.rook
+struct Sx {
+    x: Missing
+}

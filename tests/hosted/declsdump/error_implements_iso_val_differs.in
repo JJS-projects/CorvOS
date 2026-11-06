@@ -1,0 +1,11 @@
+@@@ a.rook
+struct Bx {
+    x: u8
+}
+interface Ix {
+    lossy on go(x: iso Bx)
+}
+actor Ax: Ix {
+    lossy on go(x: val Bx) {
+    }
+}

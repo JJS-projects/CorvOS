@@ -85,10 +85,14 @@ def to_snake(name):
     return re.sub(r"_+", "_", name).strip("_") or "name"
 
 
-def check(program, suggestions=None):
+def check(program, suggestions=None, stop=None):
     """Check `program`. With `suggestions` (a list), a name used without an import is
-    recorded there as (file, module, name) instead of being an error."""
-    Checker(suggestions).program(program)
+    recorded there as (file, module, name) instead of being an error. `stop="declarations"`
+    stops once every declaration is checked, before constants and function bodies (the self-hosted
+    checker is built in those steps, docs/self-hosting.md), and returns the checker."""
+    checker = Checker(suggestions)
+    checker.program(program, stop)
+    return checker
 
 
 def module_name(path):
@@ -191,7 +195,7 @@ class Checker:
                     raise CompileError(f"`{name}` is already imported", pos)
                 seen[name] = target
 
-    def program(self, prog):
+    def program(self, prog, stop=None):
         self.register_imports(prog)
         # Generic templates: only their names are known here; each instance is a type of its own.
         for tpl in prog.generics.values():
@@ -283,6 +287,8 @@ class Checker:
         for actor in self.actors.values():
             self.enter_file(actor.decl)
             self.implements(actor)
+        if stop == "declarations":
+            return
         # Constants in order: each may use the ones before it.
         for item in prog.items:
             if isinstance(item, S.ConstDecl):

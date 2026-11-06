@@ -1,0 +1,20 @@
+generics 
+generic-variants 
+handler-numbers 
+struct Point words=2
+  field x u64
+  field y i32
+struct Line words=5
+  field from Point
+  field to Point
+  field tag bool pub
+enum Shape words=6
+  variant Dot tag=0
+  variant Seg tag=1
+    field a Point
+    field b Point
+  variant Wide tag=2
+    field w Line
+enum Tiny words=1
+  variant One tag=0
+  variant Two tag=1

@@ -1,0 +1,1 @@
+error app.rook:1:13: `secret` is private to lib.rook; mark it `pub` to import it

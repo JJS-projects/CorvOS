@@ -1,0 +1,1 @@
+error a.rook:3:5: method names are snake_case, like `bad`: `Bad`

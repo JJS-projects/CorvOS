@@ -1,0 +1,9 @@
+@@@ a.rook
+struct Bx {
+    x: u8
+}
+actor Ax {
+    mut x: val Bx
+    new(b: val Bx) {
+    }
+}

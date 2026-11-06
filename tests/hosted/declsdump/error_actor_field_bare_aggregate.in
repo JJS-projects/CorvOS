@@ -1,0 +1,9 @@
+@@@ a.rook
+struct Bx {
+    x: u8
+}
+actor Ax {
+    x: Bx
+    new() {
+    }
+}

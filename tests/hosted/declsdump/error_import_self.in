@@ -1,0 +1,4 @@
+@@@ a.rook
+import a: f
+pub fn f() {
+}

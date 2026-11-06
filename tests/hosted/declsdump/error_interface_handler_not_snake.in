@@ -1,0 +1,4 @@
+@@@ a.rook
+interface Ix {
+    lossy on Bad()
+}

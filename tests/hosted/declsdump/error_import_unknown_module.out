@@ -1,0 +1,1 @@
+error a.rook:1:8: unknown module `nothing`: a module is a file, named without `.rook`

@@ -1,0 +1,17 @@
+generics 
+generic-variants 
+handler-numbers 
+struct Counter words=1
+  field n u64
+  new (u64)
+  method get () -> u64
+  method bump mut (u64) -> ()
+  method peek (mut Counter) -> Counter
+enum Mode words=2
+  variant Fast tag=0
+  variant Slow tag=1
+    field rate u8
+  method label () -> u8
+fn add (u64, mut Counter) -> u64
+fn nothing () -> ()
+fn exported (i8, bool) -> Mode

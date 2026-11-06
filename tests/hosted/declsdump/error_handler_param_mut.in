@@ -1,0 +1,5 @@
+@@@ a.rook
+actor Ax {
+    lossy on go(x: mut u64) {
+    }
+}

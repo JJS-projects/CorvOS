@@ -1,0 +1,1 @@
+error a.rook:5:12: `new` takes a struct or enum as owned or read-only data: write `iso Bx` or `val Bx`

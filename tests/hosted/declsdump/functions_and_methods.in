@@ -1,0 +1,31 @@
+@@@ a.rook
+struct Counter {
+    n: u64
+    new(start: u64) {
+        .n = start
+    }
+    fn get() -> u64 {
+        return .n
+    }
+    mut fn bump(by: u64) {
+        .n += by
+    }
+    pub fn peek(c: mut Counter) -> Counter {
+        return copy(.)
+    }
+}
+enum Mode {
+    Fast
+    Slow(rate: u8)
+    fn label() -> u8 {
+        return 1
+    }
+}
+fn add(a: u64, b: mut Counter) -> u64 {
+    return a
+}
+fn nothing() {
+}
+pub fn exported(x: i8, y: bool) -> Mode {
+    return Fast
+}

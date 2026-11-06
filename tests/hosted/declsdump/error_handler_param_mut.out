@@ -1,0 +1,1 @@
+error a.rook:2:17: a message can't carry a borrow: a `mut` parameter is lent to a call, not sent

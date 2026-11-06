@@ -1,0 +1,7 @@
+@@@ a.rook
+enum Color {
+    Foo
+}
+struct Foo {
+    x: u8
+}

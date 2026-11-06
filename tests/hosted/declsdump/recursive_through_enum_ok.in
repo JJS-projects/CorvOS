@@ -1,0 +1,9 @@
+@@@ a.rook
+enum Link {
+    End
+    Next(count: u64)
+}
+struct Holder {
+    link: Link
+    more: Link
+}

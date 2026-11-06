@@ -1,0 +1,1 @@
+error main.rook:1:8: `x` names more than one file, so it can't be imported

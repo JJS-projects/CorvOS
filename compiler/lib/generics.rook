@@ -20,7 +20,7 @@ pub struct Generics {
     region: Region
     pub nodes: List<Node>
     pub root: u64                   // the Program node
-    templates: TextMap<u64>         // name -> the template's node
+    pub templates: TextMap<u64>     // name -> the template's node, in the order found (the checker needs their names)
     instances: TextMap<u64>         // name of the copy -> its node
     pending: List<u64>              // instances whose type references are still to be rewritten
     pub failed: bool
@@ -133,8 +133,11 @@ pub struct Generics {
         .nodes.set(n, node)
     }
 
-    /// A copy of the subtree at `n`; returns the copy's node.
+    /// A copy of the subtree at `n`; returns the copy's node. (Node 0, `none`, is never copied: it is one node.)
     mut fn copy_tree(n: u64) -> u64 {
+        if n == 0 {
+            return 0                // the part that is not there stays the one node 0
+        }
         node: Node = .nodes.get(n)
         mut kids: List<u64> = List(region: .region)
         copying: loop k: u64 in 0..(node.kids.len()) {

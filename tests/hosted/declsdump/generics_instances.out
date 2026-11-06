@@ -1,0 +1,23 @@
+imports main.rook: Option<-lib.rook Pair<-lib.rook
+generics Option Pair
+generic-variants Some:Option None:Option
+handler-numbers 
+struct Local words=1
+  field n u8
+struct Pair<Local,bool> words=2
+  field first Local pub
+  field second bool pub
+  method swap () -> Pair<bool,Local>
+struct Pair<bool,Local> words=2
+  field first bool pub
+  field second Local pub
+  method swap () -> Pair<Local,bool>
+enum Option<u64> words=2
+  variant Some tag=0
+    field value u64
+  variant None tag=1
+enum Option<Local> words=2
+  variant Some tag=0
+    field value Local
+  variant None tag=1
+fn f (Option<u64>, Pair<Local,bool>) -> Option<Local>

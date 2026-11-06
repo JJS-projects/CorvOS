@@ -1,0 +1,20 @@
+@@@ lib.rook
+pub enum Option<T> {
+    Some(value: T)
+    None
+}
+pub struct Pair<Ax, Bx> {
+    pub first: Ax
+    pub second: Bx
+    pub fn swap() -> Pair<Bx, Ax> {
+        return Pair(first: .second, second: .first)
+    }
+}
+@@@ main.rook
+import lib: Option, Pair
+struct Local {
+    n: u8
+}
+fn f(a: Option<u64>, b: Pair<Local, bool>) -> Option<Local> {
+    return None
+}

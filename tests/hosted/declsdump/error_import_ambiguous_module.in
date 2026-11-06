@@ -1,0 +1,8 @@
+@@@ x.rook
+pub fn one() {
+}
+@@@ dir/x.rook
+pub fn two() {
+}
+@@@ main.rook
+import x: one

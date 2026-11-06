@@ -1,0 +1,1 @@
+error a.rook:2:12: `val` is for structs and enums; u64 is already a plain value

@@ -1,0 +1,6 @@
+@@@ a.rook
+struct Sx {
+    x: u8
+    fn Bad() {
+    }
+}

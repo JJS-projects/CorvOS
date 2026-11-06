@@ -1,0 +1,1 @@
+error a.rook:5:20: a message carries a struct or enum owned or read-only: write `iso Bx` or `val Bx`

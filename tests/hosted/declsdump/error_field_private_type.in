@@ -1,0 +1,8 @@
+@@@ lib.rook
+struct Hidden {
+    x: u64
+}
+@@@ app.rook
+struct Sx {
+    h: Hidden
+}

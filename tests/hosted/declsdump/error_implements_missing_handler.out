@@ -1,0 +1,1 @@
+error a.rook:4:11: `Ax` implements `Ix`, so it needs a handler `go`

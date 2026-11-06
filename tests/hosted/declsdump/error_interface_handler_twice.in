@@ -1,0 +1,5 @@
+@@@ a.rook
+interface Ix {
+    lossy on go()
+    reliable on go()
+}

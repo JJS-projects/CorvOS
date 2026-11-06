@@ -1,0 +1,307 @@
+// Stage 5d-3b of the self-hosted compiler: the declarations half of the checker, run hosted
+// (docs/self-hosting.md). It reads a stream of files from the UART (as expanddump does), parses them,
+// expands the generics, checks every declaration and prints what the checker knows in the format of
+// `python3 -m fledgling FILES --dump-declarations`; or the one line `error FILE:LINE:COL: MESSAGE`.
+
+import bytes: Bytes
+import checker: Checker, FieldInfo, ImplInfo, ParamInfo, SigInfo, TypeInfo, VariantInfo
+import devices: Mmio
+import generics: Generics
+import pl011: Pl011
+import program: Program, SourceFile
+import region: List, Region, make_region
+import text: Text
+import textmap: TextMap
+
+END_OF_INPUT: u8 = 4
+
+fn put_text(console: Pl011, t: Text) {
+    printing: loop i: u64 in 0..t.len() {
+        console.put(t.at(i))
+    }
+}
+
+fn put_error(console: Pl011, files: List<SourceFile>, file: u64, line: u64, col: u64, message: Text) {
+    console.write("error ")
+    put_text(console, files.get(file - 1).path)
+    console.put(':')
+    console.write_dec(line)
+    console.put(':')
+    console.write_dec(col)
+    console.write(": ")
+    put_text(console, message)
+    console.put('\n')
+}
+
+/// `(T, mut T)` for a function or method; `(iso T, val T)` for a handler or a `new`.
+fn put_params(console: Pl011, checker: Checker, row: u64, flags: bool) {
+    console.put('(')
+    mut first: bool = true
+    scanning: loop k: u64 in 0..(checker.params.len()) {
+        p: ParamInfo = checker.params.get(k)
+        if p.sig == row {
+            if not first {
+                console.write(", ")
+            }
+            first = false
+            if flags {
+                if p.modifier == 3 {
+                    console.write("iso ")
+                }
+                if p.modifier == 2 {
+                    console.write("val ")
+                }
+            } else if p.is_mut {
+                console.write("mut ")
+            }
+            put_text(console, checker.types.get(p.ty).name)
+        }
+    }
+    console.put(')')
+}
+
+fn put_signature(console: Pl011, checker: Checker, row: u64) {
+    put_params(console, checker, row, false)
+    console.write(" -> ")
+    put_text(console, checker.types.get(checker.sigs.get(row).ret).name)
+}
+
+/// The methods (not `new`) of a struct or enum.
+fn put_methods(console: Pl011, checker: Checker, owner: u64) {
+    listing: loop row: u64 in 0..(checker.sigs.len()) {
+        sig: SigInfo = checker.sigs.get(row)
+        if sig.owner == owner and sig.role == 2 {
+            console.write("  method ")
+            put_text(console, checker.nodes_name(sig.decl))
+            if sig.mutating {
+                console.write(" mut")
+            }
+            console.put(' ')
+            put_signature(console, checker, row)
+            console.put('\n')
+        }
+    }
+}
+
+fn put_new(console: Pl011, checker: Checker, ty: u64) {
+    new_row: u64 = checker.types.get(ty).new_sig
+    if new_row != 0 {
+        console.write("  new ")
+        put_params(console, checker, new_row, true)
+        console.put('\n')
+    }
+}
+
+fn put_handlers(console: Pl011, checker: Checker, owner: u64) {
+    listing: loop row: u64 in 0..(checker.sigs.len()) {
+        sig: SigInfo = checker.sigs.get(row)
+        if sig.owner == owner and sig.role == 4 {
+            console.write("  handler ")
+            put_text(console, checker.nodes_name(sig.decl))
+            console.put(' ')
+            put_text(console, sig.handler)
+            console.put(' ')
+            put_params(console, checker, row, true)
+            console.write(" number=")
+            console.write_dec(sig.number)
+            console.put('\n')
+        }
+    }
+}
+
+fn put_declarations(console: Pl011, checker: Checker, files: List<SourceFile>) {
+    importing: loop k: u64 in 0..(checker.import_order.len()) {
+        file: u64 = checker.import_order.get(k)
+        table: TextMap<u64> = checker.imports.get(file)
+        console.write("imports ")
+        put_text(console, files.get(file - 1).path)
+        console.put(':')
+        names: loop j: u64 in 0..(table.len()) {
+            console.put(' ')
+            put_text(console, table.key_at(j))
+            console.write("<-")
+            put_text(console, files.get(table.value_at(j) - 1).path)
+        }
+        console.put('\n')
+    }
+    console.write("generics")
+    console.put(' ')
+    templates: loop k: u64 in 0..(checker.template_count()) {
+        if k > 0 {
+            console.put(' ')
+        }
+        put_text(console, checker.template_name(k))
+    }
+    console.put('\n')
+    console.write("generic-variants")
+    console.put(' ')
+    variants: loop k: u64 in 0..(checker.generic_variant_count()) {
+        if k > 0 {
+            console.put(' ')
+        }
+        put_text(console, checker.generic_variant_name(k))
+        console.put(':')
+        put_text(console, checker.generic_variant_of(k))
+    }
+    console.put('\n')
+    console.write("handler-numbers")
+    console.put(' ')
+    numbers: loop k: u64 in 0..(checker.handler_numbers.len()) {
+        if k > 0 {
+            console.put(' ')
+        }
+        put_text(console, checker.handler_numbers.key_at(k))
+        console.put('=')
+        console.write_dec(checker.handler_numbers.value_at(k))
+    }
+    console.put('\n')
+    structs: loop k: u64 in 0..(checker.struct_ids.len()) {
+        st: u64 = checker.struct_ids.get(k)
+        console.write("struct ")
+        put_text(console, checker.types.get(st).name)
+        console.write(" words=")
+        console.write_dec(checker.types.get(st).words)
+        console.put('\n')
+        fields: loop j: u64 in 0..(checker.fields.len()) {
+            f: FieldInfo = checker.fields.get(j)
+            if f.owner == st and not f.in_variant {
+                console.write("  field ")
+                put_text(console, f.name)
+                console.put(' ')
+                put_text(console, checker.types.get(f.ty).name)
+                if f.public {
+                    console.write(" pub")
+                }
+                console.put('\n')
+            }
+        }
+        put_new(console, checker, st)
+        put_methods(console, checker, st)
+    }
+    enums: loop k: u64 in 0..(checker.enum_ids.len()) {
+        en: u64 = checker.enum_ids.get(k)
+        console.write("enum ")
+        put_text(console, checker.types.get(en).name)
+        console.write(" words=")
+        console.write_dec(checker.types.get(en).words)
+        console.put('\n')
+        variants_of: loop v: u64 in 0..(checker.variants.len()) {
+            vi: VariantInfo = checker.variants.get(v)
+            if vi.enum_id == en {
+                console.write("  variant ")
+                put_text(console, vi.name)
+                console.write(" tag=")
+                console.write_dec(vi.tag)
+                console.put('\n')
+                fields: loop j: u64 in 0..(checker.fields.len()) {
+                    f: FieldInfo = checker.fields.get(j)
+                    if f.owner == v and f.in_variant {
+                        console.write("    field ")
+                        put_text(console, f.name)
+                        console.put(' ')
+                        put_text(console, checker.types.get(f.ty).name)
+                        console.put('\n')
+                    }
+                }
+            }
+        }
+        put_methods(console, checker, en)
+    }
+    actors: loop k: u64 in 0..(checker.actor_ids.len()) {
+        act: u64 = checker.actor_ids.get(k)
+        mut total: u64 = 0
+        sizing: loop j: u64 in 0..(checker.fields.len()) {
+            f: FieldInfo = checker.fields.get(j)
+            if f.owner == act and not f.in_variant {
+                total += checker.size_of(f.ty)
+            }
+        }
+        console.write("actor ")
+        put_text(console, checker.types.get(act).name)
+        console.write(" words=")
+        console.write_dec(total)
+        console.put('\n')
+        fields: loop j: u64 in 0..(checker.fields.len()) {
+            f: FieldInfo = checker.fields.get(j)
+            if f.owner == act and not f.in_variant {
+                console.write("  field ")
+                put_text(console, f.name)
+                console.put(' ')
+                put_text(console, checker.types.get(f.ty).name)
+                if (f.flags and 1) != 0 {
+                    console.write(" mut")
+                }
+                if (f.flags and 2) != 0 {
+                    console.write(" val")
+                }
+                if (f.flags and 4) != 0 {
+                    console.write(" iso")
+                }
+                console.put('\n')
+            }
+        }
+        put_new(console, checker, act)
+        put_handlers(console, checker, act)
+        implemented: loop j: u64 in 0..(checker.impls.len()) {
+            im: ImplInfo = checker.impls.get(j)
+            if im.actor_id == act {
+                console.write("  implements ")
+                put_text(console, checker.types.get(im.iface_id).name)
+                console.put('\n')
+            }
+        }
+    }
+    interfaces: loop k: u64 in 0..(checker.interface_ids.len()) {
+        iface: u64 = checker.interface_ids.get(k)
+        console.write("interface ")
+        put_text(console, checker.types.get(iface).name)
+        console.put('\n')
+        put_handlers(console, checker, iface)
+    }
+    functions: loop k: u64 in 0..(checker.fns.len()) {
+        console.write("fn ")
+        put_text(console, checker.fns.key_at(k))
+        console.put(' ')
+        put_signature(console, checker, checker.fns.value_at(k))
+        console.put('\n')
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    region: Region = make_region(peripherals)
+    console.write("Hosted: begin\n")
+    mut stream: Text = Text(region: region)
+    reading: loop {
+        if console.has_byte() {
+            b: u8 = console.take()
+            if b == END_OF_INPUT {
+                break reading
+            }
+            stream.push(b)
+        }
+    }
+    mut program: Program = Program(region: region, stream: stream)
+    program.load()
+    if program.failed {
+        put_error(console, program.files, program.error_file, program.error_line, program.error_col, program.error)
+    } else {
+        mut generics: Generics = Generics(region: region, nodes: program.parser.nodes, root: program.root)
+        generics.run()
+        if generics.failed {
+            put_error(console, program.files, generics.error_file, generics.error_line, generics.error_col,
+                      generics.error)
+        } else {
+            mut checker: Checker = Checker(region: region, nodes: generics.nodes, files: program.files,
+                                           root: generics.root, generics: generics.templates)
+            checker.run()
+            if checker.failed {
+                put_error(console, program.files, checker.error_file, checker.error_line, checker.error_col,
+                          checker.error)
+            } else {
+                put_declarations(console, checker, program.files)
+            }
+        }
+    }
+    console.write("Hosted: end\n")
+}

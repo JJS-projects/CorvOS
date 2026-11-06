@@ -1,0 +1,14 @@
+generics 
+generic-variants 
+handler-numbers ping=0 pong=1 extra=2
+actor Ax words=0
+  handler ping lossy () number=0
+  handler pong reliable (u8) number=1
+  handler extra lossy () number=2
+  implements One
+actor Bx words=0
+  handler extra lossy () number=2
+  handler ping lossy () number=0
+interface One
+  handler ping lossy () number=0
+  handler pong reliable (u8) number=1

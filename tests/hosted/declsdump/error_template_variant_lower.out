@@ -1,0 +1,1 @@
+error a.rook:2:5: variant names are CamelCase, like `Point`: `some`
