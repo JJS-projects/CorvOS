@@ -85,12 +85,18 @@ def to_snake(name):
     return re.sub(r"_+", "_", name).strip("_") or "name"
 
 
-def check(program, suggestions=None, stop=None):
+def check(program, suggestions=None, stop=None, ownership=True, bodies="all", actor_bodies=True):
     """Check `program`. With `suggestions` (a list), a name used without an import is
     recorded there as (file, module, name) instead of being an error. `stop="declarations"`
     stops once every declaration is checked, before constants and function bodies (the self-hosted
-    checker is built in those steps, docs/self-hosting.md), and returns the checker."""
-    checker = Checker(suggestions)
+    checker is built in those steps, docs/self-hosting.md), and returns the checker.
+
+    Three switches stage the proof of the self-hosted checker (decision 165). `ownership=False` makes the
+    checks of moves, locks and loop states do nothing (a program is then accepted or rejected as if
+    nothing were ever consumed). `bodies` says whose function bodies are checked: "all", "none", or a
+    file's path (only the items declared in that file; constants are always checked).
+    `actor_bodies=False` skips an actor's `new` and handlers."""
+    checker = Checker(suggestions, ownership, bodies, actor_bodies)
     checker.program(program, stop)
     return checker
 
@@ -117,8 +123,11 @@ class FnSig:
 
 
 class Checker:
-    def __init__(self, suggestions=None):
+    def __init__(self, suggestions=None, ownership=True, bodies="all", actor_bodies=True):
         self.suggestions = suggestions
+        self.ownership = ownership   # False: moves, locks and loop states are not tracked
+        self.bodies = bodies         # "all", "none", or the one file whose bodies are checked
+        self.actor_bodies = actor_bodies   # False: an actor's `new` and handlers are not checked
         self.imports = {}        # file -> {name: the file it is imported from}
         self.fns = {}
         self.consts = {}         # name -> (type, value)
@@ -310,18 +319,24 @@ class Checker:
                 self.consts[item.name] = (ty, value)
                 self.const_decls[item.name] = item
         for item in prog.items:
-            if isinstance(item, S.FnDecl) and item.body is not None:
+            if isinstance(item, S.FnDecl) and item.body is not None and self.wanted(item):
                 self.function(self.fns[item.name])
         for st in self.aggregates():
-            if st.new_sig is not None:
+            if st.new_sig is not None and self.wanted(st.new_sig.decl):
                 self.function(st.new_sig)
             for sig in st.methods.values():
-                self.function(sig)
-        for actor in self.actors.values():
-            if actor.new_sig is not None:
+                if self.wanted(sig.decl):
+                    self.function(sig)
+        for actor in self.actors.values() if self.actor_bodies else []:
+            if actor.new_sig is not None and self.wanted(actor.new_sig.decl):
                 self.function(actor.new_sig)
             for sig in actor.methods.values():
-                self.function(sig)
+                if self.wanted(sig.decl):
+                    self.function(sig)
+
+    def wanted(self, decl):
+        """Is the body of `decl` checked (the `bodies` switch)?"""
+        return self.bodies == "all" or (self.bodies != "none" and decl.file == self.bodies)
 
     def actor_fields(self, actor):
         decl = actor.decl
@@ -1452,7 +1467,7 @@ class Checker:
                 if agg:
                     lends.append(name)
         root = root_name(m.subject)
-        if lends and root is not None and root not in self.locked:
+        if self.ownership and lends and root is not None and root not in self.locked:
             self.locked[root] = lends[0]
             return root
         return None
@@ -1579,7 +1594,7 @@ class Checker:
                     lent.append((root_name(arg), False, arg.pos))
         # A value lent as `mut` can't be lent again in the same call. Numbers
         # are copied when passed, so they can't alias.
-        for i, (name, is_mut, at) in enumerate(lent):
+        for i, (name, is_mut, at) in enumerate(lent if self.ownership else []):
             for other, other_mut, _ in lent[:i]:
                 if name == other and (is_mut or other_mut):
                     raise CompileError(
@@ -1747,7 +1762,8 @@ class Checker:
                 "nothing else", e.pos)
         ty = self.expr(place)
         self.require_unlocked(root_name(place), "consume", source_text(place), e.pos)
-        self.moved[self.moved_key(place)] = e.pos
+        if self.ownership:
+            self.moved[self.moved_key(place)] = e.pos
         return ty
 
     def is_val_source(self, e):

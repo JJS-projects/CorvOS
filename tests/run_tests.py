@@ -107,7 +107,7 @@ if board_mode():
     MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError, is_trusted  # noqa: E402
-from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, make_stream, tree  # noqa: E402
+from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, make_stream, tree  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -1367,11 +1367,49 @@ def check_dump_declarations():
     return None
 
 
+def check_dump_bodies():
+    """Fledgling's bodies dump (decision 165) is the format the self-hosted checker must match: the
+    constants, then the checked tree of the last file with `: TYPE` and the slots and values the
+    checker recorded. Worked out by hand: a constant `3 * 4` is 12; in `f`, the struct literal is built
+    in the frame words 0-1 (`temp=0`), `a` takes the two words 2-3, `b` the words 4-5, `c` the word 6,
+    so `nslots=7`. The switches: with ownership off `a` may be read after `consume(a)`, with it on that
+    is the error; with no bodies a function has no types or slots."""
+    src = ("LIMIT: u64 = 3 * 4\n"
+           "struct Reading {\n    temp: i32\n    seq: u32\n}\n"
+           "fn f() {\n    a: Reading = Reading(temp: 1, seq: 1)\n    b: Reading = consume(a)\n"
+           "    c: i32 = a.temp\n}\n")
+    stream = make_stream([("a.rook", False, src)])
+    want_head = ("const LIMIT u64 12\nProgram\n  Const 1:1 LIMIT\n    Type 1:8 u64\n"
+                 "    Binary 1:16 * : u64\n      Int 1:14 3 : u64\n      Int 1:18 4 : u64\n    File a.rook\n")
+    want_fn = ("  Fn 6:1 f nslots=7\n    Params\n    none\n    Block 6:8\n"
+               "      Decl 7:5 a slot=2\n        Type 7:8 Reading\n"
+               "        StructLit 7:18 Reading : Reading temp=0\n"
+               "          FieldInit 7:26 temp\n            Int 7:32 1 : i32\n"
+               "          FieldInit 7:35 seq\n            Int 7:40 1 : u32\n"
+               "      Decl 8:5 b slot=4\n        Type 8:8 Reading\n"
+               "        Consume 8:18 : Reading\n          Name 8:26 a : Reading slot=2\n"
+               "      Decl 9:5 c slot=6\n        Type 9:8 i32\n"
+               "        Access 9:16 temp : i32 struct=Reading\n          Name 9:14 a : Reading slot=2\n"
+               "    File a.rook\n")
+    got = dump_bodies(stream)
+    if want_head not in got or not got.endswith(want_fn):
+        return f"the dump is not as documented: {got!r}"
+    if dump_bodies(stream, ownership=True) != "error a.rook:9:14: `a` was consumed at 8:18, so it has no value here; assign it again first\n":
+        return "with ownership on, reading `a` after `consume(a)` should be the error"
+    unchecked = dump_bodies(make_stream([("a.rook", False, "fn f() {\n    c: u64 = 1\n}\n")]), bodies=False)
+    if unchecked != ("Program\n  Fn 1:1 f nslots=0\n    Params\n    none\n    Block 1:8\n      Decl 2:5 c\n"
+                     "        Type 2:8 u64\n        Int 2:14 1\n    File a.rook\n"):
+        return f"with no bodies, nothing in a function is checked, so it has no types: {unchecked!r}"
+    return None
+
+
 HARNESS_TESTS = [
     HarnessTest("harness/utf8_split", "Serial output cut inside a character still decodes",
                 check_utf8_split),
     HarnessTest("harness/dump_declarations", "Fledgling's declarations dump has the documented format",
                 check_dump_declarations),
+    HarnessTest("harness/dump_bodies", "Fledgling's bodies dump has the documented format and switches",
+                check_dump_bodies),
     HarnessTest("harness/dump_expanded", "Fledgling's expanded-program dump has the documented format",
                 check_dump_expanded),
     HarnessTest("harness/dump_tree", "Fledgling's tree dump has the documented format", check_dump_tree),
