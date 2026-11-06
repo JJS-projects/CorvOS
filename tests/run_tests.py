@@ -635,7 +635,7 @@ class HostedTest:
     image: str
     input_path: str
     expected_path: str
-    timeout: float = 30.0
+    timeout: float = 60.0   # a safety net, not a speed test: a busy machine runs many QEMUs at once
     live: bool = False      # no .out file: Fledgling's own output for the input is the expectation
     sources: tuple = ()     # live, for a stream stage: the repository files (paths from the root) it is made of
 
