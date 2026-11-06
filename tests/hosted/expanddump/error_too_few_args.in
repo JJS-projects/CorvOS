@@ -1,0 +1,7 @@
+@@@ a.rook
+struct Pair<A, B> {
+    a: A
+    b: B
+}
+fn f(p: Pair<u8>) {
+}

@@ -1,0 +1,10 @@
+@@@ a.rook
+struct Box<T> {
+    x: T
+}
+@@@ trusted b.rook
+fn f() {
+}
+@@@ b.rook
+fn g(x: Nope<u8>) {
+}

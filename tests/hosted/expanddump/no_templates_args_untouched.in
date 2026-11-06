@@ -1,0 +1,6 @@
+@@@ a.rook
+struct Plain {
+    x: u8
+}
+fn f(a: Plain<u64>, b: Missing<u8>) {
+}

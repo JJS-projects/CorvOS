@@ -1,0 +1,1 @@
+error b.rook:1:9: `Nope` is not generic, so it takes no type arguments

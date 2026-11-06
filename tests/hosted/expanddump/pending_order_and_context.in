@@ -1,0 +1,17 @@
+@@@ a.rook
+import b: Box, Wrap
+fn f(first: Box<u8>, second: Wrap<u8>) {
+}
+@@@ b.rook
+pub struct Box<T> {
+    x: Inner1<T>
+}
+pub struct Wrap<T> {
+    y: Inner2<T>
+}
+struct Inner1<T> {
+    a: T
+}
+struct Inner2<T> {
+    b: T
+}

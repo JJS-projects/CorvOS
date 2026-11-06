@@ -1,0 +1,7 @@
+@@@ a.rook
+struct Never<T> {
+    x: Missing<T, T, T>
+    y: T<u8>
+}
+fn f() {
+}

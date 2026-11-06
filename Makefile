@@ -128,6 +128,7 @@ difftest: $(KERNEL)
 selfhost-check: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
 	$(PYTHON) tools/selfhost-check.py lexdump
 	$(PYTHON) tools/selfhost-check.py parsedump
+	$(PYTHON) tools/selfhost-check.py expanddump
 
 coverage:
 	$(PYTHON) tools/coverage.py

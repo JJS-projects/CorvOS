@@ -1,0 +1,12 @@
+@@@ trusted t.rook
+pub struct Slot<T> {
+    pub v: T
+}
+@@@ u.rook
+import t: Slot
+fn f(a: Slot<u8>) {
+}
+@@@ v.rook
+import t: Slot
+fn g(a: Slot<u8>, b: Slot<u16>) {
+}

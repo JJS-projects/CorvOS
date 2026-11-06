@@ -1,0 +1,245 @@
+Program
+  Actor 13:1 Holder
+    Implements
+    Fields
+      Field 14:5 c
+        Type 14:12 val Cell<u64>
+          VisibleIn a.rook
+      Field 15:5 d
+        Type 15:12 iso Cell<u8>
+          VisibleIn a.rook
+    none
+    Handlers
+      Fn 16:14 mut reliable put
+        Params
+          Param 16:21 v
+            Type 16:24 Cell<u16>
+              VisibleIn a.rook
+        none
+        Block 16:35
+    File a.rook
+  Fn 19:1 g
+    Params
+      Param 19:6 x
+        Type 19:13 iso Cell<u32>
+          VisibleIn a.rook
+      Param 19:24 y
+        Type 19:31 mut Cell<u64>
+          VisibleIn a.rook
+    Type 19:45 Cell<i8>
+      VisibleIn a.rook
+    Block 19:54
+      ForRange 20:5 for_each i
+        Type 20:23 Cell<u8>
+          VisibleIn a.rook
+        Int 20:35 0
+        Int 20:38 1
+        Block 20:40
+      Decl 22:5 z
+        Type 22:8 Cell<u64>
+          VisibleIn a.rook
+        StructLit 22:20 Cell
+          FieldInit 22:25 value
+            Int 22:32 1
+      Return 23:5
+        Cast 23:20 as
+          MethodCall 23:14 get
+            Name 23:12 z
+          Type 23:23 Cell<i8>
+            VisibleIn a.rook
+    File a.rook
+  Struct 1:5 pub Cell<u64>
+    TypeParams
+    Fields
+      Field 2:5 value
+        Type 14:17 u64
+          VisibleIn a.rook
+    Methods
+      Fn 3:5 mut new
+        Params
+          Param 3:9 value
+            Type 14:17 u64
+              VisibleIn a.rook
+        none
+        Block 3:19
+          Assign 4:16 =
+            Access 4:10 value
+              none
+            Name 4:18 value
+      Fn 6:9 pub get
+        Params
+        Type 14:17 u64
+          VisibleIn a.rook
+        Block 6:23
+          Return 7:9
+            Access 7:17 value
+              none
+      Fn 9:13 pub mut set
+        Params
+          Param 9:20 v
+            Type 14:17 u64
+              VisibleIn a.rook
+        none
+        Block 9:26
+          Assign 10:16 =
+            Access 10:10 value
+              none
+            Name 10:18 v
+    GenericBase Cell
+    File a.rook
+  Struct 1:5 pub Cell<u8>
+    TypeParams
+    Fields
+      Field 2:5 value
+        Type 15:17 u8
+          VisibleIn a.rook
+    Methods
+      Fn 3:5 mut new
+        Params
+          Param 3:9 value
+            Type 15:17 u8
+              VisibleIn a.rook
+        none
+        Block 3:19
+          Assign 4:16 =
+            Access 4:10 value
+              none
+            Name 4:18 value
+      Fn 6:9 pub get
+        Params
+        Type 15:17 u8
+          VisibleIn a.rook
+        Block 6:23
+          Return 7:9
+            Access 7:17 value
+              none
+      Fn 9:13 pub mut set
+        Params
+          Param 9:20 v
+            Type 15:17 u8
+              VisibleIn a.rook
+        none
+        Block 9:26
+          Assign 10:16 =
+            Access 10:10 value
+              none
+            Name 10:18 v
+    GenericBase Cell
+    File a.rook
+  Struct 1:5 pub Cell<u16>
+    TypeParams
+    Fields
+      Field 2:5 value
+        Type 16:29 u16
+          VisibleIn a.rook
+    Methods
+      Fn 3:5 mut new
+        Params
+          Param 3:9 value
+            Type 16:29 u16
+              VisibleIn a.rook
+        none
+        Block 3:19
+          Assign 4:16 =
+            Access 4:10 value
+              none
+            Name 4:18 value
+      Fn 6:9 pub get
+        Params
+        Type 16:29 u16
+          VisibleIn a.rook
+        Block 6:23
+          Return 7:9
+            Access 7:17 value
+              none
+      Fn 9:13 pub mut set
+        Params
+          Param 9:20 v
+            Type 16:29 u16
+              VisibleIn a.rook
+        none
+        Block 9:26
+          Assign 10:16 =
+            Access 10:10 value
+              none
+            Name 10:18 v
+    GenericBase Cell
+    File a.rook
+  Struct 1:5 pub Cell<u32>
+    TypeParams
+    Fields
+      Field 2:5 value
+        Type 19:18 u32
+          VisibleIn a.rook
+    Methods
+      Fn 3:5 mut new
+        Params
+          Param 3:9 value
+            Type 19:18 u32
+              VisibleIn a.rook
+        none
+        Block 3:19
+          Assign 4:16 =
+            Access 4:10 value
+              none
+            Name 4:18 value
+      Fn 6:9 pub get
+        Params
+        Type 19:18 u32
+          VisibleIn a.rook
+        Block 6:23
+          Return 7:9
+            Access 7:17 value
+              none
+      Fn 9:13 pub mut set
+        Params
+          Param 9:20 v
+            Type 19:18 u32
+              VisibleIn a.rook
+        none
+        Block 9:26
+          Assign 10:16 =
+            Access 10:10 value
+              none
+            Name 10:18 v
+    GenericBase Cell
+    File a.rook
+  Struct 1:5 pub Cell<i8>
+    TypeParams
+    Fields
+      Field 2:5 value
+        Type 19:50 i8
+          VisibleIn a.rook
+    Methods
+      Fn 3:5 mut new
+        Params
+          Param 3:9 value
+            Type 19:50 i8
+              VisibleIn a.rook
+        none
+        Block 3:19
+          Assign 4:16 =
+            Access 4:10 value
+              none
+            Name 4:18 value
+      Fn 6:9 pub get
+        Params
+        Type 19:50 i8
+          VisibleIn a.rook
+        Block 6:23
+          Return 7:9
+            Access 7:17 value
+              none
+      Fn 9:13 pub mut set
+        Params
+          Param 9:20 v
+            Type 19:50 i8
+              VisibleIn a.rook
+        none
+        Block 9:26
+          Assign 10:16 =
+            Access 10:10 value
+              none
+            Name 10:18 v
+    GenericBase Cell
+    File a.rook

@@ -53,7 +53,7 @@ def compile_everything():
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
         del sys.modules[name]
     from fledgling import compile_program
-    from fledgling.dump import dump_tokens, dump_tree, tree
+    from fledgling.dump import dump_tokens, dump_tree, dump_expanded, make_stream, tree
     lib = run_tests.ROOK_LIB
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
@@ -78,6 +78,12 @@ def compile_everything():
         dump_tree(open(path).read())
     dump_tree("x\ty\n")
     dump_tree("fn f() {\n")
+    # The expanded program: the tests' own generic programs, and an error.
+    generic_library = os.path.join(ROOT, "tests", "rook", "support", "generic_library.rook")
+    for name in ("generics_files", "generics_option", "generics_struct"):
+        path = os.path.join(ROOT, "tests", "rook", name + ".rook")
+        dump_expanded(make_stream([(f, False, open(f).read()) for f in (generic_library, path)]))
+    dump_expanded("@@@ a.rook\nstruct B<T> {\n}\nfn f(x: B) {\n}\n")
     try:
         tree(object())          # a node the dump has no form for is a bug in the dump, not silence
     except AssertionError:

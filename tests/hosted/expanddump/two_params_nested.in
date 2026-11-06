@@ -1,0 +1,15 @@
+@@@ lib.rook
+pub struct Pair<A, B> {
+    pub first: A
+    pub second: B
+}
+pub enum Result<T, E> {
+    Ok(value: T)
+    Err(error: E)
+}
+@@@ main.rook
+import lib: Pair, Result
+fn f() {
+    p: Pair<u64, Result<bool, u8>> = Pair(first: 1, second: Ok(value: true))
+    q: Pair<Pair<u8, u8>, u16> = Pair(first: Pair(first: 1, second: 2), second: 3)
+}

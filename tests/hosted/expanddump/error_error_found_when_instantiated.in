@@ -1,0 +1,9 @@
+@@@ a.rook
+struct Box<T> {
+    x: Other<T, T>
+}
+struct Other<U> {
+    u: U
+}
+fn f(p: Box<u8>) {
+}

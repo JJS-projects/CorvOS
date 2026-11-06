@@ -1,0 +1,36 @@
+Program
+  Fn 4:1 f
+    Params
+      Param 4:6 a
+        Type 4:9 Box<u64>
+          VisibleIn a.rook
+      Param 4:19 b
+        Type 4:22 Box<u64>
+          VisibleIn a.rook
+      Param 4:32 c
+        Type 4:35 Box<bool>
+          VisibleIn a.rook
+      Param 4:46 d
+        Type 4:49 Box<u64>
+          VisibleIn a.rook
+    none
+    Block 4:59
+    File a.rook
+  Struct 1:1 Box<u64>
+    TypeParams
+    Fields
+      Field 2:5 x
+        Type 4:13 u64
+          VisibleIn a.rook
+    Methods
+    GenericBase Box
+    File a.rook
+  Struct 1:1 Box<bool>
+    TypeParams
+    Fields
+      Field 2:5 x
+        Type 4:39 bool
+          VisibleIn a.rook
+    Methods
+    GenericBase Box
+    File a.rook

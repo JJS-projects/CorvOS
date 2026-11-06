@@ -1,0 +1,46 @@
+Program
+  Import 1:1
+    ModuleName 1:8 t
+    ImportName 1:11 Slot
+    File u.rook
+  Fn 2:1 f
+    Params
+      Param 2:6 a
+        Type 2:9 Slot<u8>
+          VisibleIn u.rook
+    none
+    Block 2:19
+    File u.rook
+  Import 1:1
+    ModuleName 1:8 t
+    ImportName 1:11 Slot
+    File v.rook
+  Fn 2:1 g
+    Params
+      Param 2:6 a
+        Type 2:9 Slot<u8>
+          VisibleIn v.rook
+      Param 2:19 b
+        Type 2:22 Slot<u16>
+          VisibleIn v.rook
+    none
+    Block 2:33
+    File v.rook
+  Struct 1:5 pub Slot<u8>
+    TypeParams
+    Fields
+      Field 2:9 pub v
+        Type u.rook:2:14 u8
+          VisibleIn u.rook
+    Methods
+    GenericBase Slot
+    File trusted t.rook
+  Struct 1:5 pub Slot<u16>
+    TypeParams
+    Fields
+      Field 2:9 pub v
+        Type v.rook:2:27 u16
+          VisibleIn v.rook
+    Methods
+    GenericBase Slot
+    File trusted t.rook

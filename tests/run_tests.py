@@ -105,8 +105,8 @@ def board_mode():
 if board_mode():
     MACHINES = ["board"]
 
-from fledgling import compile_program, CompileError  # noqa: E402
-from fledgling.dump import dump_tokens, dump_tree, tree  # noqa: E402
+from fledgling import compile_program, CompileError, is_trusted  # noqa: E402
+from fledgling.dump import dump_tokens, dump_tree, dump_expanded, make_stream, tree  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -613,7 +613,10 @@ class ErrorTest:
 # hosted/...: a compiler program run on its input (docs/self-hosting.md)
 
 # What Fledgling prints for the same input, for each hosted program that has a reference.
-HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree}
+HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "expanddump": dump_expanded}
+# Stages that work on a whole program are given a stream of files (`@@@ PATH` header lines, see
+# fledgling.dump.split_stream); in live.txt a line names the files of one stream, in order.
+STREAM_STAGES = {"expanddump"}
 
 HOSTED_BEGIN = "Hosted: begin"
 HOSTED_END = "Hosted: end"
@@ -633,6 +636,7 @@ class HostedTest:
     expected_path: str
     timeout: float = 30.0
     live: bool = False      # no .out file: Fledgling's own output for the input is the expectation
+    sources: tuple = ()     # live, for a stream stage: the repository files (paths from the root) it is made of
 
     @classmethod
     def live_files(cls, program, listing):
@@ -642,8 +646,10 @@ class HostedTest:
         for line in open(listing).read().splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
+                names = tuple(line.split()) if program in STREAM_STAGES else ()
                 tests.append(cls(f"hosted/{program}/live:{line}", f"{program} on {line}, against Fledgling",
-                                 f"build/compiler/{program}.img", os.path.join(ROOT, line), None, 60.0, True))
+                                 f"build/compiler/{program}.img", os.path.join(ROOT, names[-1] if names else line),
+                                 None, 60.0, True, names))
         return tests
 
     @classmethod
@@ -653,6 +659,14 @@ class HostedTest:
         base = os.path.splitext(in_path)[0]
         return cls(f"hosted/{program}/{case}", f"{program} on {case}.in",
                    f"build/compiler/{program}.img", in_path, base + ".out")
+
+    def stream(self):
+        """The input of a stream stage: the files named in `sources`, one after the other."""
+        files = []
+        for rel in self.sources:
+            path = os.path.join(ROOT, rel)
+            files.append((rel, is_trusted(path, TRUSTED_DIRS), open(path).read()))
+        return make_stream(files)
 
     def run(self):
         # The protocol is the UART and the same on both machines (the `numberer` shows it); the
@@ -666,7 +680,11 @@ class HostedTest:
             return True, "skipped: hosted programs are not run on a board", ""
         if not os.path.exists(image):
             return False, missing_image(image)
-        data = open(self.input_path, "rb").read() + END_OF_INPUT
+        if self.sources:
+            stream = self.stream()
+            data = stream.encode() + END_OF_INPUT
+        else:
+            data = open(self.input_path, "rb").read() + END_OF_INPUT
         output, timed_out, qemu_log = boot(
             image, lambda lines: HOSTED_END in lines, self.timeout, machine,
             log_base(self.name, machine) + ".qemu", [(data, "")])
@@ -680,7 +698,8 @@ class HostedTest:
                 " before the timeout" if timed_out else ""), output
         got = lines[lines.index(HOSTED_BEGIN) + 1:lines.index(HOSTED_END)]
         if self.live:
-            want = HOSTED_REFERENCE[self.image.split("/")[-1][:-4]](open(self.input_path).read()).splitlines()
+            reference = HOSTED_REFERENCE[self.image.split("/")[-1][:-4]]
+            want = reference(self.stream() if self.sources else open(self.input_path).read()).splitlines()
         else:
             want = open(self.expected_path).read().splitlines()
         if got != want:
@@ -1276,7 +1295,29 @@ def check_dump_tree():
     return "a node the dump has no form for should be an error, not silence"
 
 
+def check_dump_expanded():
+    """Fledgling's expanded-program dump is the format the self-hosted generics pass must match:
+    files in a stream, the template gone, its instance last with the place of the type argument in
+    the file it was written in, and `VisibleIn`, `GenericBase` and `File` lines. Worked out by hand."""
+    stream = make_stream([("a.rook", True, "struct Box<T> {\n    x: T\n}\n"),
+                          ("b.rook", False, "fn f(p: Box<u8>) {\n}\n")])
+    want = ("Program\n  Fn 1:1 f\n    Params\n      Param 1:6 p\n        Type 1:9 Box<u8>\n"
+            "          VisibleIn b.rook\n    none\n    Block 1:18\n    File b.rook\n"
+            "  Struct 1:1 Box<u8>\n    TypeParams\n    Fields\n      Field 2:5 x\n"
+            "        Type b.rook:1:13 u8\n          VisibleIn b.rook\n    Methods\n    GenericBase Box\n"
+            "    File trusted a.rook\n")
+    got = dump_expanded(stream)
+    if got != want:
+        return f"the dump is not as documented: {got!r}"
+    if dump_expanded("@@@ a.rook\nstruct B<T> {\n}\nfn f(x: B) {\n}\n") != (
+            "error a.rook:3:9: `B` needs type arguments: write `B<T>` with the types\n"):
+        return "an error should be one `error FILE:LINE:COL: MESSAGE` line"
+    return None
+
+
 HARNESS_TESTS = [
+    HarnessTest("harness/dump_expanded", "Fledgling's expanded-program dump has the documented format",
+                check_dump_expanded),
     HarnessTest("harness/dump_tree", "Fledgling's tree dump has the documented format", check_dump_tree),
     HarnessTest("harness/dump_tokens", "Fledgling's token dump has the documented format", check_dump_tokens),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "

@@ -1,0 +1,19 @@
+Program
+  Import 1:1
+    ModuleName 1:8 b
+    ImportName 1:11 Thing
+    File a.rook
+  Fn 2:1 f
+    Params
+    Type 2:11 u64
+    Block 2:15
+      Return 3:5
+        Int 3:12 1
+    File a.rook
+  Struct 1:5 pub Thing
+    TypeParams
+    Fields
+      Field 2:5 x
+        Type 2:8 u64
+    Methods
+    File trusted b.rook

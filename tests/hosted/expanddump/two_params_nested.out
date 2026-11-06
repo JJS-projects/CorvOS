@@ -1,0 +1,85 @@
+Program
+  Import 1:1
+    ModuleName 1:8 lib
+    ImportName 1:13 Pair
+    ImportName 1:19 Result
+    File main.rook
+  Fn 2:1 f
+    Params
+    none
+    Block 2:8
+      Decl 3:5 p
+        Type 3:8 Pair<u64,Result<bool,u8>>
+          VisibleIn main.rook
+        StructLit 3:38 Pair
+          FieldInit 3:43 first
+            Int 3:50 1
+          FieldInit 3:53 second
+            StructLit 3:61 Ok
+              FieldInit 3:64 value
+                Bool 3:71 true
+      Decl 4:5 q
+        Type 4:8 Pair<Pair<u8,u8>,u16>
+          VisibleIn main.rook
+        StructLit 4:34 Pair
+          FieldInit 4:39 first
+            StructLit 4:46 Pair
+              FieldInit 4:51 first
+                Int 4:58 1
+              FieldInit 4:61 second
+                Int 4:69 2
+          FieldInit 4:73 second
+            Int 4:81 3
+    File main.rook
+  Enum 5:5 pub Result<bool,u8>
+    TypeParams
+    Variants
+      Variant 6:5 Ok
+        Fields
+          Field 6:8 value
+            Type main.rook:3:25 bool
+              VisibleIn main.rook
+      Variant 7:5 Err
+        Fields
+          Field 7:9 error
+            Type main.rook:3:31 u8
+              VisibleIn main.rook
+    Methods
+    GenericBase Result
+    File lib.rook
+  Struct 1:5 pub Pair<u64,Result<bool,u8>>
+    TypeParams
+    Fields
+      Field 2:9 pub first
+        Type main.rook:3:13 u64
+          VisibleIn main.rook
+      Field 3:9 pub second
+        Type main.rook:3:18 Result<bool,u8>
+          VisibleIn main.rook
+    Methods
+    GenericBase Pair
+    File lib.rook
+  Struct 1:5 pub Pair<u8,u8>
+    TypeParams
+    Fields
+      Field 2:9 pub first
+        Type main.rook:4:18 u8
+          VisibleIn main.rook
+      Field 3:9 pub second
+        Type main.rook:4:22 u8
+          VisibleIn main.rook
+    Methods
+    GenericBase Pair
+    File lib.rook
+  Struct 1:5 pub Pair<Pair<u8,u8>,u16>
+    TypeParams
+    Fields
+      Field 2:9 pub first
+        Type main.rook:4:13 Pair<u8,u8>
+          VisibleIn main.rook
+      Field 3:9 pub second
+        Type main.rook:4:27 u16
+          VisibleIn main.rook
+    Methods
+    GenericBase Pair
+    File lib.rook

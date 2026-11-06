@@ -4,6 +4,7 @@
 from .errors import CompileError
 from .lexer import lex
 from .parser import parse
+from .generics import expand
 from . import syntax as S
 
 
@@ -52,7 +53,17 @@ def _group(kind, items, text=""):
 
 
 def tree(n):
-    """The `(kind, pos, text, kids)` form of syntax node `n`."""
+    """The `(kind, pos, text, kids)` form of syntax node `n`. A top-level item of a program (it has
+    `file`) ends with a `File` child; a generic's instance with a `GenericBase` child."""
+    kind, pos, text, kids = _tree(n)
+    if isinstance(n, (S.StructDecl, S.EnumDecl)) and n.generic_base is not None:
+        kids = kids + [("GenericBase", None, n.generic_base, [])]
+    if getattr(n, "file", None) is not None:
+        kids = kids + [("File", None, ("trusted " if n.trusted else "") + n.file, [])]
+    return (kind, pos, text, kids)
+
+
+def _tree(n):
     if isinstance(n, S.Program):
         return ("Program", None, "", [tree(i) for i in n.items])
     if isinstance(n, S.ModuleDecl):
@@ -63,7 +74,10 @@ def tree(n):
         return ("Import", n.pos, "", kids)
     if isinstance(n, S.TypeRef):
         mods = "mut" if n.mut else "val" if n.val else "iso" if n.iso else ""
-        return ("Type", n.pos, _words(mods, n.name), [tree(a) for a in n.args])
+        kids = [tree(a) for a in n.args]
+        if n.visible_in is not None:                # set by generics.py
+            kids.append(("VisibleIn", None, n.visible_in, []))
+        return ("Type", n.pos, _words(mods, n.name), kids)
     if isinstance(n, S.Param):
         return ("Param", n.pos, n.name, [tree(n.type)])
     if isinstance(n, S.Field):
@@ -173,18 +187,68 @@ def dump_tree(source):
         program = parse(lex(source))
     except CompileError as err:
         return f"error {err.pos.line}:{err.pos.col}: {err.message}\n"
+    return _print_tree(tree(program))
+
+
+def _print_tree(root):
+    """One node a line. A place in another file than its top-level item's is written `FILE:LINE:COL`."""
     lines = []
 
-    def walk(node, depth):
+    def walk(node, depth, here):
         kind, pos, text, kids = node
+        if depth == 1 and pos is not None:
+            here = pos.file
         parts = [kind]
         if pos is not None:
-            parts.append(f"{pos.line}:{pos.col}")
+            where = f"{pos.line}:{pos.col}"
+            if pos.file is not None and pos.file != here:
+                where = f"{pos.file}:{where}"
+            parts.append(where)
         if text != "":
             parts.append(text)
         lines.append("  " * depth + " ".join(parts))
         for kid in kids:
-            walk(kid, depth + 1)
+            walk(kid, depth + 1, here)
 
-    walk(tree(program), 0)
+    walk(root, 0, None)
     return "\n".join(lines) + "\n"
+
+
+# ---- whole programs ----------------------------------------------------------------------------
+#
+# A stage that works on a whole program is given several files in one stream: each starts with a
+# line `@@@ PATH` (or `@@@ trusted PATH`), then the file's text. (`@` cannot start anything in Rook,
+# so no file has such a line.)
+
+def split_stream(stream):
+    """[(path, trusted, source)] from the text of a stream of files."""
+    files = []
+    for line in stream.splitlines(keepends=True):
+        if line.startswith("@@@ "):
+            head = line[4:].rstrip("\n")
+            trusted = head.startswith("trusted ")
+            files.append([head[8:] if trusted else head, trusted, ""])
+        elif files:
+            files[-1][2] += line
+    return [tuple(f) for f in files]
+
+
+def make_stream(files):
+    """The stream for [(path, trusted, source)]: what `split_stream` takes apart."""
+    return "".join(f"@@@ {'trusted ' if trusted else ''}{path}\n{source}" for path, trusted, source in files)
+
+
+def dump_expanded(stream):
+    """The program in `stream` after generics are expanded (decision 154), as `dump_tree` prints it.
+    An error is one line, `error FILE:LINE:COL: MESSAGE`. The self-hosted program is
+    compiler/expanddump.rook."""
+    program = S.Program()
+    try:
+        for path, trusted, source in split_stream(stream):
+            for item in parse(lex(source, path)).items:
+                item.file, item.trusted = path, trusted
+                program.items.append(item)
+        expand(program)
+    except CompileError as err:
+        return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
+    return _print_tree(tree(program))

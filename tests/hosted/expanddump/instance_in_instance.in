@@ -1,0 +1,21 @@
+@@@ a.rook
+pub struct Box<T> {
+    pub item: T
+    pub fn same() -> Box<T> {
+        return copy(.)
+    }
+}
+pub struct Wrapper<T> {
+    pub inner: Box<T>
+    pub list: Other<Box<T>>
+}
+pub struct Other<U> {
+    u: U
+}
+@@@ b.rook
+import a: Box, Wrapper
+struct Mine {
+    n: u8
+}
+fn f(w: Wrapper<Mine>, b: Box<u64>) {
+}

@@ -1,0 +1,6 @@
+@@@ a.rook
+struct Box<T> {
+    x: T
+}
+fn f(a: Box<u64>, b: Box<u64>, c: Box<bool>, d: Box<u64>) {
+}
