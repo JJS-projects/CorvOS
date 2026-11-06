@@ -9,6 +9,8 @@ pub struct Pair<Ax, Bx> {
     pub fn swap() -> Pair<Bx, Ax> {
         return Pair(first: .second, second: .first)
     }
+    pub mut fn clear() {
+    }
 }
 @@@ main.rook
 import lib: Option, Pair

@@ -1,0 +1,4 @@
+@@@ a.rook
+struct Bad_Name {
+    x: u8
+}

@@ -1,0 +1,4 @@
+@@@ a.rook
+struct Sx {
+    value_: u8
+}
