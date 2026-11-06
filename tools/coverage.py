@@ -88,7 +88,8 @@ def compile_everything():
     for name in ("generics_files", "supervisor_demo", "restart_basic", "interfaces_basic", "actors_val_field"):
         path = os.path.join(ROOT, "tests", "rook", name + ".rook")
         if os.path.exists(path):
-            dump_declarations(make_stream([(f, False, open(f).read()) for f in run_tests.ROOK_LIB + [path]]))
+            dump_declarations(make_stream([(f, run_tests.is_trusted(f, run_tests.TRUSTED_DIRS), open(f).read())
+                                           for f in run_tests.ROOK_LIB + [path]]))
     dump_declarations("@@@ a.rook\nstruct Bad {\n}\n")
     try:
         tree(object())          # a node the dump has no form for is a bug in the dump, not silence
