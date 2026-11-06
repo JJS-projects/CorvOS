@@ -1,0 +1,45 @@
+// A handler that runs out of stack is abandoned like any other panic (decision 164): Raven restarts
+// the actor, the messages behind the failing one are lost and counted, and the program goes on.
+//
+// Worked out: the actor starts with 7 (from `new(7)`); its mailbox holds dive, show. `dive` calls a
+// function that never ends, which panics with "stack overflow" at the function (line 16); the actor is
+// restarted and `show` is lost (1 message). A new show prints 7: `new` ran again with the 7 it was
+// spawned with. Then the counts: 1 message lost, 1 restart.
+// expect-failure: stack overflow at stack_overflow_actor.rook:16
+// expect: 7
+// expect: 1
+// expect: 1
+
+import actors: lost_messages, restart_count, run_until_idle
+import print: print_u64
+
+fn deepen(n: u64) -> u64 {
+    return deepen(n + 1) + 1
+}
+
+actor Runaway {
+    mut value: u64
+
+    new(start: u64) {
+        .value = start
+    }
+
+    pub lossy on dive() {
+        .value = deepen(0)
+    }
+
+    pub lossy on show() {
+        print_u64(.value)
+    }
+}
+
+fn test_main() {
+    r: Runaway = spawn Runaway(7)
+    r.dive()
+    r.show()                        // lost
+    run_until_idle()
+    r.show()                        // 7
+    run_until_idle()
+    print_u64(lost_messages())      // 1
+    print_u64(restart_count())      // 1
+}

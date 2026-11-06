@@ -75,6 +75,10 @@ actor Guard: Lifecycle {
   is a safety valve against a crash loop, not an exact log. There is no time window: "N restarts"
   means since the supervisor itself last started (a supervisor restart resets its count).
 - **14 watches** share one table for the whole system; a 15th panics (decision 149).
+- **A stack that runs out is a panic.** Every compiled function checks, as it begins, that its frame stays above
+  a limit 8 KB over the bottom of the 256 KB boot stack, and panics `stack overflow` if not (decision 164;
+  `rook/stack_overflow_panics`, `rook/stack_overflow_actor`). In a handler that is a restart like any other. Code
+  that is not compiled Rook (assembly, interrupt entry) is not checked; the 8 KB left are for it and for the report.
 - **No isolation yet.** A failed handler's damage to memory through `unsafe` code is not undone
   (milestone 6 adds the MMU), and a panic outside any handler, or a CPU fault, still halts.
 - **Restarts are not free.** A failed actor loses its mailbox (counted), and an actor that fails
