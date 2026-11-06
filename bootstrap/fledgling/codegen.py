@@ -43,6 +43,7 @@ PANIC_MESSAGES = {
     "div0": "division by zero",
     "shift": "shift amount too large",
     "shiftlost": "shl lost set bits",
+    "stack": "stack overflow",
 }
 
 SIGNED_COND = {"<": "lt", "<=": "le", ">": "gt", ">=": "ge"}
@@ -238,6 +239,11 @@ class Gen:
             else:
                 self.emit(f"ldr x16, ={frame}")
                 self.emit("sub sp, sp, x16")
+        # Stack guard (decision 164): a frame that would reach below the limit panics, which
+        # abandons the handler (or halts) instead of writing over what lies below the stack.
+        self.emit("ldr x16, =boot_stack_limit")
+        self.emit("cmp sp, x16")
+        self.panic_branch("b.lo", "stack", fn.pos)
         if fn.result_slot is not None:
             # Where to write the struct result. Stored straight from x8: x0
             # still holds the first argument.

@@ -1,0 +1,15 @@
+// A function that calls itself without end runs out of stack: Rook panics with a message at the
+// function that was entered, instead of writing over what lies below the stack (decision 164).
+// Worked out: each call takes a frame of a few words, and the stack is 256 KB, so a few thousand calls
+// are enough; the panic names the line of `deepen` (line 9), where the frame that did not fit began.
+// expect-panic: stack overflow at stack_overflow_panics.rook:9
+
+import print: print_u64
+
+fn deepen(n: u64) -> u64 {
+    return deepen(n + 1) + 1
+}
+
+fn test_main() {
+    print_u64(deepen(0))
+}
