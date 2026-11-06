@@ -70,6 +70,7 @@ Usage: python3 tests/run_tests.py [-v] [name-or-prefix ...]   (-v or VERBOSE=1: 
 
 import concurrent.futures
 import dataclasses
+import codecs
 import glob
 import os
 import re
@@ -274,6 +275,10 @@ def read_qemu_log(proc, log_path):
 
 
 def read_available(sel, wait):
+    """Whatever the registered files give within `wait` seconds, as text. A character of several
+    bytes can arrive in two reads (a busy machine splits them anywhere), so each file has an
+    incremental decoder that waits for the rest instead of turning each half into an error."""
+    decoders = sel.__dict__.setdefault("decoders", {})
     out = ""
     end = time.monotonic() + wait
     while True:
@@ -284,7 +289,8 @@ def read_available(sel, wait):
             chunk = os.read(key.fd, 4096)
             if not chunk:
                 return out
-            out += chunk.decode("utf-8", errors="replace")
+            decoder = decoders.setdefault(key.fd, codecs.getincrementaldecoder("utf-8")(errors="replace"))
+            out += decoder.decode(chunk)
 
 
 def complete_lines(output):
@@ -1318,6 +1324,26 @@ def check_dump_expanded():
     return None
 
 
+def check_utf8_split():
+    """A character that arrives in two reads is still one character: the serial output of a busy
+    machine is cut anywhere (this made hosted/lexdump/non_ascii fail in CI)."""
+    reader, writer = os.pipe()
+    sel = selectors.DefaultSelector()
+    sel.register(reader, selectors.EVENT_READ)
+    try:
+        os.write(writer, b"h\xc3")
+        first = read_available(sel, 0.05)
+        os.write(writer, b"\xa9llo")
+        second = read_available(sel, 0.05)
+    finally:
+        sel.close()
+        os.close(reader)
+        os.close(writer)
+    if first + second != "h\u00e9llo":
+        return f"a character split between two reads came out as {first + second!r}"
+    return None
+
+
 def check_dump_declarations():
     """Fledgling's declarations dump is the format the self-hosted checker must match: sizes, field
     and method lines, an actor's fields with their flags, handlers with their numbers, signatures.
@@ -1342,6 +1368,8 @@ def check_dump_declarations():
 
 
 HARNESS_TESTS = [
+    HarnessTest("harness/utf8_split", "Serial output cut inside a character still decodes",
+                check_utf8_split),
     HarnessTest("harness/dump_declarations", "Fledgling's declarations dump has the documented format",
                 check_dump_declarations),
     HarnessTest("harness/dump_expanded", "Fledgling's expanded-program dump has the documented format",
