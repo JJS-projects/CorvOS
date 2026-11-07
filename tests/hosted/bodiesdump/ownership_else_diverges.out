@@ -1,0 +1,34 @@
+Program
+  Struct 1:1 Pt
+    TypeParams
+    Fields
+      Field 2:5 x
+        Type 2:8 u64
+    Methods
+    File a.rook
+  Fn 4:1 f nslots=4
+    Params
+      Param 4:6 c : bool slot=0
+        Type 4:9 bool
+    Type 4:18 u64
+    Block 4:22
+      Decl 5:5 a slot=2
+        Type 5:8 Pt
+        StructLit 5:13 Pt : Pt temp=1
+          FieldInit 5:16 x
+            Int 5:19 1 : u64
+      If 6:5
+        Name 6:8 c : bool slot=0
+        Block 6:10
+        Block 7:12
+          Decl 8:9 b slot=3
+            Type 8:12 Pt
+            Consume 8:17 : Pt
+              Name 8:25 a : Pt slot=2
+          Return 9:9
+            Access 9:18 x : u64 struct=Pt
+              Name 9:16 b : Pt slot=3
+      Return 11:5
+        Access 11:14 x : u64 struct=Pt
+          Name 11:12 a : Pt slot=2
+    File a.rook
