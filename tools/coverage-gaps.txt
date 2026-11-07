@@ -20,7 +20,6 @@ bootstrap/fledgling/parser.py || if e.op in SHIFT_OPS and unbracketed(child, ARI
 #
 # Unused or debugging code.
 bootstrap/fledgling/__init__.py || """Compile one untrusted file of Rook source text.""" || return compile_program([(filename, source)]) || compile_source is unused; the command line and tests use compile_program
-bootstrap/fledgling/checker.py || return f"`{source_text(e)}`" || return "this value" || describe_place is only called with a place, since the parser rejects other assignment targets
 bootstrap/fledgling/checker.py || if isinstance(node, tuple): || return any(breaks_to(item, label) for item in node) || the syntax tree holds no tuples
 bootstrap/fledgling/rtypes.py || def __repr__(self): || return f"{type(self).__name__}({self.name})" || only for debugging
 bootstrap/fledgling/rtypes.py || def __repr__(self): || return f"ActorType({self.name})" || only for debugging
