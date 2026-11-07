@@ -16,19 +16,19 @@ Program
     Fields
       Field 5:9 mut hits
         Type 5:15 u64
-    Fn 6:5 mut new
+    Fn 6:5 mut new self_slot=0 nslots=1
       Params
       none
       Block 6:11
         Assign 7:15 =
-          Access 7:10 hits
+          Access 7:10 hits : u64 struct=Bot
             none
-          Int 7:17 0
+          Int 7:17 0 : u64
       File a.rook
     Handlers
-      Fn 9:11 mut lossy go
+      Fn 9:11 mut lossy go self_slot=0 number=0 nslots=2
         Params
-          Param 9:17 n
+          Param 9:17 n : u8 slot=1
             Type 9:20 u8
         none
         Block 9:24

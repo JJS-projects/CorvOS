@@ -1,0 +1,26 @@
+// A field that is not val is not read-only data, so it can't be passed to a val parameter.
+// alone
+// error: 24:22: `Sink.look` takes read-only data: pass a `val` field, a `val` parameter or text in quotes (a value from `freeze` arrives in step 4c)
+
+struct Reading {
+    temp: i32
+}
+
+actor Sink {
+    pub lossy on look(r: val Reading) {
+    }
+}
+
+actor Holder {
+    mut kept: iso Reading
+    other: Sink
+
+    new(first: iso Reading, other: Sink) {
+        .kept = copy(first)
+        .other = other
+    }
+
+    pub lossy on pass() {
+        .other.look(.kept)
+    }
+}

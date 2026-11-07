@@ -388,3 +388,4 @@ tests/rook/errors/words_of_untrusted.rook
 tests/rook/errors/wrap_lossless.rook
 tests/rook/errors/struct_new_field_in_block.rook
 tests/rook/errors/struct_if_expression_copy.rook
+tests/rook/errors/val_arg_from_iso_field.rook
