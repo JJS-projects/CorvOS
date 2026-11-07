@@ -1,0 +1,1 @@
+error a.rook:3:14: `b` is private to lib.rook; mark the field `pub` to use it in another file

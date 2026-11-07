@@ -6,7 +6,7 @@ Program
     Type 1:8 u64
     Int 1:14 3 : u64
     File a.rook
-  Fn 2:1 f
+  Fn 2:1 f nslots=0
     Params
     none
     Block 2:8

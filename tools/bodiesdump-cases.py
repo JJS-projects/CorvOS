@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Writes the cases of tests/hosted/bodiesdump: for each program below, NAME.in (the stream) and NAME.out
-(what Fledgling prints with --dump-bodies --no-bodies). The values of the arithmetic, bitwise, shift, cast and
+(what Fledgling prints with --dump-bodies). The values of the arithmetic, bitwise, shift, cast and
 comparison cases were worked out by hand when the cases were made; run this again only to add a case, and read
 the new output.
 """
@@ -100,11 +100,13 @@ errors = {
  "error_generic_variant_in_constant": "enum Maybe<T> {\n    Has(value: T)\n    Empty\n}\nA: Maybe<u64> = Empty\n",
  "error_type_in_other_file": [("lib.rook", False, "struct Hidden {\n    x: u64\n}\n"), ("a.rook", False, "A: Hidden = Hidden(x: 1)\n")],
  "error_private_fields_literal": [("lib.rook", False, "pub struct Pair {\n    pub a: u64\n    b: u64\n}\n"), ("a.rook", False, "import lib: Pair\nX: Pair = Pair(a: 1, b: 2)\n")],
+ "error_private_field_access": [("lib.rook", False, "pub struct Pair {\n    pub a: u64\n    b: u64\n}\n"), ("a.rook", False, "import lib: Pair\nfn f(p: Pair) -> u64 {\n    return p.b\n}\n")],
+ "error_private_method_call": [("lib.rook", False, "pub struct Pair {\n    pub a: u64\n    fn hidden() -> u64 {\n        return .a\n    }\n}\n"), ("a.rook", False, "import lib: Pair\nfn f(p: Pair) -> u64 {\n    return p.hidden()\n}\n")],
  "error_generic_variant": "enum Maybe<T> {\n    Has(value: T)\n    Empty\n}\nA: u64 = Empty\n",
 }
 for name, src in {**cases, **errors}.items():
     files = src if isinstance(src, list) else [("a.rook", False, src)]
     stream = make_stream(files)
     open(f"{here}/{name}.in", "w").write(stream)
-    open(f"{here}/{name}.out", "w").write(dump_bodies(stream, bodies=False))
+    open(f"{here}/{name}.out", "w").write(dump_bodies(stream))
 print(len(cases), len(errors))

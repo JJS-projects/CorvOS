@@ -1,0 +1,11 @@
+// An if used as a value is only fresh when both branches are.
+// alone
+// error: 10:16: `p` would be a copy of this value; write `copy(value)` to copy it
+
+struct Point {
+    x: u64
+}
+
+fn pick(lent: Point, flag: bool) {
+    p: Point = if flag { Point(x: 1) } else { lent }
+}

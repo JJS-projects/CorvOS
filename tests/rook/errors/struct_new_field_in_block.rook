@@ -1,0 +1,17 @@
+// A struct's new sets each field at the top level of its body, not inside an if.
+// alone
+// error: 10:16: `new` sets each field at the top level of its body, not inside an `if`, a loop or a `match`
+
+struct Counter {
+    n: u64
+
+    new(start: u64) {
+        if start > 0 {
+            .n = start
+        }
+    }
+}
+
+fn f() {
+    c: Counter = Counter(start: 1)
+}

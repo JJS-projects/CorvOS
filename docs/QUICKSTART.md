@@ -11,7 +11,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 - Milestone 7 (supervision): restarts (7a, decision 148), `watch` (7b, 149), `stop`/`Gone`/`stopped`
   (7c, 150) and a supervisor written in Rook (7d, 151; `tests/rook/supervisor_demo.rook`,
   `docs/fault-tolerance.md`) are done. Drivers as actors and the DMA question remain, and
-  milestone 5 (self-hosting) is in progress, steps 5a (hosted runner, `compiler/numberer.rook`) and 5b (`Region`/`Block`, decision 153) done; then 6 (domains). Milestone 5d (the compiler in Rook, `compiler/`, `compiler/lib/`) has the lexer, parser, generics pass, the checker's declarations and, from 5d-3c-0, its constants; function bodies follow in stages ([self-hosting.md](self-hosting.md), decision 165). Ownership 4c
+  milestone 5 (self-hosting) is in progress, steps 5a (hosted runner, `compiler/numberer.rook`) and 5b (`Region`/`Block`, decision 153) done; then 6 (domains). Milestone 5d (the compiler in Rook, `compiler/`, `compiler/lib/`) has the lexer, parser, generics pass, the checker's declarations and, from 5d-3c-0 its constants and from 5d-3c-1 the bodies of plain functions and methods; actors and ownership follow in stages ([self-hosting.md](self-hosting.md), decision 165). Ownership 4c
   (`freeze`/pool) is deferred.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.

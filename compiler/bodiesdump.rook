@@ -2,8 +2,8 @@
 // (docs/self-hosting.md). It reads a stream of files from the UART (as declsdump does), parses them,
 // expands the generics, checks the declarations and the constants, and prints the constants and the
 // checked tree of the last file in the format of `python3 -m fledgling FILES --dump-bodies`
-// (decision 165); or the one line `error FILE:LINE:COL: MESSAGE`. This step checks no function body
-// (`--no-bodies` on the Fledgling side).
+// (decision 165); or the one line `error FILE:LINE:COL: MESSAGE`. The function bodies of the last file are checked
+// (ownership off, actors skipped: the defaults of `--dump-bodies`).
 
 import bytes: Bytes
 import checker: Checker, ConstInfo, Num
@@ -95,8 +95,9 @@ fn put_note_name(console: Pl011, k: u64) {
     }
 }
 
-/// What the checker recorded on node `index`: ` : TYPE` and ` key=value`... (decision 165).
-fn put_notes(console: Pl011, checker: Checker, index: u64, is_fn: bool) {
+/// What the checker recorded on node `index`: ` : TYPE` and ` key=value`... (decision 165). A number the
+/// parser already gives a node (words 1, stopped 0, payload_words 0, args_words 0) is not written.
+fn put_notes(console: Pl011, checker: Checker, index: u64) {
     if checker.note_has(index, 21) {
         console.write(" : ")
         put_text(console, checker.types.get(checker.note_get(index, 21)).name)
@@ -104,19 +105,52 @@ fn put_notes(console: Pl011, checker: Checker, index: u64, is_fn: bool) {
     keys: loop k: u64 in 0..NOTE_ORDER {
         key: u64 = note_key(k)
         if checker.note_has(index, key) {
+            value: u64 = checker.note_get(index, key)
+            if (key == 11 and value == 1) or ((key == 13 or key == 9 or key == 7) and value == 0) {
+                continue keys
+            }
             console.put(' ')
             put_note_name(console, k)
             console.put('=')
             if key == 14 or key == 16 or key == 18 {
-                put_num(console, Num(neg: checker.note_get(index, key + 1) == 1, mag: checker.note_get(index, key), big: false))
+                put_num(console, Num(neg: checker.note_get(index, key + 1) == 1, mag: value, big: false))
             } else {
-                console.write_dec(checker.note_get(index, key))
+                console.write_dec(value)
             }
         }
     }
     if checker.note_has(index, 22) {
         console.write(" const_str=x")
         put_hex_of_node(console, checker, checker.note_get(index, 22))
+    }
+    if checker.note_has(index, 23) {
+        console.write(" variant=")
+        put_text(console, checker.variants.get(checker.note_get(index, 23) - 1).name)
+    }
+    if checker.note_has(index, 24) {
+        console.write(" struct=")
+        put_text(console, checker.types.get(checker.note_get(index, 24)).name)
+    }
+    if checker.note_has(index, 25) {
+        if checker.note_get(index, 25) == 1 {
+            console.write(" scalar")
+        } else {
+            console.write(" send")
+        }
+    }
+    if checker.note_has(index, 27) {
+        console.write(" slots=")
+        start: u64 = checker.note_get(index, 27) - 1
+        listing: loop j: u64 in 0..(checker.note_get(index, 28)) {
+            if j > 0 {
+                console.put(',')
+            }
+            console.write_dec(checker.slot_rows.get(start + 3 * j))
+            console.put('/')
+            console.write_dec(checker.slot_rows.get(start + 3 * j + 1))
+            console.put('/')
+            console.write_dec(checker.slot_rows.get(start + 3 * j + 2))
+        }
     }
 }
 
@@ -159,7 +193,7 @@ fn put_node(console: Pl011, checker: Checker, files: List<SourceFile>, index: u6
         console.put(' ')
         put_text(console, node.text)
     }
-    put_notes(console, checker, index, false)
+    put_notes(console, checker, index)
     console.put('\n')
     children: loop k: u64 in 0..(node.kids.len()) {
         put_node(console, checker, files, node.kids.get(k), depth + 1, item_file)
@@ -250,6 +284,7 @@ fn test_main(peripherals: Mmio) {
                                            root: generics.root, generics: generics.templates)
             checker.run()
             checker.constants()
+            checker.bodies(program.files.len())
             if checker.failed {
                 put_error(console, program.files, checker.error_file, checker.error_line, checker.error_col,
                           checker.error)

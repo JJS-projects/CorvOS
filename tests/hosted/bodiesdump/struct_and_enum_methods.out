@@ -6,12 +6,12 @@ Program
       Field 2:5 x
         Type 2:8 u64
     Methods
-      Fn 3:5 get
+      Fn 3:5 get self_slot=0 nslots=1
         Params
         Type 3:17 u64
         Block 3:21
           Return 4:9
-            Access 4:17 x
+            Access 4:17 x : u64 struct=Pt
               none
         File a.rook
     File a.rook
@@ -23,12 +23,12 @@ Program
       Variant 9:5 Slow
         none
     Methods
-      Fn 10:5 label
+      Fn 10:5 label self_slot=0 nslots=1
         Params
         Type 10:19 u8
         Block 10:22
           Return 11:9
-            Int 11:16 1
+            Int 11:16 1 : u8
         File a.rook
     File a.rook
   Const 14:1 LIMIT

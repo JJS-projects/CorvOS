@@ -1,0 +1,12 @@
+@@@ lib.rook
+pub struct Pair {
+    pub a: u64
+    fn hidden() -> u64 {
+        return .a
+    }
+}
+@@@ a.rook
+import lib: Pair
+fn f(p: Pair) -> u64 {
+    return p.hidden()
+}
