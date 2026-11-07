@@ -2902,6 +2902,26 @@ pub struct Checker {
                 }
             }
         }
+        actors: loop k: u64 in 0..(.actor_ids.len()) {
+            owner: u64 = .actor_ids.get(k)
+            if only_file != 0 and .file_of(.types.get(owner).decl) != only_file {
+                continue actors
+            }
+            if .types.get(owner).new_sig != 0 {
+                .function(.types.get(owner).new_sig)
+            }
+            handlers: loop row: u64 in 1..(.sigs.len()) {
+                if .sigs.get(row).owner == owner and .sigs.get(row).role == CHK_ROLE_HANDLER {
+                    .function(row)
+                    if .failed {
+                        return
+                    }
+                }
+            }
+            if .failed {
+                return
+            }
+        }
     }
 
     fn fn_sig(name: Text) -> u64 {
