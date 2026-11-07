@@ -108,5 +108,5 @@ for name, src in {**cases, **errors}.items():
     files = src if isinstance(src, list) else [("a.rook", False, src)]
     stream = make_stream(files)
     open(f"{here}/{name}.in", "w").write(stream)
-    open(f"{here}/{name}.out", "w").write(dump_bodies(stream, actors=True))
+    open(f"{here}/{name}.out", "w").write(dump_bodies(stream, ownership=True, actors=True, bodies="all"))
 print(len(cases), len(errors))

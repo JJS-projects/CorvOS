@@ -2,8 +2,8 @@
 // (docs/self-hosting.md). It reads a stream of files from the UART (as declsdump does), parses them,
 // expands the generics, checks the declarations and the constants, and prints the constants and the
 // checked tree of the last file in the format of `python3 -m fledgling FILES --dump-bodies`
-// (decision 165); or the one line `error FILE:LINE:COL: MESSAGE`. The function bodies of the last file are checked
-// (ownership off, actors skipped: the defaults of `--dump-bodies`).
+// (decision 165); or the one line `error FILE:LINE:COL: MESSAGE`. Every function body of every file is checked
+// (ownership on, actors included: `--dump-bodies --all-bodies --ownership --actors`); the tree printed is the last file's.
 
 import bytes: Bytes
 import checker: Checker, ConstInfo, Num
@@ -284,7 +284,7 @@ fn test_main(peripherals: Mmio) {
                                            root: generics.root, generics: generics.templates)
             checker.run()
             checker.constants()
-            checker.bodies(program.files.len())
+            checker.bodies(0)
             if checker.failed {
                 put_error(console, program.files, checker.error_file, checker.error_line, checker.error_col,
                           checker.error)
