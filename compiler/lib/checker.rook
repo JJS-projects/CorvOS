@@ -3796,8 +3796,9 @@ pub struct Checker {
             }
             if not present {
                 .fail_node(at)
-                .say_name(owner)
-                .say("(...) is missing ")
+                .say("`")
+                .say_text(owner)
+                .say("(...)` is missing ")
                 .say_name(wanted.get(j))
                 return
             }
