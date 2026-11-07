@@ -1,0 +1,40 @@
+const LIMIT u64 2
+Program
+  Interface 1:1 Go : Go
+    Handlers
+      Fn 2:11 pub lossy go
+        Params
+          Param 2:17 n
+            Type 2:20 u8
+        none
+        none
+        File a.rook
+    File a.rook
+  Actor 4:1 Bot : Bot
+    Implements
+      Interface 4:12 Go
+    Fields
+      Field 5:9 mut hits
+        Type 5:15 u64
+    Fn 6:5 mut new
+      Params
+      none
+      Block 6:11
+        Assign 7:15 =
+          Access 7:10 hits
+            none
+          Int 7:17 0
+      File a.rook
+    Handlers
+      Fn 9:11 mut lossy go
+        Params
+          Param 9:17 n
+            Type 9:20 u8
+        none
+        Block 9:24
+        File a.rook
+    File a.rook
+  Const 12:1 LIMIT
+    Type 12:8 u64
+    Int 12:14 2 : u64
+    File a.rook
