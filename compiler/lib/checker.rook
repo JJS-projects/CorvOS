@@ -166,8 +166,23 @@ CHK_NOTE_CONST_STR: u64 = 22    // the node of the text a name stands for
 CHK_NOTE_VARIANT: u64 = 23      // row of the variants, plus one
 CHK_NOTE_STRUCT: u64 = 24       // row of the types
 CHK_NOTE_FLAGS: u64 = 25        // 1 scalar, 2 send
+CHK_NOTE_SLOTS: u64 = 27          // a variant pattern: where its bindings start in `slot_rows` (plus one)
+CHK_NOTE_SLOTS_COUNT: u64 = 28
 CHK_NOTE_FILE: u64 = 26         // a method, `new` or handler: the file of its type (the checker sets `file` on them)
+CHK_LOCAL_VALUE: u64 = 1        // what a variable is: a number, a lent struct, or a struct the function owns
+CHK_LOCAL_REF: u64 = 2
+CHK_LOCAL_REGION: u64 = 3
 CHK_NOTE_STRIDE: u64 = 32       // words of a row of notes: the mask of the keys set, then a word a key
+
+pub struct LocalInfo {
+    pub name: Text
+    pub ty: u64
+    pub mutable: bool
+    pub slot: u64
+    pub kind: u64
+    pub owned: bool             // an `iso` parameter: not a borrow, so it can be consumed
+    pub is_val: bool            // a `val` parameter: read-only data that can be passed on
+}
 
 pub struct ConstInfo {
     pub name: Text
@@ -258,6 +273,17 @@ pub struct Checker {
     u8_type: u64
     u64_type: u64
     in_fn: bool                         // checking a function body (else a constant)
+    locals: List<LocalInfo>             // the variables in scope, innermost last
+    scope_marks: List<u64>              // where each open scope starts in `locals`
+    loops: List<Text>                   // the labels of the enclosing loops
+    nslots: u64
+    cur_sig: u64                        // the signature of the function being checked
+    recv: u64                           // the type a method belongs to (0 outside a method)
+    recv_mut: bool
+    in_new: bool
+    assigned: TextMap<u64>              // fields `new` has set so far
+    unsafe_depth: u64
+    pub slot_rows: List<u64>                // bindings of variant patterns: slot, offset, is-aggregate
     note_rows: List<u64>                // by node: 0, or the row of `notes` holding what was recorded on it
     notes: List<u64>
     const_names: TextMap<u64>           // constant name -> row of const_rows
@@ -303,6 +329,17 @@ pub struct Checker {
         .u8_type = 0
         .u64_type = 0
         .in_fn = false
+        .locals = List(region: region)
+        .scope_marks = List(region: region)
+        .loops = List(region: region)
+        .nslots = 0
+        .cur_sig = 0
+        .recv = 0
+        .recv_mut = false
+        .in_new = false
+        .assigned = TextMap(region: region)
+        .unsafe_depth = 0
+        .slot_rows = List(region: region)
         .note_rows = List(region: region)
         .notes = List(region: region)
         .const_names = TextMap(region: region)
@@ -2126,41 +2163,37 @@ pub struct Checker {
             return .cast(e)
         }
         if .kind_is(e, "Call") {
-            return .infer_call(e)
+            return .infer_call(e, expected)
+        }
+        if .kind_is(e, "Access") {
+            return .infer_access(e)
+        }
+        if .kind_is(e, "MethodCall") {
+            return .infer_method_call(e)
         }
         if .kind_is(e, "StructLit") {
             return .infer_struct_literal(e, expected)
         }
         if .kind_is(e, "Consume") {
-            return .constant_error(e, "constants can't consume")
+            return .infer_consume(e)
         }
         if .kind_is(e, "Copy") {
-            ty: u64 = .expr(.kid(e, 0), 0, 0)
-            if .failed {
-                return 0
-            }
-            if not .is_aggregate(ty) {
-                .fail_node(.kid(e, 0))
-                .say_type(ty)
-                .say(" values are always copied; `copy(...)` is for structs and enums")
-                return 0
-            }
-            return .unported(e)
+            return .infer_copy(e)
         }
         if .kind_is(e, "SelfValue") {
-            return .constant_error(e, "`.` on its own is a method's own value, so it only works inside methods")
+            return .infer_self_value(e)
         }
         if .kind_is(e, "SelfRef") {
-            return .constant_error(e, "`self` is the actor itself, so it only works inside an actor")
+            return .infer_self_ref(e)
         }
         if .kind_is(e, "Narrow") {
-            return .constant_error(e, "constants can't narrow references")
+            return .infer_narrow(e)
         }
         if .kind_is(e, "Spawn") {
-            return .constant_error(e, "constants can't spawn actors")
+            return .infer_spawn(e)
         }
         if .kind_is(e, "MatchExpr") {
-            return .constant_error(e, "constants can't use `match`")
+            return .infer_match_expr(e, expected)
         }
         if .kind_is(e, "MutArg") {
             return .constant_error(e, "`mut` only marks an argument passed to a `mut` parameter")
@@ -2179,6 +2212,11 @@ pub struct Checker {
 
     mut fn infer_name(e: u64, expected: u64) -> u64 {
         name: Text = copy(.nodes.get(e).text)
+        if .in_fn and .lookup(name) != 0 {
+            local: LocalInfo = .locals.get(.lookup(name) - 1)
+            .set_note(e, CHK_NOTE_SLOT, local.slot)
+            return local.ty
+        }
         match .const_names.find(name) {
             Some(value: row) => {
                 info: ConstInfo = .const_rows.get(row)
@@ -2232,7 +2270,9 @@ pub struct Checker {
             if not .in_fn {
                 return .constant_error(e, "constants must be numbers or bools")
             }
-            return .unported(e)
+            .set_note(e, CHK_NOTE_VARIANT, variant)
+            .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(enum_id)))
+            return enum_id
         }
         if .fns.contains(name) {
             .fail_node(e)
@@ -2333,7 +2373,10 @@ pub struct Checker {
         return st
     }
 
-    mut fn infer_call(e: u64) -> u64 {
+    mut fn infer_call(e: u64, expected: u64) -> u64 {
+        if .in_fn {
+            return .infer_call_in_fn(e, expected)
+        }
         callee: Text = copy(.nodes.get(e).text)
         if .builtins.contains(callee) {
             return .constant_error(e, "constants can't call functions")
@@ -2385,7 +2428,10 @@ pub struct Checker {
                 return 0
             }
             if variant == 0 and .types.get(st).new_sig != 0 {
-                return .constant_error(e, "constants must be numbers or bools")
+                if not .in_fn {
+                    return .constant_error(e, "constants must be numbers or bools")
+                }
+                return .build_with_new(e, st)
             }
             if variant == 0 and .file_of(.types.get(st).decl) != .file {
                 owned: List<u64> = .fields_of(st, false)
@@ -2431,7 +2477,7 @@ pub struct Checker {
         if not .in_fn {
             return .constant_error(e, "constants must be numbers or bools")
         }
-        return .unported(e)
+        return .finish_struct_literal(e, st, variant)
     }
 
     /// Checks two expressions that must share a type. The one that isn't a bare literal is checked
@@ -2813,6 +2859,2425 @@ pub struct Checker {
             holds = not chk_num_less(a, b)
         }
         return chk_num(false, if holds { 1 } else { 0 })
+    }
+
+    // ---- function bodies (5d-3c-1) ---------------------------------------------------------------
+
+    /// Checks the bodies the switches ask for, in Fledgling's order: functions, then the `new` and methods of
+    /// structs and enums. (`only_file` is the one file whose items are checked, or 0 for all.)
+    pub mut fn bodies(only_file: u64) {
+        if .failed {
+            return
+        }
+        items: List<u64> = copy(.nodes.get(.root).kids)
+        fns: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            if .kind_is(item, "Fn") and .kid(item, 2) != 0 and (only_file == 0 or .file_of(item) == only_file) {
+                .function(.fn_sig(.name_of(item)))
+                if .failed {
+                    return
+                }
+            }
+        }
+        aggregates: loop pass: u64 in 0..2 {
+            ids: List<u64> = .aggregate_ids(pass)
+            owners: loop k: u64 in 0..(ids.len()) {
+                owner: u64 = ids.get(k)
+                if only_file != 0 and .file_of(.types.get(owner).decl) != only_file {
+                    continue owners
+                }
+                if .types.get(owner).new_sig != 0 {
+                    .function(.types.get(owner).new_sig)
+                }
+                rows: loop row: u64 in 1..(.sigs.len()) {
+                    if .sigs.get(row).owner == owner and .sigs.get(row).role == CHK_ROLE_METHOD {
+                        .function(row)
+                        if .failed {
+                            return
+                        }
+                    }
+                }
+                if .failed {
+                    return
+                }
+            }
+        }
+    }
+
+    fn fn_sig(name: Text) -> u64 {
+        match .fns.find(name) {
+            Some(value: row) => return row
+            None => return 0
+        }
+    }
+
+    /// The struct ids (pass 0) or the enum ids (pass 1).
+    fn aggregate_ids(pass: u64) -> List<u64> {
+        if pass == 0 {
+            return copy(.struct_ids)
+        }
+        return copy(.enum_ids)
+    }
+
+    mut fn alloc(n: u64) -> u64 {
+        slot: u64 = .nslots
+        .nslots += n
+        return slot
+    }
+
+    /// The row (plus one) of the innermost variable called `name`, or 0.
+    fn lookup(name: Text) -> u64 {
+        mut k: u64 = .locals.len()
+        searching: loop k > 0 {
+            k -= 1
+            if .locals.get(k).name.equals(name) {
+                return k + 1
+            }
+        }
+        return 0
+    }
+
+    /// Declares a variable in the innermost scope; returns its slot. `at` is the node that names it (0 for
+    /// the hidden ones): no shadowing (principle 4), a name means one thing wherever it is visible.
+    mut fn new_local(name: Text, ty: u64, mutable: bool, kind: u64, at: u64, owned: bool, is_val: bool) -> u64 {
+        if at != 0 {
+            if .lookup(name) != 0 {
+                .fail_node(at)
+                .say_name(name)
+                .say(" is already declared here; choose a different name")
+                return 0
+            }
+            if .fns.contains(name) {
+                .fail_node(at)
+                .say_name(name)
+                .say(" is already the name of a function")
+                return 0
+            }
+            if .builtins.contains(name) {
+                .fail_node(at)
+                .say_name(name)
+                .say(" is built in; choose another name")
+                return 0
+            }
+        }
+        slot: u64 = .alloc(if kind == CHK_LOCAL_REGION { .words_of_type(ty) } else { 1 })
+        .locals.push(LocalInfo(name: copy(name), ty: ty, mutable: mutable, slot: slot, kind: kind, owned: owned,
+                               is_val: is_val))
+        return slot
+    }
+
+    mut fn enter_scope() {
+        .scope_marks.push(.locals.len())
+    }
+
+    mut fn leave_scope() {
+        mark: u64 = .scope_marks.pop()
+        popping: loop .locals.len() > mark {
+            discard .locals.pop()
+        }
+    }
+
+    /// The type of the field `name` of the struct, enum or actor `owner`, or 0.
+    fn field_type(owner: u64, name: Text) -> u64 {
+        rows: List<u64> = .fields_of(owner, false)
+        scanning: loop j: u64 in 0..(rows.len()) {
+            if .fields.get(rows.get(j)).name.equals(name) {
+                return .fields.get(rows.get(j)).ty
+            }
+        }
+        return 0
+    }
+
+    fn variant_field_type(variant: u64, name: Text) -> u64 {
+        rows: List<u64> = .fields_of(variant, true)
+        scanning: loop j: u64 in 0..(rows.len()) {
+            if .fields.get(rows.get(j)).name.equals(name) {
+                return .fields.get(rows.get(j)).ty
+            }
+        }
+        return 0
+    }
+
+    /// Checks one function, method or `new` (the signature row `sig`).
+    mut fn function(sig: u64) {
+        info: SigInfo = .sigs.get(sig)
+        decl: u64 = info.decl
+        .cur_sig = sig
+        .in_fn = true
+        .locals = List(region: .region)
+        .scope_marks = List(region: .region)
+        .loops = List(region: .region)
+        .nslots = 0
+        .recv = info.owner
+        .recv_mut = info.mutating
+        .in_new = info.role == CHK_ROLE_NEW
+        .assigned = TextMap(region: .region)
+        .unsafe_depth = 0
+        .file = .file_of(decl)
+        .enter_scope()
+        if info.owner != 0 {
+            .set_note(decl, CHK_NOTE_SELF_SLOT, .alloc(1))
+        }
+        if .is_aggregate(info.ret) {
+            .set_note(decl, CHK_NOTE_RESULT_SLOT, .alloc(1))
+        }
+        params: Node = .nodes.get(.kid(decl, 0))
+        rows: List<u64> = .params_of(sig)
+        binding: loop k: u64 in 0..(params.kids.len()) {
+            p: u64 = params.kids.get(k)
+            pinfo: ParamInfo = .params.get(rows.get(k))
+            name: Text = .name_of(p)
+            if .lookup(name) != 0 {
+                .fail_node(p)
+                .say("duplicate parameter ")
+                .say_name(name)
+                return
+            }
+            .set_note(p, CHK_NOTE_TYPE, pinfo.ty)
+            kind: u64 = if pinfo.is_mut or .is_aggregate(pinfo.ty) { CHK_LOCAL_REF } else { CHK_LOCAL_VALUE }
+            slot: u64 = .new_local(name, pinfo.ty, pinfo.is_mut, kind, p, pinfo.modifier == 3, pinfo.modifier == 2)
+            if .failed {
+                return
+            }
+            .set_note(p, CHK_NOTE_SLOT, slot)
+        }
+        returns: bool = .block(.kid(decl, 2))
+        if .failed {
+            return
+        }
+        if info.ret != .unit and not returns {
+            .fail_node(decl)
+            .say_name(.name_of(decl))
+            .say(" must return a ")
+            .say_type(info.ret)
+            .say(" on every path")
+            return
+        }
+        .set_note(decl, CHK_NOTE_NSLOTS, .nslots)
+        if .in_new {
+            names: List<u64> = .fields_of(info.owner, false)
+            all: loop j: u64 in 0..(names.len()) {
+                if not .assigned.contains(.fields.get(names.get(j)).name) {
+                    .fail_node(decl)
+                    .say("`new` must set every field: `.")
+                    .say_text(.fields.get(names.get(j)).name)
+                    .say("` is never set")
+                    return
+                }
+            }
+        }
+        .in_new = false
+        .recv = 0
+        .cur_sig = 0
+        .in_fn = false
+    }
+
+    // ---- statements ------------------------------------------------------------------------------
+    // Each returns true if it always returns (control never falls through).
+
+    mut fn block(b: u64) -> bool {
+        .enter_scope()
+        mut returns: bool = false
+        stmts: List<u64> = copy(.nodes.get(b).kids)
+        walking: loop k: u64 in 0..(stmts.len()) {
+            if .stmt(stmts.get(k)) {
+                returns = true
+            }
+            if .failed {
+                return false
+            }
+        }
+        .leave_scope()
+        return returns
+    }
+
+    /// Does control never continue past statement `st`: it returns, breaks, continues or panics?
+    fn diverges(st: u64) -> bool {
+        if .kind_is(st, "Return") or .kind_is(st, "Break") or .kind_is(st, "Continue") {
+            return true
+        }
+        if .kind_is(st, "ExprStmt") {
+            call: u64 = .kid(st, 0)
+            return .kind_is(call, "Call") and .nodes.get(call).text.same_as("panic")
+        }
+        if .kind_is(st, "Block") {
+            return .block_diverges(st)
+        }
+        if .kind_is(st, "If") {
+            return .kid(st, 2) != 0 and .block_diverges(.kid(st, 1)) and .diverges(.kid(st, 2))
+        }
+        if .kind_is(st, "Match") {
+            arms: Node = .nodes.get(.kid(st, 1))
+            scanning: loop k: u64 in 0..(arms.kids.len()) {
+                if not .diverges(.kid(arms.kids.get(k), 1)) {
+                    return false
+                }
+            }
+            return true
+        }
+        if .kind_is(st, "Unsafe") {
+            return .block_diverges(.kid(st, 0))
+        }
+        return false
+    }
+
+    fn block_diverges(b: u64) -> bool {
+        stmts: List<u64> = copy(.nodes.get(b).kids)
+        scanning: loop k: u64 in 0..(stmts.len()) {
+            if .diverges(stmts.get(k)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Does anything inside `n`, at any depth, `break label`?
+    fn breaks_to(n: u64, label: Text) -> bool {
+        node: Node = .nodes.get(n)
+        if node.kind.same_as("Break") and node.text.equals(label) {
+            return true
+        }
+        scanning: loop k: u64 in 0..(node.kids.len()) {
+            if .breaks_to(node.kids.get(k), label) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The text of `t` between backticks.
+    fn quote_text(t: Text) -> Text {
+        mut out: Text = .empty()
+        out.push('`')
+        out.append_text(t)
+        out.push('`')
+        return out
+    }
+
+    mut fn stmt(s: u64) -> bool {
+        node: Node = .nodes.get(s)
+        if node.kind.same_as("Decl") {
+            name: Text = .name_of(s)
+            .require_snake(name, "variable", s)
+            if .failed {
+                return false
+            }
+            ty: u64 = .resolve_type(.kid(s, 0))
+            if .failed {
+                return false
+            }
+            discard .expr(.kid(s, 1), ty, 0)
+            if .failed {
+                return false
+            }
+            if .is_aggregate(ty) {
+                .require_fresh(.kid(s, 1), .quote_text(name))
+                if .failed {
+                    return false
+                }
+            }
+            kind: u64 = if .is_aggregate(ty) { CHK_LOCAL_REGION } else { CHK_LOCAL_VALUE }
+            slot: u64 = .new_local(name, ty, .has_word(node.text, "mut"), kind, s, false, false)
+            if .failed {
+                return false
+            }
+            .set_note(s, CHK_NOTE_SLOT, slot)
+            return false
+        }
+        if node.kind.same_as("Assign") {
+            return .assign(s)
+        }
+        if node.kind.same_as("ExprStmt") {
+            e: u64 = .kid(s, 0)
+            if node.text.same_as("discard") {
+                ty: u64 = .expr(e, 0, 0)
+                if .failed {
+                    return false
+                }
+                if ty == .unit {
+                    .fail_node(e)
+                    .say("nothing to discard: the call returns no value")
+                }
+                return false
+            }
+            if not (.kind_is(e, "Call") or .kind_is(e, "MethodCall")) {
+                .fail_node(s)
+                .say("this expression's value is unused")
+                return false
+            }
+            if .kind_is(e, "Call") and .nodes.get(e).text.same_as("panic") {
+                discard .expr(e, 0, 0)
+                return true             // a panic never returns
+            }
+            ty: u64 = .expr(e, 0, 0)
+            if .failed {
+                return false
+            }
+            if ty != .unit {
+                .fail_node(s)
+                .say("the result of ")
+                .say_name(.nodes.get(e).text)
+                .say(" is unused; write `discard ")
+                .say_text(.nodes.get(e).text)
+                .say("(...)` to ignore it on purpose")
+            }
+            return false
+        }
+        if node.kind.same_as("If") {
+            discard .expr(.kid(s, 0), .bool_type, 0)
+            if .failed {
+                return false
+            }
+            then_returns: bool = .block(.kid(s, 1))
+            if .failed {
+                return false
+            }
+            if .kid(s, 2) == 0 {
+                return false
+            }
+            mut else_returns: bool = false
+            if .kind_is(.kid(s, 2), "If") {
+                else_returns = .stmt(.kid(s, 2))
+            } else {
+                else_returns = .block(.kid(s, 2))
+            }
+            return then_returns and else_returns
+        }
+        if node.kind.same_as("Loop") {
+            label: Text = copy(node.text)
+            .require_snake(label, "loop label", s)
+            if .failed {
+                return false
+            }
+            if .kid(s, 0) != 0 {
+                discard .expr(.kid(s, 0), .bool_type, 0)
+                if .failed {
+                    return false
+                }
+            }
+            .loops.push(copy(label))
+            discard .block(.kid(s, 1))
+            discard .loops.pop()
+            if .failed {
+                return false
+            }
+            // `loop { }` (or `loop true`) that nothing breaks out of never falls through.
+            cond: u64 = .kid(s, 0)
+            forever: bool = cond == 0 or (.kind_is(cond, "Bool") and .nodes.get(cond).text.same_as("true"))
+            return forever and not .breaks_to(.kid(s, 1), label)
+        }
+        if node.kind.same_as("ForRange") {
+            return .for_range(s)
+        }
+        if node.kind.same_as("Unsafe") {
+            if not .trusted_file(.file) {
+                .fail_node(s)
+                .say("`unsafe` is only allowed in files under a trusted directory, such as raven/trusted/")
+                return false
+            }
+            if .unsafe_depth > 0 {
+                .fail_node(s)
+                .say("this is already inside `unsafe { }`")
+                return false
+            }
+            .unsafe_depth += 1
+            returns: bool = .block(.kid(s, 0))
+            .unsafe_depth -= 1
+            return returns
+        }
+        if node.kind.same_as("Break") or node.kind.same_as("Continue") {
+            label: Text = copy(node.text)
+            mut found: bool = false
+            looking: loop k: u64 in 0..(.loops.len()) {
+                if .loops.get(k).equals(label) {
+                    found = true
+                }
+            }
+            if not found {
+                word: Bytes = if node.kind.same_as("Break") { "break" } else { "continue" }
+                .fail_node(s)
+                if .loops.len() == 0 {
+                    .say_name_bytes(word)
+                    .say(" outside a loop")
+                } else {
+                    .say("`")
+                    .say(word)
+                    .say(" ")
+                    .say_text(label)
+                    .say("`: no enclosing loop is named ")
+                    .say_name(label)
+                }
+            }
+            return false
+        }
+        if node.kind.same_as("Return") {
+            return .return_stmt(s)
+        }
+        if node.kind.same_as("Match") {
+            return .match_stmt(s)
+        }
+        discard .unported(s)
+        return false
+    }
+
+    mut fn say_name_bytes(words: Bytes) {
+        .say("`")
+        .say(words)
+        .say("`")
+    }
+
+    mut fn return_stmt(s: u64) -> bool {
+        ret: u64 = .sigs.get(.cur_sig).ret
+        value: u64 = .kid(s, 0)
+        if value == 0 {
+            if ret != .unit {
+                .fail_node(s)
+                .say("missing return value of type ")
+                .say_type(ret)
+            }
+            return true
+        }
+        if ret == .unit {
+            .fail_node(value)
+            .say_name(.name_of(.sigs.get(.cur_sig).decl))
+            .say(" has no return type, so `return` takes no value")
+            return false
+        }
+        discard .expr(value, ret, 0)
+        if .failed {
+            return false
+        }
+        if .is_aggregate(ret) {
+            mut owned_local: bool = false
+            if .kind_is(value, "Name") {
+                row: u64 = .lookup(.nodes.get(value).text)
+                if row != 0 {
+                    local: LocalInfo = .locals.get(row - 1)
+                    owned_local = local.kind == CHK_LOCAL_REGION or local.owned
+                }
+            }
+            if not owned_local {
+                .require_fresh(value, .text_of("the result"))
+            }
+        }
+        return true
+    }
+
+    fn text_of(words: Bytes) -> Text {
+        mut out: Text = .empty()
+        out.append(words)
+        return out
+    }
+
+    mut fn for_range(s: u64) -> bool {
+        node: Node = .nodes.get(s)
+        // text: LABEL VAR
+        label: Text = .first_word(node.text)
+        var_name: Text = .last_word(node.text)
+        .require_snake(label, "loop label", s)
+        .require_snake(var_name, "loop variable", s)
+        if .failed {
+            return false
+        }
+        ty: u64 = .resolve_type(.kid(s, 0))
+        if .failed {
+            return false
+        }
+        if not .is_int(ty) {
+            .fail_node(.kid(s, 1))
+            .say("a range needs integers, found ")
+            .say_type(ty)
+            return false
+        }
+        discard .expr(.kid(s, 1), ty, 0)
+        discard .expr(.kid(s, 2), ty, 0)
+        if .failed {
+            return false
+        }
+        .set_note(s, CHK_NOTE_TYPE, ty)
+        .enter_scope()
+        end_slot: u64 = .new_local(.text_of(" end"), ty, false, CHK_LOCAL_VALUE, 0, false, false)
+        .set_note(s, CHK_NOTE_END_SLOT, end_slot)
+        slot: u64 = .new_local(var_name, ty, false, CHK_LOCAL_VALUE, s, false, false)
+        if .failed {
+            return false
+        }
+        .set_note(s, CHK_NOTE_SLOT, slot)
+        .loops.push(copy(label))
+        discard .block(.kid(s, 3))
+        discard .loops.pop()
+        .leave_scope()
+        return false
+    }
+
+    fn first_word(t: Text) -> Text {
+        mut out: Text = .empty()
+        scanning: loop k: u64 in 0..t.len() {
+            if t.at(k) == ' ' {
+                return out
+            }
+            out.push(t.at(k))
+        }
+        return out
+    }
+
+    // ---- assignment, places and fresh values ---------------------------------------------------------
+
+    /// `a op= b` becomes `a = a op b`: a copy of the checked target (with what was recorded on it).
+    mut fn copy_checked(n: u64) -> u64 {
+        if n == 0 {
+            return 0
+        }
+        node: Node = .nodes.get(n)
+        mut kids: List<u64> = List(region: .region)
+        copying: loop k: u64 in 0..(node.kids.len()) {
+            kids.push(.copy_checked(node.kids.get(k)))
+        }
+        .nodes.push(Node(kind: copy(node.kind), text: copy(node.text), line: node.line, col: node.col,
+                         parens: node.parens, kids: copy(kids), file: node.file, visible_in: node.visible_in,
+                         generic_base: copy(node.generic_base)))
+        made: u64 = .nodes.len() - 1
+        keys: loop key: u64 in 0..CHK_NOTE_STRIDE - 1 {
+            if .note_has(n, key) {
+                .set_note(made, key, .note_get(n, key))
+            }
+        }
+        return made
+    }
+
+    mut fn assign(s: u64) -> bool {
+        node: Node = .nodes.get(s)
+        target: u64 = .kid(s, 0)
+        if .in_new and .kind_is(target, "Access") and .kid(target, 0) == 0 {
+            return .assign_in_new(s)
+        }
+        if .kind_is(target, "Name") and .lookup(.nodes.get(target).text) == 0 {
+            .fail_node(target)
+            if .const_names.contains(.nodes.get(target).text) {
+                .say("can't assign to constant ")
+            } else {
+                .say("unknown variable ")
+            }
+            .say_name(.nodes.get(target).text)
+            return false
+        }
+        target_ty: u64 = .expr(target, 0, 0)
+        if .failed {
+            return false
+        }
+        .require_mutable(target, s, .text_of("assign to"))
+        if .failed {
+            return false
+        }
+        if not node.text.same_as("=") {
+            if not .is_int(target_ty) {
+                .fail_node(s)
+                .say_name(node.text)
+                .say(" needs an integer, found ")
+                .say_type(target_ty)
+                return false
+            }
+            // `a += b` is `a = a + b`
+            mut op: Text = .empty()
+            ops: loop k: u64 in 0..(node.text.len() - 1) {
+                op.push(node.text.at(k))
+            }
+            copied: u64 = .copy_checked(target)
+            .nodes.push(Node(kind: .text_of("Binary"), text: copy(op), line: node.line, col: node.col, parens: false,
+                             kids: .pair(copied, .kid(s, 1)), file: node.file, visible_in: 0,
+                             generic_base: .empty()))
+            combined: u64 = .nodes.len() - 1
+            rewritten: Node = .nodes.get(s)
+            mut kids: List<u64> = copy(rewritten.kids)
+            kids.set(1, combined)
+            .nodes.set(s, Node(kind: copy(rewritten.kind), text: .text_of("="), line: rewritten.line,
+                               col: rewritten.col, parens: rewritten.parens, kids: copy(kids),
+                               file: rewritten.file, visible_in: rewritten.visible_in,
+                               generic_base: copy(rewritten.generic_base)))
+        }
+        discard .expr(.kid(s, 1), target_ty, 0)
+        if .failed {
+            return false
+        }
+        if .is_aggregate(target_ty) {
+            .require_fresh(.kid(s, 1), .describe_place(target))
+        }
+        return false
+    }
+
+    fn pair(a: u64, b: u64) -> List<u64> {
+        mut out: List<u64> = List(region: .region)
+        out.push(a)
+        out.push(b)
+        return out
+    }
+
+    /// `.field = value` in a `new`: every field is set once, at the top level of the body, so none is left
+    /// unset or read before it is set.
+    mut fn assign_in_new(s: u64) -> bool {
+        owner: u64 = .recv
+        target: u64 = .kid(s, 0)
+        name: Text = copy(.nodes.get(target).text)
+        fty: u64 = .field_type(owner, name)
+        if fty == 0 {
+            .fail_node(target)
+            .say_name(.types.get(owner).name)
+            .say(" has no field ")
+            .say_name(name)
+            return false
+        }
+        if not .nodes.get(s).text.same_as("=") {
+            .fail_node(s)
+            .say("`new` sets each field once, with `=`")
+            return false
+        }
+        if .assigned.contains(name) {
+            .fail_node(s)
+            .say("`.")
+            .say_text(name)
+            .say("` is already set: `new` sets each field once")
+            return false
+        }
+        if .scope_marks.len() != 2 {
+            .fail_node(s)
+            .say("`new` sets each field at the top level of its body, not inside an `if`, a loop or a `match`")
+            return false
+        }
+        .set_note(target, CHK_NOTE_STRUCT, owner)
+        .set_note(target, CHK_NOTE_TYPE, fty)
+        discard .expr(.kid(s, 1), fty, 0)
+        if .failed {
+            return false
+        }
+        if .types.get(owner).kind == CHK_ACTOR and .field_flag(owner, name, CHK_FIELD_ISO) {
+            .require_fresh(.kid(s, 1), .quote_text(.dotted(name)))
+        }
+        .assigned.put(name, 1)
+        return false
+    }
+
+    fn dotted(name: Text) -> Text {
+        mut out: Text = .empty()
+        out.push('.')
+        out.append_text(name)
+        return out
+    }
+
+    fn field_flag(owner: u64, name: Text, flag: u64) -> bool {
+        rows: List<u64> = .fields_of(owner, false)
+        scanning: loop j: u64 in 0..(rows.len()) {
+            f: FieldInfo = .fields.get(rows.get(j))
+            if f.name.equals(name) {
+                return (f.flags and flag) != 0
+            }
+        }
+        return false
+    }
+
+    /// Is `e` a new struct or enum value that nothing else holds?
+    fn is_fresh(e: u64) -> bool {
+        node: Node = .nodes.get(e)
+        if node.kind.same_as("StructLit") or node.kind.same_as("Call") or node.kind.same_as("MethodCall") or
+           node.kind.same_as("Copy") or node.kind.same_as("Consume") or node.kind.same_as("Str") {
+            return true
+        }
+        if node.kind.same_as("Name") {
+            return .note_has(e, CHK_NOTE_VARIANT) or .note_has(e, CHK_NOTE_CONST_STR)
+        }
+        if node.kind.same_as("IfExpr") {
+            return .is_fresh(.kid(e, 1)) and .is_fresh(.kid(e, 2))
+        }
+        if node.kind.same_as("MatchExpr") {
+            arms: Node = .nodes.get(.kid(e, 1))
+            scanning: loop k: u64 in 0..(arms.kids.len()) {
+                body: u64 = .kid(arms.kids.get(k), 1)
+                if not (.kind_is(body, "Return") or .kind_is(body, "Break") or .kind_is(body, "Continue")) {
+                    if not .is_fresh(body) {
+                        return false
+                    }
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    /// Could `consume(e)` be written? An owned variable, or a `mut iso` field.
+    fn movable(e: u64) -> bool {
+        if .kind_is(e, "Name") {
+            row: u64 = .lookup(.nodes.get(e).text)
+            if row == 0 {
+                return false
+            }
+            local: LocalInfo = .locals.get(row - 1)
+            return .is_aggregate(local.ty) and (local.kind == CHK_LOCAL_REGION or local.owned)
+        }
+        if .kind_is(e, "Access") and .kid(e, 0) == 0 and .recv != 0 and .types.get(.recv).kind == CHK_ACTOR {
+            name: Text = copy(.nodes.get(e).text)
+            return .field_flag(.recv, name, CHK_FIELD_ISO) and .field_flag(.recv, name, CHK_FIELD_MUT)
+        }
+        return false
+    }
+
+    /// The source text of a place: `p`, `p.a.b`, `.x`, `.`; "value" for anything else.
+    fn source_text(e: u64) -> Text {
+        mut out: Text = .empty()
+        if .kind_is(e, "Name") {
+            out.append_text(.nodes.get(e).text)
+        } else if .kind_is(e, "Access") {
+            if .kid(e, 0) != 0 {
+                out.append_text(.source_text(.kid(e, 0)))
+            }
+            out.push('.')
+            out.append_text(.nodes.get(e).text)
+        } else if .kind_is(e, "SelfValue") {
+            out.push('.')
+        } else {
+            out.append("value")
+        }
+        return out
+    }
+
+    fn is_place(e: u64) -> bool {
+        return .kind_is(e, "Name") or .kind_is(e, "Access") or .kind_is(e, "SelfValue")
+    }
+
+    /// The text `describe_place` gives: the place in backticks, else "this value".
+    fn describe_place(e: u64) -> Text {
+        if not .is_place(e) {
+            return .text_of("this value")
+        }
+        return .quote_text(.source_text(e))
+    }
+
+    /// A struct value can be stored only if nothing else holds it.
+    mut fn require_fresh(e: u64, what: Text) {
+        if .is_fresh(e) {
+            return
+        }
+        place: Text = .describe_place(e)
+        .fail_node(e)
+        .say_text(what)
+        .say(" would be a copy of ")
+        .say_text(place)
+        .say("; write `copy(")
+        .say_text(.source_text(e))
+        .say(")` to copy it")
+        if .movable(e) {
+            .say(", or `consume(")
+            .say_text(.source_text(e))
+            .say(")` to give it away")
+        }
+    }
+
+    mut fn require_mutable(place: u64, at: u64, action: Text) {
+        node: Node = .nodes.get(place)
+        if node.kind.same_as("SelfValue") {
+            if not .recv_mut {
+                .fail_node(at)
+                .say("can't ")
+                .say_text(action)
+                .say(" `.`: only a `mut fn` can change its own value")
+            }
+            return
+        }
+        if node.kind.same_as("Name") {
+            row: u64 = .lookup(node.text)
+            if row == 0 {
+                .fail_node(at)
+                .say("can't ")
+                .say_text(action)
+                .say(" ")
+                .say_name(node.text)
+                return
+            }
+            local: LocalInfo = .locals.get(row - 1)
+            if not local.mutable {
+                .fail_node(at)
+                .say("can't ")
+                .say_text(action)
+                .say(" ")
+                .say_name(node.text)
+                if local.is_val {
+                    .say(": it is `val`, read-only data")
+                } else if local.owned {
+                    .say(": an `iso` parameter is read-only; copy it into a `mut` variable to change it")
+                } else if local.kind == CHK_LOCAL_REF {
+                    .say(": it is lent read-only; take it as `mut ")
+                    .say_type(local.ty)
+                    .say("` to change it")
+                } else {
+                    .say(": declare it with `mut` to make it mutable")
+                }
+            }
+            return
+        }
+        if node.kind.same_as("Access") {
+            if node.kids.get(0) == 0 {
+                if .types.get(.recv).kind == CHK_ACTOR {
+                    if not .field_flag(.recv, node.text, CHK_FIELD_MUT) {
+                        .fail_node(at)
+                        .say("can't ")
+                        .say_text(action)
+                        .say(" `.")
+                        .say_text(node.text)
+                        .say("`: ")
+                        if .field_flag(.recv, node.text, CHK_FIELD_VAL) {
+                            .say("it is `val`, read-only data")
+                        } else {
+                            .say("the field isn't `mut`")
+                        }
+                    }
+                    return
+                }
+                if not .recv_mut {
+                    .fail_node(at)
+                    .say("can't ")
+                    .say_text(action)
+                    .say(" `.")
+                    .say_text(node.text)
+                    .say("`: only a `mut fn` can change its struct")
+                }
+                return
+            }
+            .require_mutable(node.kids.get(0), at, action)
+            return
+        }
+        .fail_node(at)
+        .say("can only ")
+        .say_text(action)
+        .say(" a variable or a field")
+    }
+
+    // ---- calls, struct values, fields and methods -------------------------------------------------
+
+    /// `given` (names) must name every field once, in declared order (every parameter of the struct's
+    /// `new`, if `of_new`). `wanted` and `given` are lists of names; `at` the node of the whole value, and
+    /// `given_at` the nodes of the given names.
+    mut fn named_fields(owner: Text, wanted: List<Text>, given: List<Text>, given_at: List<u64>, at: u64, of_new: bool) {
+        checking: loop k: u64 in 0..(given.len()) {
+            mut found: bool = false
+            inner: loop j: u64 in 0..(wanted.len()) {
+                if wanted.get(j).equals(given.get(k)) {
+                    found = true
+                }
+            }
+            if not found {
+                .fail_node(given_at.get(k))
+                if of_new {
+                    .say("`new` of ")
+                    .say_name(owner)
+                    .say(" has no parameter ")
+                } else {
+                    .say_name(owner)
+                    .say(" has no field ")
+                }
+                .say_name(given.get(k))
+                return
+            }
+        }
+        mut same: bool = given.len() == wanted.len()
+        if same {
+            comparing: loop k: u64 in 0..(given.len()) {
+                if not given.get(k).equals(wanted.get(k)) {
+                    same = false
+                }
+            }
+        }
+        if same {
+            return
+        }
+        missing: loop j: u64 in 0..(wanted.len()) {
+            mut present: bool = false
+            seen: loop k: u64 in 0..(given.len()) {
+                if given.get(k).equals(wanted.get(j)) {
+                    present = true
+                }
+            }
+            if not present {
+                .fail_node(at)
+                .say_name(owner)
+                .say("(...) is missing ")
+                .say_name(wanted.get(j))
+                return
+            }
+        }
+        .fail_node(at)
+        .say("write the ")
+        .say(if of_new { "parameter" } else { "field" })
+        .say("s of ")
+        .say(if of_new { "`new` of " } else { "" })
+        .say_name(owner)
+        .say(" once each, in the order they are declared: ")
+        listing: loop j: u64 in 0..(wanted.len()) {
+            if j > 0 {
+                .say(", ")
+            }
+            .say_text(wanted.get(j))
+        }
+    }
+
+    /// The names of the fields of a struct, enum variant or actor, in order.
+    fn field_names(owner: u64, in_variant: bool) -> List<Text> {
+        rows: List<u64> = .fields_of(owner, in_variant)
+        mut out: List<Text> = List(region: .region)
+        scanning: loop j: u64 in 0..(rows.len()) {
+            out.push(copy(.fields.get(rows.get(j)).name))
+        }
+        return out
+    }
+
+    /// Checks the arguments `args` (nodes) against the parameters of the signature `sig`.
+    mut fn check_args(callee: Text, sig: u64, args: List<u64>, at: u64) {
+        rows: List<u64> = .params_of(sig)
+        if args.len() != rows.len() {
+            .fail_node(at)
+            .say_text(callee)
+            .say(" takes ")
+            .say_number(rows.len())
+            .say(" argument(s), but ")
+            .say_number(args.len())
+            .say(" given")
+            return
+        }
+        handler: bool = .sigs.get(sig).handler.len() > 0
+        checking: loop k: u64 in 0..(args.len()) {
+            arg: u64 = args.get(k)
+            p: ParamInfo = .params.get(rows.get(k))
+            takes: bool = p.modifier == 3
+            if p.modifier == 2 and handler {
+                discard .expr(arg, p.ty, 0)
+                if .failed {
+                    return
+                }
+                if not .is_val_source(arg) {
+                    .fail_node(arg)
+                    .say_text(callee)
+                    .say(" takes read-only data: pass a `val` field, a `val` parameter or text in quotes (a value from `freeze` arrives in step 4c)")
+                    return
+                }
+                continue checking
+            }
+            if .kind_is(arg, "Consume") and not takes {
+                .fail_node(arg)
+                .say_text(callee)
+                .say(" only borrows this argument, so there is nothing to give away: pass it as it is")
+                return
+            }
+            if takes {
+                discard .expr(arg, p.ty, 0)
+                if .failed {
+                    return
+                }
+                mut what: Text = .text_of("giving it to ")
+                what.append_text(callee)
+                .require_fresh(arg, what)
+                if .failed {
+                    return
+                }
+                continue checking
+            }
+            if p.is_mut {
+                if not .kind_is(arg, "MutArg") {
+                    .fail_node(arg)
+                    .say_text(callee)
+                    .say(" can change this argument, so write `mut` before it")
+                    return
+                }
+                discard .expr(.kid(arg, 0), p.ty, 0)
+                if .failed {
+                    return
+                }
+                .set_note(arg, CHK_NOTE_TYPE, p.ty)
+                .require_mutable(.kid(arg, 0), arg, .text_of("lend as `mut`"))
+                if .failed {
+                    return
+                }
+            } else {
+                if .kind_is(arg, "MutArg") {
+                    .fail_node(arg)
+                    .say_text(callee)
+                    .say(" doesn't change this argument, so it isn't marked `mut`")
+                    return
+                }
+                discard .expr(arg, p.ty, 0)
+                if .failed {
+                    return
+                }
+            }
+        }
+    }
+
+    /// Is `e` read-only data that a `val` parameter may be given: text in quotes, a `val` parameter, or a
+    /// `val` field of the actor?
+    fn is_val_source(e: u64) -> bool {
+        if .kind_is(e, "Str") {
+            return true
+        }
+        if .kind_is(e, "Name") {
+            if .note_has(e, CHK_NOTE_CONST_STR) {
+                return true
+            }
+            row: u64 = .lookup(.nodes.get(e).text)
+            return row != 0 and .locals.get(row - 1).is_val
+        }
+        if .kind_is(e, "Access") and .kid(e, 0) == 0 and .recv != 0 and .types.get(.recv).kind == CHK_ACTOR {
+            return .field_flag(.recv, .nodes.get(e).text, CHK_FIELD_VAL)
+        }
+        return false
+    }
+
+    /// The nodes after the first `from` kids of `n`.
+    fn kids_from(n: u64, from: u64) -> List<u64> {
+        mut out: List<u64> = List(region: .region)
+        all: List<u64> = copy(.nodes.get(n).kids)
+        scanning: loop k: u64 in from..(all.len()) {
+            out.push(all.get(k))
+        }
+        return out
+    }
+
+    mut fn infer_call_in_fn(e: u64, expected: u64) -> u64 {
+        callee: Text = copy(.nodes.get(e).text)
+        if .builtins.contains(callee) {
+            return .builtin(e, expected)
+        }
+        sig: u64 = .fn_sig(callee)
+        if sig == 0 {
+            .fail_node(e)
+            if .lookup(callee) != 0 {
+                .say_name(callee)
+                .say(" is a variable, not a function")
+            } else {
+                .say("unknown function ")
+                .say_name(callee)
+            }
+            return 0
+        }
+        .require_visible(.sigs.get(sig).decl, callee, e, 0)
+        if .failed {
+            return 0
+        }
+        .check_args(.quote_text(callee), sig, copy(.nodes.get(e).kids), e)
+        if .failed {
+            return 0
+        }
+        ret: u64 = .sigs.get(sig).ret
+        if .is_aggregate(ret) {
+            .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(ret)))
+        }
+        return ret
+    }
+
+    // ---- built-ins ---------------------------------------------------------------------------------
+
+    mut fn builtin(e: u64, expected: u64) -> u64 {
+        name: Text = copy(.nodes.get(e).text)
+        args: List<u64> = copy(.nodes.get(e).kids)
+        checking: loop k: u64 in 0..(args.len()) {
+            if .kind_is(args.get(k), "MutArg") {
+                .fail_node(args.get(k))
+                .say_name(name)
+                .say(" doesn't change its arguments, so they aren't marked `mut`")
+                return 0
+            }
+        }
+        if name.same_as("panic") {
+            if args.len() != 1 {
+                .fail_node(e)
+                .say("`panic` takes one argument: a message")
+                return 0
+            }
+            bytes: u64 = .bytes_type(e)
+            if .failed {
+                return 0
+            }
+            discard .expr(args.get(0), bytes, 0)
+            return .unit
+        }
+        if name.same_as("watch") {
+            return .watch_call(e)
+        }
+        if name.same_as("stop") {
+            return .stop_call(e)
+        }
+        if .unsafe_depth == 0 {
+            .fail_node(e)
+            .say_name(name)
+            .say(" touches memory the compiler can't check, so it is only allowed ")
+            if .trusted_file(.file) {
+                .say("inside `unsafe { }`")
+            } else {
+                .say("in files under a trusted directory, inside `unsafe { }`")
+            }
+            return 0
+        }
+        if name.same_as("words_of") {
+            if args.len() != 1 or not (.kind_is(args.get(0), "Name") or .kind_is(args.get(0), "Access")) {
+                .fail_node(e)
+                .say("`words_of` takes one argument: a variable or a field, only for its type")
+                return 0
+            }
+            ty: u64 = .expr(args.get(0), 0, 0)
+            if .failed {
+                return 0
+            }
+            .set_note(e, CHK_NOTE_WORDS, .words_of_type(ty))
+            return .u64_type
+        }
+        if name.same_as("store_element") {
+            if args.len() != 3 {
+                .fail_node(e)
+                .say("`store_element` takes three arguments: an address, an index and the value")
+                return 0
+            }
+            discard .expr(args.get(0), .u64_type, 0)
+            discard .expr(args.get(1), .u64_type, 0)
+            ty: u64 = .expr(args.get(2), 0, 0)
+            if .failed {
+                return 0
+            }
+            .set_note(e, CHK_NOTE_WORDS, .words_of_type(ty))
+            return .unit
+        }
+        if name.same_as("load_element") {
+            if args.len() != 2 {
+                .fail_node(e)
+                .say("`load_element` takes two arguments: an address and an index")
+                return 0
+            }
+            if expected == 0 {
+                .fail_node(e)
+                .say("`load_element` loads whatever type the place it goes to has: write `x: Type = load_element(...)`")
+                return 0
+            }
+            discard .expr(args.get(0), .u64_type, 0)
+            discard .expr(args.get(1), .u64_type, 0)
+            if .failed {
+                return 0
+            }
+            .set_note(e, CHK_NOTE_WORDS, .words_of_type(expected))
+            if .is_aggregate(expected) {
+                .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(expected)))
+            }
+            return expected
+        }
+        if name.same_as("actor_address") {
+            if args.len() != 1 {
+                .fail_node(e)
+                .say("`actor_address` takes one argument: a reference")
+                return 0
+            }
+            ty: u64 = .expr(args.get(0), 0, 0)
+            if .failed {
+                return 0
+            }
+            if not .is_actor(ty) {
+                .fail_node(args.get(0))
+                .say("`actor_address` takes an actor or interface reference, not ")
+                .say_type(ty)
+                return 0
+            }
+            return .u64_type
+        }
+        if name.same_as("handler_number") {
+            if args.len() != 1 or not .kind_is(args.get(0), "Str") {
+                .fail_node(e)
+                .say("`handler_number` takes one argument: a handler's name in quotes")
+                return 0
+            }
+            handler: Text = .decoded(args.get(0))
+            match .handler_numbers.find(handler) {
+                Some(value: number) => .set_note(e, CHK_NOTE_NUMBER, number)
+                None => {
+                    .fail_node(args.get(0))
+                    .say("no actor or interface has a handler ")
+                    .say_name(handler)
+                    return 0
+                }
+            }
+            bytes: u64 = .bytes_type(e)
+            if .failed {
+                return 0
+            }
+            .set_note(args.get(0), CHK_NOTE_TYPE, bytes)
+            return .u64_type
+        }
+        // load8..load64 take an address; store8..store64 an address and a value
+        width: Text = .last_digits(name)
+        ty: u64 = .named_int(if width.same_as("8") { "u8" } else if width.same_as("16") { "u16" } else if width.same_as("32") { "u32" } else { "u64" })
+        if name.at(0) == 'l' {
+            if args.len() != 1 {
+                .fail_node(e)
+                .say_name(name)
+                .say(" takes one argument: an address")
+                return 0
+            }
+            discard .expr(args.get(0), .u64_type, 0)
+            return ty
+        }
+        if args.len() != 2 {
+            .fail_node(e)
+            .say_name(name)
+            .say(" takes two arguments: an address and a value")
+            return 0
+        }
+        discard .expr(args.get(0), .u64_type, 0)
+        discard .expr(args.get(1), ty, 0)
+        return .unit
+    }
+
+    fn last_digits(t: Text) -> Text {
+        mut out: Text = .empty()
+        scanning: loop k: u64 in 0..t.len() {
+            if t.at(k) >= '0' and t.at(k) <= '9' {
+                out.push(t.at(k))
+            }
+        }
+        return out
+    }
+
+    /// The bytes of a `Str` node (`x` and hex) as text.
+    fn decoded(n: u64) -> Text {
+        hex: Text = copy(.nodes.get(n).text)
+        mut out: Text = .empty()
+        pairs: loop k: u64 in 0..((hex.len() - 1) / 2) {
+            out.push(.hex_value(hex.at(1 + 2 * k)) * 16 + .hex_value(hex.at(2 + 2 * k)))
+        }
+        return out
+    }
+
+    fn hex_value(b: u8) -> u8 {
+        if b >= 'a' {
+            return b - 'a' + 10
+        }
+        return b - '0'
+    }
+
+    // ---- fields, methods, messages -------------------------------------------------------------
+
+    /// The struct type that `e.field` or `e.method()` acts on (0 after an error).
+    mut fn struct_of(e: u64) -> u64 {
+        what: Text = copy(.nodes.get(e).text)
+        if .kid(e, 0) == 0 {
+            if .recv == 0 {
+                .fail_node(e)
+                .say("`.")
+                .say_text(what)
+                .say("` only works inside a struct's methods")
+                return 0
+            }
+            return .recv
+        }
+        ty: u64 = .expr(.kid(e, 0), 0, 0)
+        if .failed {
+            return 0
+        }
+        if .is_actor(ty) {
+            return ty
+        }
+        if not .is_aggregate(ty) {
+            .fail_node(e)
+            .say_type(ty)
+            .say(" has no field or method ")
+            .say_name(what)
+            return 0
+        }
+        return ty
+    }
+
+    fn decl_file_of(ty: u64) -> u64 {
+        return .file_of(.types.get(ty).decl)
+    }
+
+    fn has_method(owner: u64, name: Text) -> bool {
+        return .methods.contains(.method_key(owner, name))
+    }
+
+    fn method_sig(owner: u64, name: Text) -> u64 {
+        match .methods.find(.method_key(owner, name)) {
+            Some(value: row) => return row
+            None => return 0
+        }
+    }
+
+    mut fn infer_access(e: u64) -> u64 {
+        st: u64 = .struct_of(e)
+        if .failed {
+            return 0
+        }
+        name: Text = copy(.nodes.get(e).text)
+        kind: u64 = .types.get(st).kind
+        if kind == CHK_ACTOR or kind == CHK_INTERFACE {
+            if .kid(e, 0) != 0 {
+                .fail_node(e)
+                .say("an actor's fields are private: send ")
+                .say_name(.types.get(st).name)
+                .say(" a message instead")
+                return 0
+            }
+            fty: u64 = .field_type(st, name)
+            if fty == 0 {
+                .fail_node(e)
+                .say_name(.types.get(st).name)
+                .say(" has no field ")
+                .say_name(name)
+                return 0
+            }
+            if .in_new and not .assigned.contains(name) {
+                .fail_node(e)
+                .say("`.")
+                .say_text(name)
+                .say("` is read before `new` sets it")
+                return 0
+            }
+            .set_note(e, CHK_NOTE_STRUCT, st)
+            return fty
+        }
+        if kind == CHK_ENUM {
+            .fail_node(e)
+            .say_name(.types.get(st).name)
+            .say(" is an enum: read its fields with `match`")
+            return 0
+        }
+        .set_note(e, CHK_NOTE_STRUCT, st)
+        fty: u64 = .field_type(st, name)
+        if fty == 0 {
+            .fail_node(e)
+            .say_name(.types.get(st).name)
+            .say(" has no field ")
+            .say_name(name)
+            if .has_method(st, name) {
+                .say(" (it's a method: call it with `(...)`)")
+            }
+            return 0
+        }
+        if .in_new and .kid(e, 0) == 0 and not .assigned.contains(name) {
+            .fail_node(e)
+            .say("`.")
+            .say_text(name)
+            .say("` is read before `new` sets it")
+            return 0
+        }
+        if .decl_file_of(st) != .file {
+            rows: List<u64> = .fields_of(st, false)
+            mut public: bool = false
+            scanning: loop j: u64 in 0..(rows.len()) {
+                f: FieldInfo = .fields.get(rows.get(j))
+                if f.name.equals(name) and f.public {
+                    public = true
+                }
+            }
+            if not public {
+                .fail_node(e)
+                .say_name(name)
+                .say(" is private to ")
+                .say_text(.basename(.files.get(.decl_file_of(st) - 1).path))
+                .say("; mark the field `pub` to use it in another file")
+                return 0
+            }
+        }
+        return fty
+    }
+
+    mut fn infer_method_call(e: u64) -> u64 {
+        st: u64 = .struct_of(e)
+        if .failed {
+            return 0
+        }
+        name: Text = copy(.nodes.get(e).text)
+        if .is_actor(st) {
+            return .send(e, st)
+        }
+        sig: u64 = .method_sig(st, name)
+        if sig == 0 {
+            .fail_node(e)
+            .say_name(.types.get(st).name)
+            .say(" has no method ")
+            .say_name(name)
+            return 0
+        }
+        if .in_new and .kid(e, 0) == 0 and .assigned.len() < .fields_of(.recv, false).len() {
+            .fail_node(e)
+            .say("`new` can't call a method on its own struct until every field is set")
+            return 0
+        }
+        if .decl_file_of(st) != .file and not .is_public(.sigs.get(sig).decl) {
+            .fail_node(e)
+            .say_name(name)
+            .say(" is private to ")
+            .say_text(.basename(.files.get(.decl_file_of(st) - 1).path))
+            .say("; mark the method `pub` to use it in another file")
+            return 0
+        }
+        if .sigs.get(sig).mutating {
+            if .kid(e, 0) == 0 {
+                if not .recv_mut {
+                    .fail_node(e)
+                    .say("`.")
+                    .say_text(name)
+                    .say("()` changes its value, so it can only be called from a `mut fn`")
+                    return 0
+                }
+            } else {
+                mut action: Text = .text_of("call `mut fn ")
+                action.append_text(name)
+                action.append("` on")
+                .require_mutable(.kid(e, 0), e, action)
+                if .failed {
+                    return 0
+                }
+            }
+        }
+        mut callee: Text = copy(.types.get(st).name)
+        callee.push('.')
+        callee.append_text(name)
+        .check_args(.quote_text(callee), sig, .kids_from(e, 1), e)
+        if .failed {
+            return 0
+        }
+        ret: u64 = .sigs.get(sig).ret
+        if .is_aggregate(ret) {
+            .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(ret)))
+        }
+        return ret
+    }
+
+    /// `ref.handler(args)`: a message to an actor. A send to a `lossy` handler returns nothing; a send to
+    /// a `reliable` one returns Raven's `Sent`.
+    mut fn send(e: u64, target: u64) -> u64 {
+        name: Text = copy(.nodes.get(e).text)
+        if .kid(e, 0) == 0 {
+            .fail_node(e)
+            .say("to send a message to yourself, write `self.")
+            .say_text(name)
+            .say("(...)`")
+            return 0
+        }
+        sig: u64 = .method_sig(target, name)
+        if sig == 0 {
+            .fail_node(e)
+            .say_name(.types.get(target).name)
+            .say(" has no handler ")
+            .say_name(name)
+            return 0
+        }
+        if .decl_file_of(target) != .file and not .is_public(.sigs.get(sig).decl) {
+            .fail_node(e)
+            .say_name(name)
+            .say(" is private to ")
+            .say_text(.basename(.files.get(.decl_file_of(target) - 1).path))
+            .say("; mark the handler `pub` to send it from another file")
+            return 0
+        }
+        .set_note(e, CHK_NOTE_FLAGS, 2)
+        .set_note(e, CHK_NOTE_HANDLER_INDEX, .sigs.get(sig).number)
+        mut callee: Text = copy(.types.get(target).name)
+        callee.push('.')
+        callee.append_text(name)
+        .check_args(.quote_text(callee), sig, .kids_from(e, 1), e)
+        if .failed {
+            return 0
+        }
+        rows: List<u64> = .params_of(sig)
+        mut payload_words: u64 = 0
+        summing: loop k: u64 in 0..(rows.len()) {
+            payload_words += .words_of_type(.params.get(rows.get(k)).ty)
+        }
+        .set_note(e, CHK_NOTE_PAYLOAD_WORDS, payload_words)
+        .set_note(e, CHK_NOTE_PAYLOAD, .alloc(if payload_words > 1 { payload_words } else { 1 }))
+        if not .sigs.get(sig).handler.same_as("reliable") {
+            return .unit
+        }
+        sent: u64 = .named_aggregate("Sent", CHK_ENUM)
+        if sent == 0 {
+            .fail_node(e)
+            .say("a send to a `reliable` handler returns Raven's enum `Sent`, which this program doesn't declare")
+            return 0
+        }
+        .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(sent)))
+        return sent
+    }
+
+    fn named_aggregate(name: Bytes, kind: u64) -> u64 {
+        match .type_names.find(.quoted(name)) {
+            Some(value: id) => {
+                if .types.get(id).kind == kind {
+                    return id
+                }
+                return 0
+            }
+            None => return 0
+        }
+    }
+
+    // ---- copy, consume, self, narrow, spawn, watch, stop -------------------------------------------
+
+    mut fn infer_copy(e: u64) -> u64 {
+        ty: u64 = .expr(.kid(e, 0), 0, 0)
+        if .failed {
+            return 0
+        }
+        if not .is_aggregate(ty) {
+            if .recv != 0 and .is_aggregate(.recv) and .nodes.get(.types.get(.recv).decl).generic_base.len() > 0 {
+                // In a generic type the same source serves a number and a struct, so copying a number is
+                // allowed there and does nothing (decision 154).
+                .set_note(e, CHK_NOTE_FLAGS, 1)
+                return ty
+            }
+            .fail_node(.kid(e, 0))
+            .say_type(ty)
+            .say(" values are always copied; `copy(...)` is for structs and enums")
+            return 0
+        }
+        .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(ty)))
+        return ty
+    }
+
+    mut fn infer_consume(e: u64) -> u64 {
+        if not .in_fn {
+            return .constant_error(e, "constants can't consume")
+        }
+        place: u64 = .kid(e, 0)
+        if .in_new {
+            return .constant_error(e, "`new` gives every field its first value; there is nothing to consume yet")
+        }
+        pnode: Node = .nodes.get(place)
+        if pnode.kind.same_as("Name") and .lookup(pnode.text) != 0 {
+            local: LocalInfo = .locals.get(.lookup(pnode.text) - 1)
+            if not .is_aggregate(local.ty) {
+                .fail_node(place)
+                .say_type(local.ty)
+                .say(" values are always copied; `consume(...)` is for structs and enums")
+                return 0
+            }
+            if local.kind != CHK_LOCAL_REGION and not local.owned {
+                .fail_node(place)
+                .say_name(pnode.text)
+                .say(" is only lent to this function, so it isn't yours to consume; the parameter would have to be `iso`")
+                return 0
+            }
+        } else if pnode.kind.same_as("Access") and pnode.kids.get(0) == 0 and .recv != 0 and
+                  .types.get(.recv).kind == CHK_ACTOR {
+            fty: u64 = .field_type(.recv, pnode.text)
+            if fty == 0 {
+                .fail_node(place)
+                .say_name(.types.get(.recv).name)
+                .say(" has no field ")
+                .say_name(pnode.text)
+                return 0
+            }
+            if .field_flag(.recv, pnode.text, CHK_FIELD_VAL) {
+                .fail_node(place)
+                .say("`.")
+                .say_text(pnode.text)
+                .say("` is `val`: read-only data is never consumed")
+                return 0
+            }
+            if not .is_aggregate(fty) {
+                .fail_node(place)
+                .say_type(fty)
+                .say(" values are always copied; `consume(...)` is for structs and enums")
+                return 0
+            }
+            if not .field_flag(.recv, pnode.text, CHK_FIELD_MUT) {
+                .fail_node(place)
+                .say("can't consume `.")
+                .say_text(pnode.text)
+                .say("`: the field isn't `mut`")
+                return 0
+            }
+        } else {
+            return .constant_error(e, "`consume` gives away a whole variable or an actor's `mut iso` field, nothing else")
+        }
+        return .expr(place, 0, 0)
+    }
+
+    mut fn infer_self_value(e: u64) -> u64 {
+        if .recv == 0 {
+            return .constant_error(e, "`.` on its own is a method's own value, so it only works inside methods")
+        }
+        if .types.get(.recv).kind == CHK_ACTOR {
+            return .constant_error(e, "`.` on its own is a struct's own value: an actor refers to itself as `self`")
+        }
+        return .recv
+    }
+
+    mut fn infer_self_ref(e: u64) -> u64 {
+        if .recv == 0 or .types.get(.recv).kind != CHK_ACTOR {
+            return .constant_error(e, "`self` is the actor itself, so it only works inside an actor")
+        }
+        if .in_new and .assigned.len() < .fields_of(.recv, false).len() {
+            return .constant_error(e, "`self` can't be used in `new` until every field is set")
+        }
+        return .recv
+    }
+
+    mut fn infer_narrow(e: u64) -> u64 {
+        if not .in_fn {
+            return .constant_error(e, "constants can't narrow references")
+        }
+        iface_node: u64 = .kid(e, 1)
+        name: Text = copy(.nodes.get(iface_node).text)
+        iface: u64 = .named_aggregate_text(name, CHK_INTERFACE)
+        if iface == 0 {
+            .fail_node(iface_node)
+            match .type_names.find(name) {
+                Some(value: id) => {
+                    kind: u64 = .types.get(id).kind
+                    if kind == CHK_ACTOR or kind == CHK_STRUCT or kind == CHK_ENUM {
+                        .say_name(name)
+                        .say(" is not an interface")
+                        return 0
+                    }
+                }
+                None => { }
+            }
+            .say("unknown interface ")
+            .say_name(name)
+            return 0
+        }
+        .require_visible(.types.get(iface).decl, name, iface_node, 0)
+        if .failed {
+            return 0
+        }
+        src: u64 = .expr(.kid(e, 0), 0, 0)
+        if .failed {
+            return 0
+        }
+        if not .is_actor(src) {
+            .fail_node(.kid(e, 0))
+            .say("`narrow` works on actor references, not ")
+            .say_type(src)
+            return 0
+        }
+        if .types.get(src).kind == CHK_INTERFACE {
+            .fail_node(.kid(e, 0))
+            .say("this is already a `")
+            .say_type(src)
+            .say("` reference: it can't be narrowed again")
+            return 0
+        }
+        mut implemented: bool = false
+        scanning: loop k: u64 in 0..(.impls.len()) {
+            if .impls.get(k).actor_id == src and .impls.get(k).iface_id == iface {
+                implemented = true
+            }
+        }
+        if not implemented {
+            .fail_node(.kid(e, 0))
+            .say_name(.types.get(src).name)
+            .say(" doesn't implement ")
+            .say_name(.types.get(iface).name)
+            .say(": declare it as `actor ")
+            .say_type(src)
+            .say(": ")
+            .say_type(iface)
+            .say("`")
+            return 0
+        }
+        return iface
+    }
+
+    fn named_aggregate_text(name: Text, kind: u64) -> u64 {
+        match .type_names.find(name) {
+            Some(value: id) => {
+                if .types.get(id).kind == kind {
+                    return id
+                }
+                return 0
+            }
+            None => return 0
+        }
+    }
+
+    mut fn infer_spawn(e: u64) -> u64 {
+        if not .in_fn {
+            return .constant_error(e, "constants can't spawn actors")
+        }
+        name: Text = copy(.nodes.get(e).text)
+        act: u64 = .named_aggregate_text(name, CHK_ACTOR)
+        if act == 0 {
+            .fail_node(e)
+            if .named_aggregate_text(name, CHK_INTERFACE) != 0 {
+                .say_name(name)
+                .say(" is an interface: `spawn` creates actors that implement it")
+            } else if .named_aggregate_text(name, CHK_STRUCT) != 0 or .named_aggregate_text(name, CHK_ENUM) != 0 {
+                .say_name(name)
+                .say(" is not an actor: `spawn` creates actors")
+            } else {
+                .say("unknown actor ")
+                .say_name(name)
+            }
+            return 0
+        }
+        .require_visible(.types.get(act).decl, name, e, 0)
+        if .failed {
+            return 0
+        }
+        sig: u64 = .types.get(act).new_sig
+        mut rows: List<u64> = List(region: .region)
+        if sig != 0 {
+            rows = .params_of(sig)
+            .check_args(.quote_text(.spawn_callee(name)), sig, copy(.nodes.get(e).kids), e)
+        } else if .nodes.get(e).kids.len() != 0 {
+            .fail_node(e)
+            .say_text(.spawn_callee(name))
+            .say(" takes 0 argument(s), but ")
+            .say_number(.nodes.get(e).kids.len())
+            .say(" given")
+        }
+        if .failed {
+            return 0
+        }
+        mut words: u64 = 0
+        summing: loop k: u64 in 0..(rows.len()) {
+            words += .words_of_type(.params.get(rows.get(k)).ty)
+        }
+        .set_note(e, CHK_NOTE_ARGS_WORDS, words)
+        .set_note(e, CHK_NOTE_ARGS_SLOT, .alloc(if words > 1 { words } else { 1 }))
+        return act
+    }
+
+    fn spawn_callee(name: Text) -> Text {
+        mut out: Text = .text_of("spawn ")
+        out.append_text(name)
+        return out
+    }
+
+    /// `watch(actor, narrow(self, Restarts))`: when `actor` restarts, Raven sends the interface's
+    /// `restarted()` (decision 149).
+    mut fn watch_call(e: u64) -> u64 {
+        args: List<u64> = copy(.nodes.get(e).kids)
+        if args.len() != 2 {
+            .fail_node(e)
+            .say("write `watch(actor, narrow(self, Restarts))`: the actor to watch, and who to tell")
+            return 0
+        }
+        target: u64 = .expr(args.get(0), 0, 0)
+        if .failed {
+            return 0
+        }
+        if not .is_actor(target) {
+            .fail_node(args.get(0))
+            .say("`watch` takes an actor reference to watch, not ")
+            .say_type(target)
+            return 0
+        }
+        who: u64 = .expr(args.get(1), 0, 0)
+        if .failed {
+            return 0
+        }
+        if not .is_actor(who) or .types.get(who).kind != CHK_INTERFACE {
+            .fail_node(args.get(1))
+            .say("`watch` tells an interface reference: write `narrow(self, Restarts)`")
+            return 0
+        }
+        sig: u64 = .method_sig(who, .text_of("restarted"))
+        if sig == 0 {
+            .fail_node(args.get(1))
+            .say_name(.types.get(who).name)
+            .say(" has no handler `restarted`, so it can't be told when an actor restarts")
+            return 0
+        }
+        if not .sigs.get(sig).handler.same_as("lossy") or .params_of(sig).len() > 0 {
+            .fail_node(args.get(1))
+            .say("`restarted` must be `lossy on restarted()`, with no arguments: one already waiting stands for a second restart")
+            return 0
+        }
+        .set_note(e, CHK_NOTE_NUMBER, .handler_number_of("restarted"))
+        mut stopped: u64 = 0
+        ends: u64 = .method_sig(who, .text_of("stopped"))
+        if ends != 0 {
+            if not .sigs.get(ends).handler.same_as("lossy") or .params_of(ends).len() > 0 {
+                .fail_node(args.get(1))
+                .say("`stopped` must be `lossy on stopped()`, with no arguments: one already waiting stands for a second notice")
+                return 0
+            }
+            stopped = .handler_number_of("stopped") + 1
+        }
+        .set_note(e, CHK_NOTE_STOPPED, stopped)
+        return .unit
+    }
+
+    fn handler_number_of(name: Bytes) -> u64 {
+        match .handler_numbers.find(.quoted(name)) {
+            Some(value: number) => return number
+            None => return 0
+        }
+    }
+
+    mut fn stop_call(e: u64) -> u64 {
+        args: List<u64> = copy(.nodes.get(e).kids)
+        if args.len() > 1 {
+            .fail_node(e)
+            .say("write `stop()` to end this actor, or `stop(actor)` to end one you spawned")
+            return 0
+        }
+        if args.len() == 0 {
+            if .recv == 0 or .types.get(.recv).kind != CHK_ACTOR or .in_new {
+                .fail_node(e)
+                .say("`stop()` ends the actor it is in, so it only works in one of its handlers (not in `new`)")
+                return 0
+            }
+            return .unit
+        }
+        ty: u64 = .expr(args.get(0), 0, 0)
+        if .failed {
+            return 0
+        }
+        if not .is_actor(ty) {
+            .fail_node(args.get(0))
+            .say("`stop` takes an actor reference, not ")
+            .say_type(ty)
+            return 0
+        }
+        return .unit
+    }
+
+    // ---- struct values and variants ------------------------------------------------------------
+
+    /// The offset in words of the field `name` among the fields `rows`, and (for a variant) after the tag.
+    fn field_offset(rows: List<u64>, name: Text) -> u64 {
+        mut at: u64 = 0
+        scanning: loop j: u64 in 0..(rows.len()) {
+            f: FieldInfo = .fields.get(rows.get(j))
+            if f.name.equals(name) {
+                return at
+            }
+            at += .words_of_type(f.ty)
+        }
+        return at
+    }
+
+    /// Checks the fields given in `lit` (`FieldInit` nodes) against the fields `rows` of a struct or variant.
+    mut fn struct_fields(lit: u64, name: Text, rows: List<u64>) {
+        inits: List<u64> = copy(.nodes.get(lit).kids)
+        mut given: List<Text> = List(region: .region)
+        mut given_at: List<u64> = List(region: .region)
+        listing: loop k: u64 in 0..(inits.len()) {
+            given.push(copy(.nodes.get(inits.get(k)).text))
+            given_at.push(inits.get(k))
+        }
+        mut wanted: List<Text> = List(region: .region)
+        names: loop j: u64 in 0..(rows.len()) {
+            wanted.push(copy(.fields.get(rows.get(j)).name))
+        }
+        .named_fields(name, wanted, given, given_at, lit, false)
+        if .failed {
+            return
+        }
+        values: loop k: u64 in 0..(inits.len()) {
+            fty: u64 = .fields.get(rows.get(k)).ty
+            value: u64 = .kid(inits.get(k), 0)
+            discard .expr(value, fty, 0)
+            if .failed {
+                return
+            }
+            if .is_aggregate(fty) {
+                mut what: Text = .text_of("field ")
+                what.append_text(.quote_text(given.get(k)))
+                .require_fresh(value, what)
+                if .failed {
+                    return
+                }
+            }
+        }
+    }
+
+    /// `Name(a: 1, b: 2)` for a struct that has a `new`: the arguments are those of `new`, and it runs on a
+    /// fresh zeroed value (decision 155).
+    mut fn build_with_new(e: u64, st: u64) -> u64 {
+        sig: u64 = .types.get(st).new_sig
+        decl: u64 = .sigs.get(sig).decl
+        group: Node = .nodes.get(.kid(decl, 0))
+        mut wanted: List<Text> = List(region: .region)
+        names: loop j: u64 in 0..(group.kids.len()) {
+            wanted.push(.name_of(group.kids.get(j)))
+        }
+        inits: List<u64> = copy(.nodes.get(e).kids)
+        mut given: List<Text> = List(region: .region)
+        mut given_at: List<u64> = List(region: .region)
+        mut values: List<u64> = List(region: .region)
+        listing: loop k: u64 in 0..(inits.len()) {
+            given.push(copy(.nodes.get(inits.get(k)).text))
+            given_at.push(inits.get(k))
+            values.push(.kid(inits.get(k), 0))
+        }
+        .named_fields(copy(.nodes.get(e).text), wanted, given, given_at, e, true)
+        if .failed {
+            return 0
+        }
+        mut callee: Text = copy(.types.get(st).name)
+        callee.append("'s `new`")
+        mut shown: Text = .text_of("`")
+        shown.append_text(callee)
+        .check_args(shown, sig, values, e)
+        if .failed {
+            return 0
+        }
+        .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(st)))
+        return st
+    }
+
+    mut fn finish_struct_literal(e: u64, st: u64, variant: u64) -> u64 {
+        name: Text = copy(.nodes.get(e).text)
+        mut rows: List<u64> = .fields_of(st, false)
+        if variant != 0 {
+            rows = .fields_of(variant - 1, true)
+            if rows.len() == 0 {
+                .fail_node(e)
+                .say_name(name)
+                .say(" has no fields: write ")
+                .say_name(name)
+                return 0
+            }
+        }
+        .struct_fields(e, name, rows)
+        if .failed {
+            return 0
+        }
+        if variant != 0 {
+            .set_note(e, CHK_NOTE_VARIANT, variant)
+        }
+        .set_note(e, CHK_NOTE_TEMP, .alloc(.words_of_type(st)))
+        return st
+    }
+
+    // ---- match -------------------------------------------------------------------------------------
+
+    /// Checks the patterns (not the bodies) of a match, and that every value of the subject's type is
+    /// matched exactly once. `arms` is the `Arms` node.
+    mut fn match_patterns(m: u64) {
+        ty: u64 = .expr(.kid(m, 0), 0, 0)
+        if .failed {
+            return
+        }
+        .set_note(m, CHK_NOTE_SUBJECT_SLOT, .alloc(1))
+        if .types.get(ty).kind == CHK_ENUM {
+            .enum_patterns(m, ty)
+        } else if .is_int(ty) or ty == .bool_type {
+            .value_patterns(m, ty)
+        } else {
+            if ty == .unit {
+                .fail_node(.kid(m, 0))
+                .say("there is nothing to match: this call returns no value")
+                return
+            }
+            .fail_node(.kid(m, 0))
+            .say("can't match a ")
+            .say_type(ty)
+            .say(": `match` works on enums, integers and bools")
+        }
+    }
+
+    /// The variant row (plus one) called `name` of the enum `ty`: of an instance of a generic, among its own
+    /// variants; else among the program's.
+    fn variant_in(ty: u64, name: Text) -> u64 {
+        if .nodes.get(.types.get(ty).decl).generic_base.len() > 0 {
+            scanning: loop k: u64 in 0..(.variants.len()) {
+                if .variants.get(k).enum_id == ty and .variants.get(k).name.equals(name) {
+                    return k + 1
+                }
+            }
+            return 0
+        }
+        match .variant_names.find(name) {
+            Some(value: row) => return row + 1
+            None => return 0
+        }
+    }
+
+    mut fn enum_patterns(m: u64, ty: u64) {
+        arms: List<u64> = copy(.nodes.get(.kid(m, 1)).kids)
+        mut seen: TextMap<u64> = TextMap(region: .region)
+        walking: loop a: u64 in 0..(arms.len()) {
+            arm: u64 = arms.get(a)
+            if .kid(arm, 0) == 0 {
+                .fail_node(arm)
+                .say("a `match` on an enum lists every variant of ")
+                .say_name(.types.get(ty).name)
+                .say("; `else` isn't allowed")
+                return
+            }
+            pats: List<u64> = copy(.nodes.get(.kid(arm, 0)).kids)
+            inner: loop i: u64 in 0..(pats.len()) {
+                p: u64 = pats.get(i)
+                mut name: Text = copy(.nodes.get(p).text)
+                bare: bool = .kind_is(p, "PatternValue")
+                if bare {
+                    v: u64 = .kid(p, 0)
+                    if .kid(p, 1) != 0 or not .kind_is(v, "Name") {
+                        .fail_node(p)
+                        .say("expected a variant of ")
+                        .say_name(.types.get(ty).name)
+                        return
+                    }
+                    name = copy(.nodes.get(v).text)
+                }
+                variant: u64 = .variant_in(ty, name)
+                if variant == 0 {
+                    .fail_node(p)
+                    .say_name(.types.get(ty).name)
+                    .say(" has no variant ")
+                    .say_name(name)
+                    return
+                }
+                owner: u64 = .variants.get(variant - 1).enum_id
+                .require_visible(.types.get(owner).decl, .types.get(owner).name, p, 0)
+                if .failed {
+                    return
+                }
+                if owner != ty {
+                    .fail_node(p)
+                    .say_name(name)
+                    .say(" is a variant of ")
+                    .say_name(.types.get(owner).name)
+                    .say(", not ")
+                    .say_name(.types.get(ty).name)
+                    return
+                }
+                if seen.contains(name) {
+                    .fail_node(p)
+                    .say_name(name)
+                    .say(" is already matched")
+                    return
+                }
+                seen.put(name, 1)
+                .set_note(p, CHK_NOTE_VARIANT, variant)
+                rows: List<u64> = .fields_of(variant - 1, true)
+                if bare {
+                    if rows.len() > 0 {
+                        .fail_node(p)
+                        .say_name(name)
+                        .say(" has fields: bind each one, as in `")
+                        .say_text(name)
+                        .say("(")
+                        shown: loop j: u64 in 0..(rows.len()) {
+                            if j > 0 {
+                                .say(", ")
+                            }
+                            .say_text(.fields.get(rows.get(j)).name)
+                            .say(": _")
+                        }
+                        .say(")`")
+                        return
+                    }
+                } else if rows.len() == 0 {
+                    .fail_node(p)
+                    .say_name(name)
+                    .say(" has no fields: write ")
+                    .say_name(name)
+                    return
+                } else {
+                    binds: List<u64> = copy(.nodes.get(p).kids)
+                    mut given: List<Text> = List(region: .region)
+                    mut given_at: List<u64> = List(region: .region)
+                    listing: loop b: u64 in 0..(binds.len()) {
+                        given.push(.first_word(.nodes.get(binds.get(b)).text))
+                        given_at.push(binds.get(b))
+                    }
+                    .named_fields(name, .field_names(variant - 1, true), given, given_at, p, false)
+                    if .failed {
+                        return
+                    }
+                }
+            }
+            if pats.len() > 1 {
+                inner2: loop i: u64 in 0..(pats.len()) {
+                    binds: List<u64> = copy(.nodes.get(pats.get(i)).kids)
+                    each: loop b: u64 in 0..(binds.len()) {
+                        if .kind_is(pats.get(i), "PatternVariant") and not .last_word(.nodes.get(binds.get(b)).text).same_as("_") {
+                            .fail_node(arm)
+                            .say("an arm with several variants can't bind names: use `_`, or give each variant its own arm")
+                            return
+                        }
+                    }
+                }
+            }
+        }
+        all: loop k: u64 in 0..(.variants.len()) {
+            if .variants.get(k).enum_id == ty and not seen.contains(.variants.get(k).name) {
+                mut missing: u64 = 0
+                counting: loop j: u64 in k..(.variants.len()) {
+                    if .variants.get(j).enum_id == ty and not seen.contains(.variants.get(j).name) {
+                        missing += 1
+                    }
+                }
+                .fail_node(m)
+                .say("this `match` is missing ")
+                .say_name(.variants.get(k).name)
+                if missing > 1 {
+                    .say(" (and ")
+                    .say_number(missing - 1)
+                    .say(" more)")
+                }
+                return
+            }
+        }
+    }
+
+    mut fn value_patterns(m: u64, ty: u64) {
+        arms: List<u64> = copy(.nodes.get(.kid(m, 1)).kids)
+        is_bool: bool = ty == .bool_type
+        lowest: Num = if is_bool { chk_num(false, 0) } else { .int_min(ty) }
+        highest: Num = if is_bool { chk_num(false, 1) } else { .int_max(ty) }
+        mut taken_lo: List<Num> = List(region: .region)
+        mut taken_hi: List<Num> = List(region: .region)
+        mut else_arm: u64 = 0
+        walking: loop a: u64 in 0..(arms.len()) {
+            arm: u64 = arms.get(a)
+            if .kid(arm, 0) == 0 {
+                if a != arms.len() - 1 {
+                    .fail_node(arm)
+                    .say("`else` must be the last arm")
+                    return
+                }
+                else_arm = arm
+                continue walking
+            }
+            pats: List<u64> = copy(.nodes.get(.kid(arm, 0)).kids)
+            inner: loop i: u64 in 0..(pats.len()) {
+                p: u64 = pats.get(i)
+                if .kind_is(p, "PatternVariant") {
+                    .fail_node(p)
+                    .say_name(.nodes.get(p).text)
+                    .say(" is an enum variant, but this `match` is on ")
+                    .say_type(ty)
+                    return
+                }
+                lo: Num = .pattern_value(.kid(p, 0), ty)
+                if .failed {
+                    return
+                }
+                .set_note_value(p, CHK_NOTE_LO, lo)
+                mut hi: Num = chk_num_add(lo, chk_num(false, 1))
+                if .kid(p, 1) != 0 {
+                    if is_bool {
+                        .fail_node(p)
+                        .say("a range needs integers")
+                        return
+                    }
+                    hi = .pattern_value(.kid(p, 1), ty)
+                    if .failed {
+                        return
+                    }
+                    if not chk_num_less(lo, hi) {
+                        .fail_node(p)
+                        .say("this range is empty: its end must be greater than its start")
+                        return
+                    }
+                }
+                .set_note_value(p, CHK_NOTE_HI, hi)
+                overlap: loop j: u64 in 0..(taken_lo.len()) {
+                    if chk_num_less(lo, taken_hi.get(j)) and chk_num_less(taken_lo.get(j), hi) {
+                        .fail_node(p)
+                        .say("this pattern overlaps an earlier one")
+                        return
+                    }
+                }
+                taken_lo.push(copy(lo))
+                taken_hi.push(copy(hi))
+            }
+        }
+        // The first value no arm matches, if any: walk the taken ranges in order of their start.
+        mut gap: Num = copy(lowest)
+        mut used: List<bool> = List(region: .region)
+        zeroing: loop j: u64 in 0..(taken_lo.len()) {
+            used.push(false)
+        }
+        sweeping: loop round: u64 in 0..(taken_lo.len()) {
+            mut best: u64 = taken_lo.len()
+            picking: loop j: u64 in 0..(taken_lo.len()) {
+                if not used.get(j) and (best == taken_lo.len() or chk_num_less(taken_lo.get(j), taken_lo.get(best))) {
+                    best = j
+                }
+            }
+            used.set(best, true)
+            if chk_num_less(gap, taken_lo.get(best)) {
+                break sweeping
+            }
+            if chk_num_less(gap, taken_hi.get(best)) {
+                gap = copy(taken_hi.get(best))
+            }
+        }
+        if chk_num_less(highest, gap) {
+            if else_arm != 0 {
+                .fail_node(else_arm)
+                .say("every ")
+                .say_type(ty)
+                .say(" value is already matched, so `else` would never run")
+            }
+        } else if else_arm == 0 {
+            .fail_node(m)
+            if is_bool {
+                .say("this `match` is missing `")
+                .say(if gap.mag != 0 { "true" } else { "false" })
+                .say("`")
+            } else {
+                .say("this `match` doesn't cover every ")
+                .say_type(ty)
+                .say(" value (such as ")
+                .say_num(gap)
+                .say("); add `else =>` for the rest")
+            }
+        }
+    }
+
+    /// A pattern's value: a literal or a constant, computed now.
+    mut fn pattern_value(e: u64, ty: u64) -> Num {
+        if .kind_is(e, "Name") and .lookup(.nodes.get(e).text) != 0 {
+            .fail_node(e)
+            .say("a pattern is a literal or a constant, and ")
+            .say_name(.nodes.get(e).text)
+            .say(" is a variable")
+            return chk_num(false, 0)
+        }
+        discard .expr(e, ty, 0)
+        if .failed {
+            return chk_num(false, 0)
+        }
+        return .const_eval(e)
+    }
+
+    /// Declares an arm's bindings in a new scope.
+    mut fn enter_arm(m: u64, arm: u64) {
+        .enter_scope()
+        if .kid(arm, 0) == 0 {
+            return
+        }
+        pats: List<u64> = copy(.nodes.get(.kid(arm, 0)).kids)
+        walking: loop i: u64 in 0..(pats.len()) {
+            p: u64 = pats.get(i)
+            if not .note_has(p, CHK_NOTE_VARIANT) or not .kind_is(p, "PatternVariant") {
+                continue walking
+            }
+            variant: u64 = .note_get(p, CHK_NOTE_VARIANT)
+            binds: List<u64> = copy(.nodes.get(p).kids)
+            start: u64 = .slot_rows.len()
+            binding: loop b: u64 in 0..(binds.len()) {
+                node: u64 = binds.get(b)
+                name: Text = .last_word(.nodes.get(node).text)
+                if name.same_as("_") {
+                    continue binding
+                }
+                .require_snake(name, "variable", node)
+                if .failed {
+                    return
+                }
+                field: Text = .first_word(.nodes.get(node).text)
+                rows: List<u64> = .fields_of(variant - 1, true)
+                fty: u64 = .variant_field_type(variant - 1, field)
+                offset: u64 = .field_offset(rows, field) + 1
+                agg: bool = .is_aggregate(fty)
+                slot: u64 = .new_local(name, fty, false, if agg { CHK_LOCAL_REF } else { CHK_LOCAL_VALUE }, node, false, false)
+                if .failed {
+                    return
+                }
+                .slot_rows.push(slot)
+                .slot_rows.push(offset)
+                .slot_rows.push(if agg { 1 } else { 0 })
+            }
+            if .slot_rows.len() > start {
+                .set_note(p, CHK_NOTE_SLOTS, start + 1)
+                .set_note(p, CHK_NOTE_SLOTS_COUNT, (.slot_rows.len() - start) / 3)
+            }
+        }
+    }
+
+    mut fn match_stmt(s: u64) -> bool {
+        .match_patterns(s)
+        if .failed {
+            return false
+        }
+        mut always_returns: bool = true
+        arms: List<u64> = copy(.nodes.get(.kid(s, 1)).kids)
+        walking: loop a: u64 in 0..(arms.len()) {
+            arm: u64 = arms.get(a)
+            .enter_arm(s, arm)
+            if .failed {
+                return false
+            }
+            body: u64 = .kid(arm, 1)
+            mut returns: bool = false
+            if .kind_is(body, "Block") {
+                returns = .block(body)
+            } else {
+                returns = .stmt(body)
+            }
+            if .failed {
+                return false
+            }
+            .leave_scope()
+            always_returns = always_returns and returns
+        }
+        // Every value is matched by some arm, so if each arm returns, so does the match.
+        return always_returns
+    }
+
+    mut fn infer_match_expr(e: u64, expected: u64) -> u64 {
+        if not .in_fn {
+            return .constant_error(e, "constants can't use `match`")
+        }
+        .match_patterns(e)
+        if .failed {
+            return 0
+        }
+        arms: List<u64> = copy(.nodes.get(.kid(e, 1)).kids)
+        mut any_value: bool = false
+        scanning: loop a: u64 in 0..(arms.len()) {
+            if not .is_leaving(.kid(arms.get(a), 1)) {
+                any_value = true
+            }
+        }
+        if not any_value {
+            .fail_node(e)
+            .say("every arm leaves, so this `match` has no value")
+            return 0
+        }
+        // Arms that aren't bare literals first, so the literals can take their type.
+        mut ty: u64 = 0
+        pass: loop round: u64 in 0..2 {
+            ordered: loop a: u64 in 0..(arms.len()) {
+                arm: u64 = arms.get(a)
+                body: u64 = .kid(arm, 1)
+                literal: bool = not .is_leaving(body) and .untyped_literal(body)
+                if (round == 0 and literal) or (round == 1 and not literal) {
+                    continue ordered
+                }
+                .enter_arm(e, arm)
+                if .failed {
+                    return 0
+                }
+                if .is_leaving(body) {
+                    discard .stmt(body)             // return, break or continue
+                } else {
+                    aty: u64 = .expr(body, 0, if ty != 0 { ty } else { expected })
+                    if .failed {
+                        return 0
+                    }
+                    if ty == 0 {
+                        ty = aty
+                    } else if aty != ty {
+                        .fail_node(body)
+                        .say("every arm of a `match` must have the same type, found ")
+                        .say_type(ty)
+                        .say(" and ")
+                        .say_type(aty)
+                        return 0
+                    }
+                }
+                if .failed {
+                    return 0
+                }
+                .leave_scope()
+            }
+        }
+        return ty
+    }
+
+    fn is_leaving(body: u64) -> bool {
+        return .kind_is(body, "Return") or .kind_is(body, "Break") or .kind_is(body, "Continue")
     }
 
     // ---- for the dump --------------------------------------------------

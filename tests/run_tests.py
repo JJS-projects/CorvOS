@@ -621,7 +621,7 @@ class ErrorTest:
 # What Fledgling prints for the same input, for each hosted program that has a reference.
 HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "expanddump": dump_expanded,
                     "declsdump": dump_declarations,
-                    "bodiesdump": lambda stream: dump_bodies(stream, bodies=False)}
+                    "bodiesdump": dump_bodies}
 # Stages that work on a whole program are given a stream of files (`@@@ PATH` header lines, see
 # fledgling.dump.split_stream); in live.txt a line names the files of one stream, in order.
 STREAM_STAGES = {"expanddump", "declsdump", "bodiesdump"}

@@ -1,5 +1,5 @@
 Program
-  Fn 1:1 f
+  Fn 1:1 f nslots=0
     Params
     none
     Block 1:8

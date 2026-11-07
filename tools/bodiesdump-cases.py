@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Writes the cases of tests/hosted/bodiesdump: for each program below, NAME.in (the stream) and NAME.out
-(what Fledgling prints with --dump-bodies --no-bodies). The values of the arithmetic, bitwise, shift, cast and
+(what Fledgling prints with --dump-bodies). The values of the arithmetic, bitwise, shift, cast and
 comparison cases were worked out by hand when the cases were made; run this again only to add a case, and read
 the new output.
 """
@@ -106,5 +106,5 @@ for name, src in {**cases, **errors}.items():
     files = src if isinstance(src, list) else [("a.rook", False, src)]
     stream = make_stream(files)
     open(f"{here}/{name}.in", "w").write(stream)
-    open(f"{here}/{name}.out", "w").write(dump_bodies(stream, bodies=False))
+    open(f"{here}/{name}.out", "w").write(dump_bodies(stream))
 print(len(cases), len(errors))
