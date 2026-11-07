@@ -229,7 +229,8 @@ of 5d-2/5d-3a writes them, but every node the checker looked at ends with what i
 
 The numbers come in a fixed order (`slot end_slot subject_slot self_slot result_slot temp args_slot args_words
 payload payload_words handler_index words number stopped lo hi const nslots`), then `const_str=`, `variant=`,
-`struct=`, the flags `scalar` and `send`, and `slots=SLOT/OFFSET/AGG,...`. A value the parser already gives
+`struct=`, the flags `scalar` and `send`, and `slots=SLOT/OFFSET/AGG,...`. The checker also gives each method, `new` and handler the file of its type, which is a
+`File [trusted ]PATH` line below it, and an actor or interface declaration its type (`: Name`). A value the parser already gives
 a node (`words=1`, `stopped=0`, `payload_words=0`, `args_words=0`) is not written; a function that was not
 checked has no notes. In Rook the notes are **side tables** of the checker (`note_rows`, `notes`: a row per
 node that has any), not fields of the nodes, so the parser's arena stays what the parser built.

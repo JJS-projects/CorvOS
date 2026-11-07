@@ -1,0 +1,13 @@
+@@@ a.rook
+interface Go {
+    lossy on go(n: u8)
+}
+actor Bot: Go {
+    mut hits: u64
+    new() {
+        .hits = 0
+    }
+    lossy on go(n: u8) {
+    }
+}
+LIMIT: u64 = 2
