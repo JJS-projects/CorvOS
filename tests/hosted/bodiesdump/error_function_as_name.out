@@ -1,0 +1,1 @@
+error a.rook:3:9: `g` is a function; call it with `g(...)`

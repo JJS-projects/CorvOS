@@ -200,6 +200,50 @@ function bodies and everything they need are the next steps.
   the dump of 5d-3a could not show (they print alike) but the checker's tests for a missing return type can.
   `copy_tree` now leaves node 0 alone.
 
+## The checker's constants and bodies, 5d-3c (decision 165)
+
+Function bodies mix typing with ownership, and the checker reports the first error of a whole program, so a
+half-finished port cannot be compared on whole programs. Fledgling's `check` therefore has three switches
+(`bootstrap/fledgling/checker.py`): `ownership=False` (moves, locks and loop states are not tracked;
+`consume` still checks its operand and `require_fresh` and mutability stay), `bodies=` `"all"`, `"none"` or
+one file's path (only the items declared there), and `actor_bodies=False` (an actor's `new` and handlers).
+The Rook checker is compared under the same switches, in stages:
+
+| Step | What is checked | Fledgling's flags |
+|---|---|---|
+| 5d-3c-0 (this one) | constants, nothing in a function | `--dump-bodies --no-bodies` |
+| 5d-3c-1 | + plain function and method bodies of the last file | `--dump-bodies` |
+| 5d-3c-2 | + actor `new` and handlers | `--dump-bodies --actors` |
+| 5d-3d-1/2 | + ownership, then every file's bodies | `--dump-bodies --ownership --actors` |
+
+`compiler/bodiesdump.rook` is the hosted program: it reads a stream of files (as `declsdump` does), runs the
+generics pass and the declarations, then `Checker.constants()`, and prints the constants and the tree of the
+**last file** after the checker. Fledgling prints the same with `python3 -m fledgling FILE... [--trusted DIR]
+--dump-bodies [--no-bodies] [--ownership] [--actors]` (`dump_bodies`, `bootstrap/fledgling/dump.py`).
+
+**The format.** First a line `const NAME TYPE VALUE` per constant, in the order checked (a number or bool in
+decimal, text as `x` and the hex of its bytes). Then `Program` and the items of the last file, as the tree dump
+of 5d-2/5d-3a writes them, but every node the checker looked at ends with what it recorded:
+
+    KIND [POS] [TEXT] : TYPE [slot=N] [end_slot=N] ... [const=N] [nslots=N] [const_str=xHEX] [variant=NAME] ...
+
+The numbers come in a fixed order (`slot end_slot subject_slot self_slot result_slot temp args_slot args_words
+payload payload_words handler_index words number stopped lo hi const nslots`), then `const_str=`, `variant=`,
+`struct=`, the flags `scalar` and `send`, and `slots=SLOT/OFFSET/AGG,...`. A value the parser already gives
+a node (`words=1`, `stopped=0`, `payload_words=0`, `args_words=0`) is not written; a function that was not
+checked has no notes. In Rook the notes are **side tables** of the checker (`note_rows`, `notes`: a row per
+node that has any), not fields of the nodes, so the parser's arena stays what the parser built.
+
+- This step: literals, names, `not`/`-`, `if` as an expression, the binary operators, `as`/`wrap`, text in
+  quotes, and every error a constant can give (`constants can't call functions`, ...). A construct that a
+  constant can reach but that needs the machinery of bodies (a field of a text constant, `copy(HELLO)`) says
+  `not checked yet: KIND`; nothing in the repository reaches it (`make selfhost-check` shows it if one does).
+- `make test` runs `tests/hosted/bodiesdump/`: 70 cases (written by `tools/bodiesdump-cases.py`; the constants
+  of arithmetic, bitwise, shifts, casts, comparisons and int_literals are worked out on paper in the
+  harness test and the case names) and the two programs in `live.txt`; `harness/dump_bodies` pins the format
+  and the switches with a hand-worked example.
+- `make selfhost-check` runs `tools/selfhost-check.py bodiesdump` on every test program and compiler program.
+
 ## Stages
 
 | Step | What | Test |
@@ -207,7 +251,7 @@ function bodies and everything they need are the next steps.
 | 5a (this PR) | Hosted runner and test kind; `numberer` | `hosted/numberer/*` |
 | 5b (built) | Memory for a batch job: `Region` and `Block` in `raven/trusted/region.rook` (below) | `rook/region_*`, `error/region_*` |
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`; the first step is built, decision 154), then how a library type such as a growable list is made, a map, a text builder | Rook and error tests |
-| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), generics pass (**built, 5d-3a**), checker (accept/reject and message; declarations **built, 5d-3b**), code generator (assembly) | hosted tests comparing with Fledgling's output |
+| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), generics pass (**built, 5d-3a**), checker (accept/reject and message; declarations **built, 5d-3b**; constants **built, 5d-3c-0**, then bodies), code generator (assembly) | hosted tests comparing with Fledgling's output |
 | 5e | Stage 2: the Rook compiler compiles itself; compile that result again; the two assembly files are identical. Retire Fledgling | the milestone's "done when" |
 
 ## Limits, said plainly

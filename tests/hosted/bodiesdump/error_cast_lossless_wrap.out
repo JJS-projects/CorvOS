@@ -1,0 +1,1 @@
+error a.rook:2:12: `wrap` can't lose anything converting u8 to u64; use `as`

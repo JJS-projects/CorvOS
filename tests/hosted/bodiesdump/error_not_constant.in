@@ -1,0 +1,9 @@
+@@@ a.rook
+pub struct Bytes {
+    pub address: u64
+    pub length: u64
+}
+A: u64 = 5
+B: u64 = A
+C: u64 = if B == 5 { 1 } else { 2 }
+D: u64 = 1 + C

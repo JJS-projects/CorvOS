@@ -1,0 +1,27 @@
+const A u32 10
+const B u8 2
+const C i32 -1
+Program
+  Const 1:1 A
+    Type 1:4 u32
+    IfExpr 1:10 : u32
+      Binary 1:15 < : bool
+        Int 1:13 3 : u64
+        Int 1:17 4 : u64
+      Int 1:21 10 : u32
+      Int 1:33 20 : u32
+    File a.rook
+  Const 2:1 B
+    Type 2:4 u8
+    IfExpr 2:9 : u8
+      Bool 2:12 false : bool
+      Int 2:20 1 : u8
+      Int 2:31 2 : u8
+    File a.rook
+  Const 3:1 C
+    Type 3:4 i32
+    IfExpr 3:10 : i32
+      Bool 3:13 true : bool
+      Int 3:20 -1 : i32
+      Int 3:32 1 : i32
+    File a.rook

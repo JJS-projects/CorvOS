@@ -1,0 +1,8 @@
+@@@ lib.rook
+pub struct Pair {
+    pub a: u64
+    b: u64
+}
+@@@ a.rook
+import lib: Pair
+X: Pair = Pair(a: 1, b: 2)

@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from . import compile_program, CompileError
-from .dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, make_stream
+from .dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, make_stream
 from . import is_trusted
 
 
@@ -29,7 +29,22 @@ def main(argv=None):
     ap.add_argument("--dump-declarations", action="store_true",
                     help="print what the checker knows once every declaration is checked, in the text "
                          "format the self-hosted checker must match, and stop")
+    ap.add_argument("--dump-bodies", action="store_true",
+                    help="print the constants and the checked tree of the last input file, with what the "
+                         "checker recorded (types, slots, values); see --ownership and --actors")
+    ap.add_argument("--ownership", action="store_true",
+                    help="with --dump-bodies: also track moves, locks and loop states")
+    ap.add_argument("--no-bodies", action="store_true",
+                    help="with --dump-bodies: check the constants only, no function body")
+    ap.add_argument("--actors", action="store_true",
+                    help="with --dump-bodies: also check actors' `new` and handlers")
     args = ap.parse_args(argv)
+
+    if args.dump_bodies:
+        files = [(path, is_trusted(path, args.trusted), open(path).read()) for path in args.inputs]
+        sys.stdout.write(dump_bodies(make_stream(files), ownership=args.ownership, actors=args.actors,
+                                          bodies=not args.no_bodies))
+        return 0
 
     if args.dump_declarations:
         files = [(path, is_trusted(path, args.trusted), open(path).read()) for path in args.inputs]

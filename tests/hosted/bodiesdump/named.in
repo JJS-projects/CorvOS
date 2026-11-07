@@ -1,0 +1,7 @@
+@@@ a.rook
+BASE: u64 = 100
+NEXT: u64 = BASE + 1
+DOUBLE: u64 = NEXT * 2
+NEG: i32 = -5
+SUM: i32 = NEG * 3 + 1
+FLAG: bool = NEXT > BASE

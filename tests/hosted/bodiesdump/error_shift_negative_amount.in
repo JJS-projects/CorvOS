@@ -1,0 +1,5 @@
+@@@ a.rook
+A: i8 = 1
+B: i8 = 1 shl A
+C: i8 = -1
+D: i8 = 1 shl C

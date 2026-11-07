@@ -1,0 +1,1 @@
+error a.rook:5:9: `Op` is an enum: build a value with one of its variants, such as `Nop`

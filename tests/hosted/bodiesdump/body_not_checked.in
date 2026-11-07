@@ -1,0 +1,8 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+}
+fn f(a: Pt, b: Pt) -> bool {
+    return a == b
+}
+A: bool = true

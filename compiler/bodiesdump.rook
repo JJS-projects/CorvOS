@@ -1,0 +1,253 @@
+// Stage 5d-3c of the self-hosted compiler: the checker's constants and function bodies, run hosted
+// (docs/self-hosting.md). It reads a stream of files from the UART (as declsdump does), parses them,
+// expands the generics, checks the declarations and the constants, and prints the constants and the
+// checked tree of the last file in the format of `python3 -m fledgling FILES --dump-bodies`
+// (decision 165); or the one line `error FILE:LINE:COL: MESSAGE`. This step checks no function body
+// (`--no-bodies` on the Fledgling side).
+
+import bytes: Bytes
+import checker: Checker, ConstInfo, Num
+import devices: Mmio
+import generics: Generics
+import parser: Node
+import pl011: Pl011
+import program: Program, SourceFile
+import region: List, Region, make_region
+import text: Text
+
+END_OF_INPUT: u8 = 4
+
+// The keys of what the checker records, in the order the dump writes them (checker.rook).
+NOTE_ORDER: u64 = 18
+NOTE_NAMES: Bytes = "slot end_slot subject_slot self_slot result_slot temp args_slot args_words payload payload_words handler_index words number stopped lo hi const nslots"
+
+fn put_text(console: Pl011, t: Text) {
+    printing: loop i: u64 in 0..t.len() {
+        console.put(t.at(i))
+    }
+}
+
+fn put_error(console: Pl011, files: List<SourceFile>, file: u64, line: u64, col: u64, message: Text) {
+    console.write("error ")
+    put_text(console, files.get(file - 1).path)
+    console.put(':')
+    console.write_dec(line)
+    console.put(':')
+    console.write_dec(col)
+    console.write(": ")
+    put_text(console, message)
+    console.put('\n')
+}
+
+fn put_indent(console: Pl011, depth: u64) {
+    indenting: loop i: u64 in 0..depth {
+        console.write("  ")
+    }
+}
+
+fn put_extra(console: Pl011, depth: u64, kind: Bytes, text: Text) {
+    put_indent(console, depth)
+    console.write(kind)
+    console.put(' ')
+    put_text(console, text)
+    console.put('\n')
+}
+
+fn put_num(console: Pl011, v: Num) {
+    if v.neg {
+        console.put('-')
+    }
+    console.write_dec(v.mag)
+}
+
+/// The key number of the `k`-th name of NOTE_NAMES is the index of its number among the keys: the keys
+/// with a sign (lo, hi, const) take two numbers, so the names do not count the same way.
+fn note_key(k: u64) -> u64 {
+    if k < 14 {
+        return k
+    }
+    if k == 14 {
+        return 14          // lo
+    }
+    if k == 15 {
+        return 16          // hi
+    }
+    if k == 16 {
+        return 18          // const
+    }
+    return 20              // nslots
+}
+
+fn put_note_name(console: Pl011, k: u64) {
+    mut start: u64 = 0
+    mut word: u64 = 0
+    scanning: loop i: u64 in 0..(NOTE_NAMES.len() + 1) {
+        if i == NOTE_NAMES.len() or NOTE_NAMES.at(i) == ' ' {
+            if word == k {
+                naming: loop j: u64 in start..i {
+                    console.put(NOTE_NAMES.at(j))
+                }
+                return
+            }
+            word += 1
+            start = i + 1
+        }
+    }
+}
+
+/// What the checker recorded on node `index`: ` : TYPE` and ` key=value`... (decision 165).
+fn put_notes(console: Pl011, checker: Checker, index: u64, is_fn: bool) {
+    if checker.note_has(index, 21) {
+        console.write(" : ")
+        put_text(console, checker.types.get(checker.note_get(index, 21)).name)
+    }
+    keys: loop k: u64 in 0..NOTE_ORDER {
+        key: u64 = note_key(k)
+        if checker.note_has(index, key) {
+            console.put(' ')
+            put_note_name(console, k)
+            console.put('=')
+            if key == 14 or key == 16 or key == 18 {
+                put_num(console, Num(neg: checker.note_get(index, key + 1) == 1, mag: checker.note_get(index, key), big: false))
+            } else {
+                console.write_dec(checker.note_get(index, key))
+            }
+        }
+    }
+    if checker.note_has(index, 22) {
+        console.write(" const_str=x")
+        put_hex_of_node(console, checker, checker.note_get(index, 22))
+    }
+}
+
+fn put_hex_digit(console: Pl011, d: u8) {
+    if d < 10 {
+        console.put('0' + d)
+    } else {
+        console.put('a' + (d - 10))
+    }
+}
+
+/// The text of a `Str` node is `x` and the hex of the bytes: what the dump of a constant writes.
+fn put_hex_of_node(console: Pl011, checker: Checker, node: u64) {
+    t: Text = checker.node_text(node)
+    skipping: loop i: u64 in 1..t.len() {
+        console.put(t.at(i))
+    }
+}
+
+/// Prints node `index` and, below it, its children. `here` is the file of the top-level item it is in.
+fn put_node(console: Pl011, checker: Checker, files: List<SourceFile>, index: u64, depth: u64, here: u64) {
+    node: Node = checker.node_at(index)
+    mut item_file: u64 = here
+    if depth == 1 and node.line != 0 {
+        item_file = node.file
+    }
+    put_indent(console, depth)
+    put_text(console, node.kind)
+    if node.line != 0 {
+        console.put(' ')
+        if node.file != 0 and node.file != item_file {
+            put_text(console, files.get(node.file - 1).path)
+            console.put(':')
+        }
+        console.write_dec(node.line)
+        console.put(':')
+        console.write_dec(node.col)
+    }
+    if node.text.len() > 0 {
+        console.put(' ')
+        put_text(console, node.text)
+    }
+    put_notes(console, checker, index, false)
+    console.put('\n')
+    children: loop k: u64 in 0..(node.kids.len()) {
+        put_node(console, checker, files, node.kids.get(k), depth + 1, item_file)
+    }
+    if node.visible_in != 0 {
+        put_extra(console, depth + 1, "VisibleIn", files.get(node.visible_in - 1).path)
+    }
+    if node.generic_base.len() > 0 {
+        put_extra(console, depth + 1, "GenericBase", node.generic_base)
+    }
+    if depth == 1 and node.file != 0 {
+        put_indent(console, depth + 1)
+        console.write("File ")
+        if files.get(node.file - 1).trusted {
+            console.write("trusted ")
+        }
+        put_text(console, files.get(node.file - 1).path)
+        console.put('\n')
+    }
+}
+
+fn put_constants(console: Pl011, checker: Checker) {
+    listing: loop k: u64 in 0..(checker.const_rows.len()) {
+        info: ConstInfo = checker.const_rows.get(k)
+        console.write("const ")
+        put_text(console, info.name)
+        console.put(' ')
+        put_text(console, checker.types.get(info.ty).name)
+        console.put(' ')
+        if info.text_node != 0 {
+            console.put('x')
+            put_hex_of_node(console, checker, info.text_node)
+        } else {
+            put_num(console, info.value)
+        }
+        console.put('\n')
+    }
+}
+
+fn put_program(console: Pl011, checker: Checker, files: List<SourceFile>, root: u64) {
+    put_constants(console, checker)
+    console.write("Program\n")
+    last: u64 = files.len()
+    items: Node = checker.node_at(root)
+    printing: loop k: u64 in 0..(items.kids.len()) {
+        item: u64 = items.kids.get(k)
+        if checker.node_at(item).file == last {
+            put_node(console, checker, files, item, 1, 0)
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    region: Region = make_region(peripherals)
+    console.write("Hosted: begin\n")
+    mut stream: Text = Text(region: region)
+    reading: loop {
+        if console.has_byte() {
+            b: u8 = console.take()
+            if b == END_OF_INPUT {
+                break reading
+            }
+            stream.push(b)
+        }
+    }
+    mut program: Program = Program(region: region, stream: stream)
+    program.load()
+    if program.failed {
+        put_error(console, program.files, program.error_file, program.error_line, program.error_col, program.error)
+    } else {
+        mut generics: Generics = Generics(region: region, nodes: program.parser.nodes, root: program.root)
+        generics.run()
+        if generics.failed {
+            put_error(console, program.files, generics.error_file, generics.error_line, generics.error_col,
+                      generics.error)
+        } else {
+            mut checker: Checker = Checker(region: region, nodes: generics.nodes, files: program.files,
+                                           root: generics.root, generics: generics.templates)
+            checker.run()
+            checker.constants()
+            if checker.failed {
+                put_error(console, program.files, checker.error_file, checker.error_line, checker.error_col,
+                          checker.error)
+            } else {
+                put_program(console, checker, program.files, generics.root)
+            }
+        }
+    }
+    console.write("Hosted: end\n")
+}

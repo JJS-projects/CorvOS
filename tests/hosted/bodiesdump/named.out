@@ -1,0 +1,41 @@
+const BASE u64 100
+const NEXT u64 101
+const DOUBLE u64 202
+const NEG i32 -5
+const SUM i32 -14
+const FLAG bool 1
+Program
+  Const 1:1 BASE
+    Type 1:7 u64
+    Int 1:13 100 : u64
+    File a.rook
+  Const 2:1 NEXT
+    Type 2:7 u64
+    Binary 2:18 + : u64
+      Name 2:13 BASE : u64 const=100
+      Int 2:20 1 : u64
+    File a.rook
+  Const 3:1 DOUBLE
+    Type 3:9 u64
+    Binary 3:20 * : u64
+      Name 3:15 NEXT : u64 const=101
+      Int 3:22 2 : u64
+    File a.rook
+  Const 4:1 NEG
+    Type 4:6 i32
+    Int 4:12 -5 : i32
+    File a.rook
+  Const 5:1 SUM
+    Type 5:6 i32
+    Binary 5:20 + : i32
+      Binary 5:16 * : i32
+        Name 5:12 NEG : i32 const=-5
+        Int 5:18 3 : i32
+      Int 5:22 1 : i32
+    File a.rook
+  Const 6:1 FLAG
+    Type 6:7 bool
+    Binary 6:19 > : bool
+      Name 6:14 NEXT : u64 const=101
+      Name 6:21 BASE : u64 const=100
+    File a.rook

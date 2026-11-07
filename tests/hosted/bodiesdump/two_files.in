@@ -1,0 +1,7 @@
+@@@ lib.rook
+pub A: u64 = 1
+B: u64 = 2
+@@@ a.rook
+pub C: u64 = 3
+fn f() {
+}

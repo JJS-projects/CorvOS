@@ -1,0 +1,4 @@
+@@@ a.rook
+LIMIT: u64 = 3 * 4
+NEG: i32 = -5
+FLAG: bool = not false

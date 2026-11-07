@@ -40,6 +40,143 @@ CHK_MESSAGE_WORDS: u64 = 8      // and a message carries at most 8 words (decisi
 CHK_NEW_PARAMS: u64 = 7
 CHK_NEW_WORDS: u64 = 16         // words of `new` arguments Raven keeps to restart an actor
 
+// ---- numbers of a constant ------------------------------------------------------------------
+//
+// A constant is computed as Fledgling computes it, with unbounded integers, then checked against the
+// type (`fit`). Every value that is kept fits its type, so one 64-bit magnitude and a sign are enough;
+// a result beyond 64 bits is `big`, which fits no type.
+
+CHK_MAX_U64: u64 = 18446744073709551615
+
+pub struct Num {
+    pub neg: bool
+    pub mag: u64
+    pub big: bool
+}
+
+fn chk_num(neg: bool, mag: u64) -> Num {
+    return Num(neg: neg and mag != 0, mag: mag, big: false)
+}
+
+fn chk_num_big() -> Num {
+    return Num(neg: false, mag: 0, big: true)
+}
+
+fn chk_num_eq(a: Num, b: Num) -> bool {
+    return a.neg == b.neg and a.mag == b.mag
+}
+
+fn chk_num_less(a: Num, b: Num) -> bool {
+    if a.neg != b.neg {
+        return a.neg
+    }
+    if a.neg {
+        return b.mag < a.mag
+    }
+    return a.mag < b.mag
+}
+
+fn chk_num_negate(a: Num) -> Num {
+    return chk_num(not a.neg, a.mag)
+}
+
+fn chk_num_add(a: Num, b: Num) -> Num {
+    if a.big or b.big {
+        return chk_num_big()
+    }
+    if a.neg == b.neg {
+        if a.mag > CHK_MAX_U64 - b.mag {
+            return chk_num_big()
+        }
+        return chk_num(a.neg, a.mag + b.mag)
+    }
+    if a.mag >= b.mag {
+        return chk_num(a.neg, a.mag - b.mag)
+    }
+    return chk_num(b.neg, b.mag - a.mag)
+}
+
+fn chk_num_mul(a: Num, b: Num) -> Num {
+    if a.big or b.big {
+        return chk_num_big()
+    }
+    if a.mag == 0 or b.mag == 0 {
+        return chk_num(false, 0)
+    }
+    if a.mag > CHK_MAX_U64 / b.mag {
+        return chk_num_big()
+    }
+    return chk_num(a.neg != b.neg, a.mag * b.mag)
+}
+
+/// Division rounding toward zero (`b` is not 0).
+fn chk_num_div(a: Num, b: Num) -> Num {
+    return chk_num(a.neg != b.neg, a.mag / b.mag)
+}
+
+/// `a - b * trunc_div(a, b)`: the sign of `a`.
+fn chk_num_rem(a: Num, b: Num) -> Num {
+    return chk_num(a.neg, a.mag % b.mag)
+}
+
+/// The 64 bits of two's complement of `a`.
+fn chk_num_bits(a: Num) -> u64 {
+    if a.neg {
+        return (a.mag xor CHK_MAX_U64) + 1
+    }
+    return a.mag
+}
+
+/// The number whose 64 bits of two's complement are `bits`, read as signed or not.
+fn chk_num_from_bits(bits: u64, signed: bool) -> Num {
+    if signed and bits >= 9223372036854775808 {
+        return chk_num(true, (bits xor CHK_MAX_U64) + 1)
+    }
+    return chk_num(false, bits)
+}
+
+/// `1 shl count - 1` for count in 0..64, and all 64 bits for 64.
+fn chk_low_mask(count: u64) -> u64 {
+    if count >= 64 {
+        return CHK_MAX_U64
+    }
+    return (1 shl count) - 1
+}
+
+CHK_NOTE_SLOT: u64 = 0          // what the checker records on a node (docs/self-hosting.md): the keys, in the
+CHK_NOTE_END_SLOT: u64 = 1      // order the dump writes them. A key with a sign (lo, hi, const) has the sign
+CHK_NOTE_SUBJECT_SLOT: u64 = 2  // in the word after its value.
+CHK_NOTE_SELF_SLOT: u64 = 3
+CHK_NOTE_RESULT_SLOT: u64 = 4
+CHK_NOTE_TEMP: u64 = 5
+CHK_NOTE_ARGS_SLOT: u64 = 6
+CHK_NOTE_ARGS_WORDS: u64 = 7
+CHK_NOTE_PAYLOAD: u64 = 8
+CHK_NOTE_PAYLOAD_WORDS: u64 = 9
+CHK_NOTE_HANDLER_INDEX: u64 = 10
+CHK_NOTE_WORDS: u64 = 11
+CHK_NOTE_NUMBER: u64 = 12
+CHK_NOTE_STOPPED: u64 = 13
+CHK_NOTE_LO: u64 = 14
+CHK_NOTE_HI: u64 = 16
+CHK_NOTE_CONST: u64 = 18
+CHK_NOTE_NSLOTS: u64 = 20
+CHK_NOTE_TYPE: u64 = 21
+CHK_NOTE_CONST_STR: u64 = 22    // the node of the text a name stands for
+CHK_NOTE_VARIANT: u64 = 23      // row of the variants, plus one
+CHK_NOTE_STRUCT: u64 = 24       // row of the types
+CHK_NOTE_FLAGS: u64 = 25        // 1 scalar, 2 send
+CHK_NOTE_STRIDE: u64 = 32       // words of a row of notes: the mask of the keys set, then a word a key
+
+pub struct ConstInfo {
+    pub name: Text
+    pub ty: u64
+    pub decl: u64               // the Const node
+    pub value: Num              // a number, bool (0 or 1); 0 for text
+    pub text_node: u64          // the Str node of a text constant, else 0
+}
+
+
 pub struct TypeInfo {
     pub kind: u64
     pub name: Text
@@ -116,6 +253,14 @@ pub struct Checker {
     pub import_order: List<u64>         // the files that have imports, in the order of their first
     exports: List<TextMap<u64>>         // by file number: name -> the declaring node
     unit: u64
+    bool_type: u64
+    u8_type: u64
+    u64_type: u64
+    in_fn: bool                         // checking a function body (else a constant)
+    note_rows: List<u64>                // by node: 0, or the row of `notes` holding what was recorded on it
+    notes: List<u64>
+    const_names: TextMap<u64>           // constant name -> row of const_rows
+    pub const_rows: List<ConstInfo>     // in the order checked
     file: u64                           // the file of the code being checked
     pub failed: bool
     building: bool                      // the first error is being written
@@ -153,6 +298,14 @@ pub struct Checker {
         .import_order = List(region: region)
         .exports = List(region: region)
         .unit = 0
+        .bool_type = 0
+        .u8_type = 0
+        .u64_type = 0
+        .in_fn = false
+        .note_rows = List(region: region)
+        .notes = List(region: region)
+        .const_names = TextMap(region: region)
+        .const_rows = List(region: region)
         .file = 0
         .failed = false
         .building = false
@@ -280,6 +433,12 @@ pub struct Checker {
         .say("`")
         .say_text(t)
         .say("`")
+    }
+
+    mut fn say_byte(b: u8) {
+        if .building {
+            .error.push(b)
+        }
     }
 
     mut fn say_number(n: u64) {
@@ -445,6 +604,9 @@ pub struct Checker {
         .named_type("i64")
         id: u64 = .add_type(CHK_BOOL, .quoted("bool"), 0)
         .type_names.put(.quoted("bool"), id)
+        .bool_type = id
+        .u8_type = .named_int("u8")
+        .u64_type = .named_int("u64")
     }
 
     mut fn named_type(name: Bytes) {
@@ -1587,7 +1749,1045 @@ pub struct Checker {
         }
     }
 
+
+    // ---- what the checker records on a node (decision 165) --------------------------------------
+    //
+    // Side tables, not fields of the nodes: `note_rows` says, for a node, which row of `notes` holds what
+    // was recorded on it. A row is a mask of the keys that are set, then one word per key.
+
+    mut fn set_note(n: u64, key: u64, value: u64) {
+        grow: loop .note_rows.len() <= n {
+            .note_rows.push(0)
+        }
+        mut row: u64 = .note_rows.get(n)
+        if row == 0 {
+            row = .notes.len() / CHK_NOTE_STRIDE + 1
+            fill: loop k: u64 in 0..CHK_NOTE_STRIDE {
+                .notes.push(0)
+            }
+            .note_rows.set(n, row)
+        }
+        base: u64 = (row - 1) * CHK_NOTE_STRIDE
+        .notes.set(base, .notes.get(base) or (1 shl key))
+        .notes.set(base + 1 + key, value)
+    }
+
+    pub fn note_has(n: u64, key: u64) -> bool {
+        if n >= .note_rows.len() {
+            return false
+        }
+        row: u64 = .note_rows.get(n)
+        if row == 0 {
+            return false
+        }
+        return (.notes.get((row - 1) * CHK_NOTE_STRIDE) and (1 shl key)) != 0
+    }
+
+    pub fn note_get(n: u64, key: u64) -> u64 {
+        return .notes.get((.note_rows.get(n) - 1) * CHK_NOTE_STRIDE + 1 + key)
+    }
+
+    /// Records the value of a constant (a number, or a bool as 0 or 1) on a node.
+    mut fn set_note_value(n: u64, key: u64, v: Num) {
+        .set_note(n, key, v.mag)
+        .set_note(n, key + 1, if v.neg { 1 } else { 0 })
+    }
+
+    fn note_value(n: u64, key: u64) -> Num {
+        return chk_num(.note_get(n, key + 1) == 1, .note_get(n, key))
+    }
+
+    // ---- integer types ---------------------------------------------------------------------------
+
+    fn is_int(ty: u64) -> bool {
+        return .types.get(ty).kind == CHK_INT
+    }
+
+    fn int_bits(ty: u64) -> u64 {
+        name: Text = copy(.types.get(ty).name)
+        if name.len() == 2 {
+            return (name.at(1) - '0') as u64
+        }
+        return (name.at(1) - '0') as u64 * 10 + (name.at(2) - '0') as u64
+    }
+
+    fn int_signed(ty: u64) -> bool {
+        return .types.get(ty).name.at(0) == 'i'
+    }
+
+    fn int_min(ty: u64) -> Num {
+        if .int_signed(ty) {
+            return chk_num(true, 1 shl (.int_bits(ty) - 1))
+        }
+        return chk_num(false, 0)
+    }
+
+    fn int_max(ty: u64) -> Num {
+        if .int_signed(ty) {
+            return chk_num(false, chk_low_mask(.int_bits(ty) - 1))
+        }
+        return chk_num(false, chk_low_mask(.int_bits(ty)))
+    }
+
+    fn fits(ty: u64, v: Num) -> bool {
+        return not v.big and not chk_num_less(v, .int_min(ty)) and not chk_num_less(.int_max(ty), v)
+    }
+
+    /// Keeps the low bits of `v` that `ty` has (what `as` and `wrap` do to a constant).
+    fn wrap_to(ty: u64, v: Num) -> Num {
+        bits: u64 = .int_bits(ty)
+        mask: u64 = chk_low_mask(bits)
+        mut kept: u64 = chk_num_bits(v) and mask
+        if .int_signed(ty) and bits < 64 and kept >= (1 shl (bits - 1)) {
+            kept = kept or (mask xor CHK_MAX_U64)
+        }
+        return chk_num_from_bits(kept, .int_signed(ty))
+    }
+
+    /// Can every value of `src` be represented in `dst`?
+    fn lossless(src: u64, dst: u64) -> bool {
+        if src == .bool_type {
+            return .is_int(dst)
+        }
+        if not .is_int(src) or not .is_int(dst) {
+            return false
+        }
+        return not chk_num_less(.int_min(src), .int_min(dst)) and not chk_num_less(.int_max(dst), .int_max(src))
+    }
+
+    mut fn say_type(ty: u64) {
+        .say_text(.types.get(ty).name)
+    }
+
+    mut fn say_num(v: Num) {
+        if v.neg {
+            .say("-")
+        }
+        .say_number(v.mag)
+    }
+
+    fn named_int(name: Bytes) -> u64 {
+        match .type_names.find(.quoted(name)) {
+            Some(value: id) => return id
+            None => return 0
+        }
+    }
+
+    /// The value written in an `Int` or `Char` node.
+    fn literal_value(e: u64) -> Num {
+        text: Text = copy(.nodes.get(e).text)
+        mut neg: bool = false
+        mut mag: u64 = 0
+        reading: loop k: u64 in 0..text.len() {
+            b: u8 = text.at(k)
+            if b == '-' {
+                neg = true
+            } else {
+                mag = mag * 10 + (b - '0') as u64
+            }
+        }
+        return chk_num(neg, mag)
+    }
+
+    fn untyped_literal(e: u64) -> bool {
+        return .kind_is(e, "Int") or .kind_is(e, "Char")
+    }
+
+    // ---- constants -------------------------------------------------------------------------------
+
+    fn is_screaming(name: Text) -> bool {
+        if name.len() == 0 or name.at(0) < 'A' or name.at(0) > 'Z' {
+            return false
+        }
+        scanning: loop k: u64 in 1..name.len() {
+            b: u8 = name.at(k)
+            upper: bool = (b >= 'A' and b <= 'Z') or (b >= '0' and b <= '9')
+            if b == '_' {
+                if k + 1 == name.len() {
+                    return false
+                }
+                next: u8 = name.at(k + 1)
+                if not ((next >= 'A' and next <= 'Z') or (next >= '0' and next <= '9')) {
+                    return false
+                }
+            } else if not upper {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Checks the top-level constants in order, each may use the ones before it (the step of
+    /// `Checker.program` after the declarations).
+    pub mut fn constants() {
+        if .failed {
+            return
+        }
+        items: List<u64> = copy(.nodes.get(.root).kids)
+        scanning: loop k: u64 in 0..(items.len()) {
+            item: u64 = items.get(k)
+            if not .kind_is(item, "Const") {
+                continue scanning
+            }
+            name: Text = .name_of(item)
+            if not .is_screaming(name) {
+                .fail_node(item)
+                .say("top-level constants are SCREAMING_CASE, like ")
+                snake: Text = .to_snake(name)
+                .say("`")
+                upper: loop j: u64 in 0..snake.len() {
+                    b: u8 = snake.at(j)
+                    .say_byte(if b >= 'a' and b <= 'z' { b - 32 } else { b })
+                }
+                .say("`")
+                .say(": ")
+                .say_name(name)
+                return
+            }
+            .file = .file_of(item)
+            .declare_unique(name, item)
+            if .failed {
+                return
+            }
+            ty: u64 = .resolve_type(.kid(item, 0))
+            if .failed {
+                return
+            }
+            .in_fn = false
+            value: u64 = .kid(item, 1)
+            discard .expr(value, ty, 0)
+            if .failed {
+                return
+            }
+            mut result: Num = chk_num(false, 0)
+            mut text_node: u64 = 0
+            if .is_aggregate(ty) {
+                if not .kind_is(value, "Str") {
+                    .fail_node(value)
+                    .say("constants must be numbers, bools or text")
+                    return
+                }
+                text_node = value
+            } else {
+                result = .const_eval(value)
+                if .failed {
+                    return
+                }
+            }
+            .const_names.put(name, .const_rows.len())
+            .const_rows.push(ConstInfo(name: copy(name), ty: ty, decl: item, value: copy(result), text_node: text_node))
+            .declared.put(name, 1)
+        }
+    }
+
+    // ---- expressions -----------------------------------------------------------------------------
+
+    /// Checks `e`, records its type and returns it (0 after an error). If `expected` is not 0 the
+    /// expression must have that type. A `hint` only guides the types of literals inside `e`; a mismatch
+    /// is reported by the caller.
+    mut fn expr(e: u64, expected: u64, hint: u64) -> u64 {
+        guide: u64 = if expected != 0 { expected } else { hint }
+        ty: u64 = .infer(e, guide)
+        if .failed {
+            return 0
+        }
+        .set_note(e, CHK_NOTE_TYPE, ty)
+        if expected != 0 and ty != expected {
+            .fail_node(e)
+            .say("expected ")
+            .say_type(expected)
+            .say(", found ")
+            .say_type(ty)
+            if .types.get(expected).kind == CHK_INTERFACE and .types.get(ty).kind == CHK_ACTOR {
+                .say(": hand out only what the interface allows with `narrow(..., ")
+                .say_type(expected)
+                .say(")`")
+            }
+            return 0
+        }
+        return ty
+    }
+
+    /// An error in a constant: what `Checker` says about code that is not allowed there.
+    mut fn constant_error(e: u64, message: Bytes) -> u64 {
+        .fail_node(e)
+        .say(message)
+        return 0
+    }
+
+    mut fn infer(e: u64, expected: u64) -> u64 {
+        node: Node = .nodes.get(e)
+        if .kind_is(e, "Int") or .kind_is(e, "Char") {
+            mut ty: u64 = .u64_type
+            if .is_int(expected) {
+                ty = expected
+            } else if .kind_is(e, "Char") {
+                ty = .u8_type
+            }
+            v: Num = .literal_value(e)
+            if not .fits(ty, v) {
+                .fail_node(e)
+                .say("literal ")
+                .say_num(v)
+                .say(" is out of range for ")
+                .say_type(ty)
+                .say(" (")
+                .say_num(.int_min(ty))
+                .say(" to ")
+                .say_num(.int_max(ty))
+                .say(")")
+                return 0
+            }
+            return ty
+        }
+        if .kind_is(e, "Bool") {
+            return .bool_type
+        }
+        if .kind_is(e, "Str") {
+            return .bytes_type(e)
+        }
+        if .kind_is(e, "Name") {
+            return .infer_name(e, expected)
+        }
+        if .kind_is(e, "Unary") {
+            operand: u64 = .kid(e, 0)
+            if node.text.same_as("-") {
+                ty: u64 = .expr(operand, 0, if .is_int(expected) { expected } else { 0 })
+                if .failed {
+                    return 0
+                }
+                if not (.is_int(ty) and .int_signed(ty)) {
+                    .fail_node(e)
+                    .say("can't negate a value of type ")
+                    .say_type(ty)
+                    return 0
+                }
+                return ty
+            }
+            ty: u64 = .expr(operand, 0, if expected == .bool_type or .is_int(expected) { expected } else { 0 })
+            if .failed {
+                return 0
+            }
+            if ty != .bool_type and not .is_int(ty) {
+                .fail_node(e)
+                .say("`not` needs a bool or an integer, found ")
+                .say_type(ty)
+                return 0
+            }
+            return ty
+        }
+        if .kind_is(e, "IfExpr") {
+            discard .expr(.kid(e, 0), .bool_type, 0)
+            if .failed {
+                return 0
+            }
+            return .same_type_pair(.kid(e, 1), .kid(e, 2), expected, "both branches of `if`")
+        }
+        if .kind_is(e, "Binary") {
+            return .binary(e, expected)
+        }
+        if .kind_is(e, "Cast") {
+            return .cast(e)
+        }
+        if .kind_is(e, "Call") {
+            return .infer_call(e)
+        }
+        if .kind_is(e, "StructLit") {
+            return .infer_struct_literal(e, expected)
+        }
+        if .kind_is(e, "Consume") {
+            return .constant_error(e, "constants can't consume")
+        }
+        if .kind_is(e, "Copy") {
+            ty: u64 = .expr(.kid(e, 0), 0, 0)
+            if .failed {
+                return 0
+            }
+            if not .is_aggregate(ty) {
+                .fail_node(.kid(e, 0))
+                .say_type(ty)
+                .say(" values are always copied; `copy(...)` is for structs and enums")
+                return 0
+            }
+            return .unported(e)
+        }
+        if .kind_is(e, "SelfValue") {
+            return .constant_error(e, "`.` on its own is a method's own value, so it only works inside methods")
+        }
+        if .kind_is(e, "SelfRef") {
+            return .constant_error(e, "`self` is the actor itself, so it only works inside an actor")
+        }
+        if .kind_is(e, "Narrow") {
+            return .constant_error(e, "constants can't narrow references")
+        }
+        if .kind_is(e, "Spawn") {
+            return .constant_error(e, "constants can't spawn actors")
+        }
+        if .kind_is(e, "MatchExpr") {
+            return .constant_error(e, "constants can't use `match`")
+        }
+        if .kind_is(e, "MutArg") {
+            return .constant_error(e, "`mut` only marks an argument passed to a `mut` parameter")
+        }
+        return .unported(e)
+    }
+
+    /// A construct this step of the self-hosted checker does not check yet (docs/self-hosting.md): the
+    /// error says so, and no test or program of the repository reaches it.
+    mut fn unported(e: u64) -> u64 {
+        .fail_node(e)
+        .say("not checked yet: ")
+        .say_text(.nodes.get(e).kind)
+        return 0
+    }
+
+    mut fn infer_name(e: u64, expected: u64) -> u64 {
+        name: Text = copy(.nodes.get(e).text)
+        match .const_names.find(name) {
+            Some(value: row) => {
+                info: ConstInfo = .const_rows.get(row)
+                .require_visible(info.decl, name, e, 0)
+                if .failed {
+                    return 0
+                }
+                if info.text_node != 0 {
+                    .set_note(e, CHK_NOTE_CONST_STR, info.text_node)
+                } else {
+                    .set_note_value(e, CHK_NOTE_CONST, info.value)
+                }
+                return info.ty
+            }
+            None => { }
+        }
+        mut variant: u64 = 0
+        match .variant_names.find(name) {
+            Some(value: row) => variant = row + 1
+            None => { }
+        }
+        if variant == 0 and .generic_variants.contains(name) {
+            variant = .generic_variant(name, expected, e)
+            if .failed {
+                return 0
+            }
+        }
+        if variant != 0 {
+            enum_id: u64 = .variants.get(variant - 1).enum_id
+            .require_visible(.types.get(enum_id).decl, .types.get(enum_id).name, e, 0)
+            if .failed {
+                return 0
+            }
+            owned: List<u64> = .fields_of(variant - 1, true)
+            if owned.len() > 0 {
+                .fail_node(e)
+                .say_name(name)
+                .say(" has fields: write `")
+                .say_text(name)
+                .say("(")
+                shown: loop j: u64 in 0..(owned.len()) {
+                    if j > 0 {
+                        .say(", ")
+                    }
+                    .say_text(.fields.get(owned.get(j)).name)
+                    .say(": ...")
+                }
+                .say(")`")
+                return 0
+            }
+            if not .in_fn {
+                return .constant_error(e, "constants must be numbers or bools")
+            }
+            return .unported(e)
+        }
+        if .fns.contains(name) {
+            .fail_node(e)
+            .say_name(name)
+            .say(" is a function; call it with `")
+            .say_text(name)
+            .say("(...)`")
+            return 0
+        }
+        match .type_names.find(name) {
+            Some(value: id) => {
+                kind: u64 = .types.get(id).kind
+                if kind == CHK_STRUCT or kind == CHK_ENUM or kind == CHK_ACTOR {
+                    .fail_node(e)
+                    .say_name(name)
+                    .say(" is a type, not a value")
+                    return 0
+                }
+            }
+            None => { }
+        }
+        .fail_node(e)
+        .say("unknown name ")
+        .say_name(name)
+        return 0
+    }
+
+    /// The row (plus one) of the variant `name` of a generic enum, in the instance a value being built
+    /// goes to: the type of the place it goes to decides it (decision 154).
+    mut fn generic_variant(name: Text, expected: u64, at: u64) -> u64 {
+        mut template: u64 = 0
+        match .generic_variants.find(name) {
+            Some(value: found) => template = found
+            None => { }
+        }
+        instance: u64 = .generic_instance(.name_of(template), expected, at)
+        if .failed {
+            return 0
+        }
+        scanning: loop k: u64 in 0..(.variants.len()) {
+            if .variants.get(k).enum_id == instance and .variants.get(k).name.equals(name) {
+                return k + 1
+            }
+        }
+        return 0
+    }
+
+    /// Which instance of the generic `base` a value being built is: the type of the place it goes to.
+    mut fn generic_instance(base: Text, expected: u64, at: u64) -> u64 {
+        if expected != 0 and .is_aggregate(expected) and .nodes.get(.types.get(expected).decl).generic_base.equals(base) {
+            return expected
+        }
+        if expected != 0 and (.is_aggregate(expected) or .is_int(expected) or expected == .bool_type) {
+            .fail_node(at)
+            .say("expected ")
+            .say_type(expected)
+            .say(", found a value of the generic type ")
+            .say_name(base)
+            return 0
+        }
+        .fail_node(at)
+        .say_name(base)
+        .say(" is generic: say which type this is by writing the type where the value goes, as in `x: ")
+        .say_text(base)
+        .say("<...> = ...`")
+        return 0
+    }
+
+    /// The type of text in quotes: the program's `Bytes` struct.
+    mut fn bytes_type(at: u64) -> u64 {
+        mut st: u64 = 0
+        match .type_names.find(.quoted("Bytes")) {
+            Some(value: id) => {
+                if .types.get(id).kind == CHK_STRUCT {
+                    st = id
+                }
+            }
+            None => { }
+        }
+        if st == 0 {
+            .fail_node(at)
+            .say("text in quotes is a `Bytes`, which this program doesn't include (it is declared in raven/trusted/bytes.rook)")
+            return 0
+        }
+        owned: List<u64> = .fields_of(st, false)
+        mut exact: bool = owned.len() == 2
+        if exact {
+            first: FieldInfo = .fields.get(owned.get(0))
+            second: FieldInfo = .fields.get(owned.get(1))
+            exact = first.name.same_as("address") and first.ty == .u64_type and second.name.same_as("length") and
+                second.ty == .u64_type
+        }
+        if not exact {
+            .fail_node(.types.get(st).decl)
+            .say("`Bytes` must have exactly the fields `address: u64` and `length: u64`, in that order")
+            return 0
+        }
+        return st
+    }
+
+    mut fn infer_call(e: u64) -> u64 {
+        callee: Text = copy(.nodes.get(e).text)
+        if .builtins.contains(callee) {
+            return .constant_error(e, "constants can't call functions")
+        }
+        if not .fns.contains(callee) {
+            .fail_node(e)
+            .say("unknown function ")
+            .say_name(callee)
+            return 0
+        }
+        return .constant_error(e, "constants can't call functions")
+    }
+
+    mut fn infer_struct_literal(e: u64, expected: u64) -> u64 {
+        name: Text = copy(.nodes.get(e).text)
+        mut variant: u64 = 0
+        match .variant_names.find(name) {
+            Some(value: row) => variant = row + 1
+            None => { }
+        }
+        if variant == 0 and .generic_variants.contains(name) {
+            variant = .generic_variant(name, expected, e)
+            if .failed {
+                return 0
+            }
+        }
+        mut st: u64 = 0
+        if variant != 0 {
+            st = .variants.get(variant - 1).enum_id
+        } else {
+            match .type_names.find(name) {
+                Some(value: id) => {
+                    if .types.get(id).kind == CHK_STRUCT {
+                        st = id
+                    }
+                }
+                None => { }
+            }
+        }
+        if st == 0 and .generic_types.contains(name) {
+            st = .generic_instance(name, expected, e)
+            if .failed {
+                return 0
+            }
+        }
+        if st != 0 {
+            .require_visible(.types.get(st).decl, .types.get(st).name, e, 0)
+            if .failed {
+                return 0
+            }
+            if variant == 0 and .types.get(st).new_sig != 0 {
+                return .constant_error(e, "constants must be numbers or bools")
+            }
+            if variant == 0 and .file_of(.types.get(st).decl) != .file {
+                owned: List<u64> = .fields_of(st, false)
+                mut public_count: u64 = 0
+                counting: loop j: u64 in 0..(owned.len()) {
+                    if .fields.get(owned.get(j)).public {
+                        public_count += 1
+                    }
+                }
+                if public_count < owned.len() {
+                    .fail_node(e)
+                    .say_name(.types.get(st).name)
+                    .say(" has private fields, so it can only be built in ")
+                    .say_text(.basename(.files.get(.file_of(.types.get(st).decl) - 1).path))
+                    return 0
+                }
+            }
+        }
+        if st == 0 {
+            match .type_names.find(name) {
+                Some(value: id) => {
+                    if .types.get(id).kind == CHK_ENUM {
+                        .fail_node(e)
+                        .say_name(name)
+                        .say(" is an enum: build a value with one of its variants, such as `")
+                        first: loop k: u64 in 0..(.variants.len()) {
+                            if .variants.get(k).enum_id == id {
+                                .say_text(.variants.get(k).name)
+                                break first
+                            }
+                        }
+                        .say("`")
+                        return 0
+                    }
+                }
+                None => { }
+            }
+            .fail_node(e)
+            .say("unknown type ")
+            .say_name(name)
+            return 0
+        }
+        if not .in_fn {
+            return .constant_error(e, "constants must be numbers or bools")
+        }
+        return .unported(e)
+    }
+
+    /// Checks two expressions that must share a type. The one that isn't a bare literal is checked
+    /// first, so the literal can take its type.
+    mut fn same_type_pair(a: u64, b: u64, hint: u64, what: Bytes) -> u64 {
+        mut aty: u64 = 0
+        mut bty: u64 = 0
+        if .untyped_literal(a) and not .untyped_literal(b) {
+            bty = .expr(b, 0, hint)
+            if .failed {
+                return 0
+            }
+            aty = .expr(a, 0, if .is_int(bty) { bty } else { hint })
+        } else {
+            aty = .expr(a, 0, hint)
+            if .failed {
+                return 0
+            }
+            bty = .expr(b, 0, aty)
+        }
+        if .failed {
+            return 0
+        }
+        if aty != bty {
+            .fail_node(b)
+            .say(what)
+            .say(" must have the same type, found ")
+            .say_type(aty)
+            .say(" and ")
+            .say_type(bty)
+            return 0
+        }
+        return aty
+    }
+
+    fn op_is(e: u64, op: Bytes) -> bool {
+        return .nodes.get(e).text.same_as(op)
+    }
+
+    fn is_shift(e: u64) -> bool {
+        return .op_is(e, "shl") or .op_is(e, "shr")
+    }
+
+    fn is_arith(e: u64) -> bool {
+        return .op_is(e, "+") or .op_is(e, "-") or .op_is(e, "*") or .op_is(e, "/") or .op_is(e, "%")
+    }
+
+    fn is_logic(e: u64) -> bool {
+        return .op_is(e, "and") or .op_is(e, "or") or .op_is(e, "xor")
+    }
+
+    fn is_equality(e: u64) -> bool {
+        return .op_is(e, "==") or .op_is(e, "!=")
+    }
+
+    mut fn say_op(e: u64) {
+        .say_name(.nodes.get(e).text)
+    }
+
+    mut fn binary(e: u64, expected: u64) -> u64 {
+        left: u64 = .kid(e, 0)
+        right: u64 = .kid(e, 1)
+        if .is_shift(e) {
+            lty: u64 = .expr(left, 0, if .is_int(expected) { expected } else { 0 })
+            if .failed {
+                return 0
+            }
+            if not .is_int(lty) {
+                .fail_node(left)
+                .say_op(e)
+                .say(" needs an integer on the left, found ")
+                .say_type(lty)
+                return 0
+            }
+            rty: u64 = .expr(right, 0, 0)
+            if .failed {
+                return 0
+            }
+            if not .is_int(rty) {
+                .fail_node(right)
+                .say("shift amount must be an integer, found ")
+                .say_type(rty)
+                return 0
+            }
+            return lty
+        }
+        // Both operands share a type. Check the side that isn't a bare literal first, so the literal
+        // can take its type.
+        mut hint: u64 = 0
+        if .is_arith(e) {
+            hint = if .is_int(expected) { expected } else { 0 }
+        } else if .is_logic(e) {
+            hint = if expected == .bool_type or .is_int(expected) { expected } else { 0 }
+        }
+        mut lty: u64 = 0
+        mut rty: u64 = 0
+        if .untyped_literal(left) and not .untyped_literal(right) {
+            rty = .expr(right, 0, hint)
+            if .failed {
+                return 0
+            }
+            lty = .expr(left, 0, if .is_int(rty) { rty } else { hint })
+        } else {
+            lty = .expr(left, 0, hint)
+            if .failed {
+                return 0
+            }
+            rty = .expr(right, 0, lty)
+        }
+        if .failed {
+            return 0
+        }
+        if lty != rty {
+            .fail_node(e)
+            .say_op(e)
+            .say(" needs both sides to have the same type, found ")
+            .say_type(lty)
+            .say(" and ")
+            .say_type(rty)
+            return 0
+        }
+        if .is_arith(e) {
+            if not .is_int(lty) {
+                .fail_node(e)
+                .say_op(e)
+                .say(" needs integers, found ")
+                .say_type(lty)
+                return 0
+            }
+            return lty
+        }
+        if .is_logic(e) {
+            if lty != .bool_type and not .is_int(lty) {
+                .fail_node(e)
+                .say_op(e)
+                .say(" needs bools or integers, found ")
+                .say_type(lty)
+                return 0
+            }
+            return lty
+        }
+        if .is_equality(e) {
+            if .types.get(lty).kind == CHK_ENUM {
+                .fail_node(e)
+                .say_op(e)
+                .say(" doesn't compare enums; use `match`, or write a method such as `equals` in ")
+                .say_name(.types.get(lty).name)
+                return 0
+            }
+            if .is_aggregate(lty) {
+                .fail_node(e)
+                .say_op(e)
+                .say(" doesn't compare structs; write a method such as `equals` in ")
+                .say_name(.types.get(lty).name)
+                return 0
+            }
+            if not .is_int(lty) and lty != .bool_type {
+                .fail_node(e)
+                .say("can't compare values of type ")
+                .say_type(lty)
+                return 0
+            }
+            return .bool_type
+        }
+        // ordering: < <= > >=
+        if not .is_int(lty) {
+            .fail_node(e)
+            .say_op(e)
+            .say(" needs integers, found ")
+            .say_type(lty)
+            return 0
+        }
+        return .bool_type
+    }
+
+    mut fn cast(e: u64) -> u64 {
+        target: u64 = .resolve_type(.kid(e, 1))
+        if .failed {
+            return 0
+        }
+        if not .is_int(target) {
+            .fail_node(.kid(e, 1))
+            .say("can only convert to integer types, not ")
+            .say_type(target)
+            return 0
+        }
+        is_as: bool = .nodes.get(e).text.same_as("as")
+        // A bare literal takes the target type directly: `5 as u8` is a u8 literal.
+        src: u64 = .expr(.kid(e, 0), 0, if is_as and .untyped_literal(.kid(e, 0)) { target } else { 0 })
+        if .failed {
+            return 0
+        }
+        if not .is_int(src) and src != .bool_type {
+            .fail_node(e)
+            .say("can't convert ")
+            .say_type(src)
+            .say(" to ")
+            .say_type(target)
+            return 0
+        }
+        if is_as and not .lossless(src, target) {
+            .fail_node(e)
+            .say("`as` can't convert ")
+            .say_type(src)
+            .say(" to ")
+            .say_type(target)
+            .say(": some values would be lost; use `wrap ")
+            .say_type(target)
+            .say("` to keep the low bits on purpose")
+            return 0
+        }
+        if not is_as and .lossless(src, target) {
+            .fail_node(e)
+            .say("`wrap` can't lose anything converting ")
+            .say_type(src)
+            .say(" to ")
+            .say_type(target)
+            .say("; use `as`")
+            return 0
+        }
+        return target
+    }
+
+    // ---- computing a constant --------------------------------------------------------------------
+
+    /// The value of a checked constant expression, with the overflow rules of running code (but
+    /// reported at compile time).
+    mut fn const_eval(e: u64) -> Num {
+        if .kind_is(e, "Int") or .kind_is(e, "Char") {
+            return .literal_value(e)
+        }
+        if .kind_is(e, "Bool") {
+            return chk_num(false, if .nodes.get(e).text.same_as("true") { 1 } else { 0 })
+        }
+        if .kind_is(e, "Name") {
+            if .note_has(e, CHK_NOTE_CONST) {
+                return .note_value(e, CHK_NOTE_CONST)
+            }
+            return chk_num(false, 0)
+        }
+        if .kind_is(e, "Cast") {
+            v: Num = .const_eval(.kid(e, 0))
+            if .failed {
+                return chk_num(false, 0)
+            }
+            return .wrap_to(.note_get(e, CHK_NOTE_TYPE), v)
+        }
+        if .kind_is(e, "Unary") {
+            v: Num = .const_eval(.kid(e, 0))
+            if .failed {
+                return chk_num(false, 0)
+            }
+            ty: u64 = .note_get(e, CHK_NOTE_TYPE)
+            if .op_is(e, "-") {
+                return .fit(chk_num_negate(v), e)
+            }
+            if ty == .bool_type {
+                return chk_num_add(chk_num(false, 1), chk_num_negate(v))
+            }
+            // wrap(~v, ty): the bits of v flipped, then the low bits of the type
+            return .wrap_to(ty, chk_num_from_bits(chk_num_bits(v) xor CHK_MAX_U64, true))
+        }
+        if .kind_is(e, "IfExpr") {
+            cond: Num = .const_eval(.kid(e, 0))
+            if .failed {
+                return chk_num(false, 0)
+            }
+            if cond.mag != 0 {
+                return .const_eval(.kid(e, 1))
+            }
+            return .const_eval(.kid(e, 2))
+        }
+        if .kind_is(e, "Binary") {
+            return .const_binary(e)
+        }
+        .fail_node(e)
+        .say("constants must be computed from literals and other constants")
+        return chk_num(false, 0)
+    }
+
+    mut fn fit(v: Num, e: u64) -> Num {
+        ty: u64 = .note_get(e, CHK_NOTE_TYPE)
+        if not .fits(ty, v) {
+            .fail_node(e)
+            .say("constant overflows ")
+            .say_type(ty)
+            return chk_num(false, 0)
+        }
+        return copy(v)
+    }
+
+    mut fn const_binary(e: u64) -> Num {
+        a: Num = .const_eval(.kid(e, 0))
+        if .failed {
+            return chk_num(false, 0)
+        }
+        b: Num = .const_eval(.kid(e, 1))
+        if .failed {
+            return chk_num(false, 0)
+        }
+        ty: u64 = .note_get(e, CHK_NOTE_TYPE)
+        if (.op_is(e, "/") or .op_is(e, "%")) and b.mag == 0 {
+            .fail_node(e)
+            .say("division by zero in constant")
+            return chk_num(false, 0)
+        }
+        if .op_is(e, "+") {
+            return .fit(chk_num_add(a, b), e)
+        }
+        if .op_is(e, "-") {
+            return .fit(chk_num_add(a, chk_num_negate(b)), e)
+        }
+        if .op_is(e, "*") {
+            return .fit(chk_num_mul(a, b), e)
+        }
+        if .op_is(e, "/") {
+            return .fit(chk_num_div(a, b), e)
+        }
+        if .op_is(e, "%") {
+            return chk_num_rem(a, b)
+        }
+        if .op_is(e, "and") or .op_is(e, "or") or .op_is(e, "xor") {
+            x: u64 = chk_num_bits(a)
+            y: u64 = chk_num_bits(b)
+            mut r: u64 = x xor y
+            if .op_is(e, "and") {
+                r = x and y
+            } else if .op_is(e, "or") {
+                r = x or y
+            }
+            return chk_num_from_bits(r, .int_signed(ty) and ty != .bool_type)
+        }
+        if .is_shift(e) {
+            bits: u64 = .int_bits(ty)
+            if b.neg or b.mag >= bits {
+                .fail_node(e)
+                .say("shift amount ")
+                .say_num(b)
+                .say(" is too large for ")
+                .say_type(ty)
+                return chk_num(false, 0)
+            }
+            if .op_is(e, "shr") {
+                if a.neg {
+                    // floor division by 2^b of a negative number
+                    shifted: u64 = (a.mag - 1) shr b.mag
+                    return chk_num(true, shifted + 1)
+                }
+                return chk_num(false, a.mag shr b.mag)
+            }
+            result: Num = .wrap_to(ty, chk_num_from_bits((chk_num_bits(a) and chk_low_mask(64 - b.mag)) shl b.mag, true))
+            mut back: Num = chk_num(false, 0)
+            if result.neg {
+                back = chk_num(true, ((result.mag - 1) shr b.mag) + 1)
+            } else {
+                back = chk_num(false, result.mag shr b.mag)
+            }
+            if not chk_num_eq(back, a) {
+                .fail_node(e)
+                .say("`shl` would lose set bits of ")
+                .say_type(ty)
+                return chk_num(false, 0)
+            }
+            return result
+        }
+        // comparisons
+        mut holds: bool = false
+        if .op_is(e, "==") {
+            holds = chk_num_eq(a, b)
+        } else if .op_is(e, "!=") {
+            holds = not chk_num_eq(a, b)
+        } else if .op_is(e, "<") {
+            holds = chk_num_less(a, b)
+        } else if .op_is(e, "<=") {
+            holds = not chk_num_less(b, a)
+        } else if .op_is(e, ">") {
+            holds = chk_num_less(b, a)
+        } else {
+            holds = not chk_num_less(a, b)
+        }
+        return chk_num(false, if holds { 1 } else { 0 })
+    }
+
     // ---- for the dump --------------------------------------------------
+
+    pub fn node_at(n: u64) -> Node {
+        return .nodes.get(n)
+    }
+
+    pub fn node_text(n: u64) -> Text {
+        return copy(.nodes.get(n).text)
+    }
 
     pub fn nodes_name(n: u64) -> Text {
         return .name_of(n)

@@ -1,0 +1,1 @@
+error a.rook:1:15: u64 values are always copied; `copy(...)` is for structs and enums

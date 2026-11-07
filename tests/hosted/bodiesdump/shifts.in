@@ -1,0 +1,8 @@
+@@@ a.rook
+A: u16 = 1 shl 15
+B: i32 = -8 shr 1
+C: u32 = 100 shr 3
+D: i32 = -1 shr 5
+E: u64 = 1 shl 63
+F: i8 = -64 shl 1
+G: i32 = -9 shr 1

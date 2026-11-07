@@ -1,0 +1,1 @@
+error a.rook:2:11: literal 300 is out of range for u8 (0 to 255)

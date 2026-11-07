@@ -1,0 +1,4 @@
+@@@ a.rook
+A: u32 = if 3 < 4 { 10 } else { 20 }
+B: u8 = if false { 1 } else { 2 }
+C: i32 = if true { -1 } else { 1 }

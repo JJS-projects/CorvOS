@@ -53,10 +53,57 @@ def _group(kind, items, text=""):
     return (kind, None, text, [tree(i) for i in items])
 
 
+_annotate = [False]     # set while `dump_bodies` builds a tree: nodes then carry what the checker found
+
+
+NOTE_DEFAULTS = {"words": 1, "stopped": 0, "payload_words": 0, "args_words": 0}   # the parser's value: not a note
+
+NOTE_KEYS = ("slot", "end_slot", "subject_slot", "self_slot", "result_slot", "temp", "args_slot",
+             "args_words", "payload", "payload_words", "handler_index", "words", "number", "stopped",
+             "lo", "hi", "const_value", "nslots")
+
+
+def _notes(n):
+    """What the checker recorded on node `n`, as the text ` : TYPE key=value ...` (decision 165): the
+    type first, then the numbers in the order of NOTE_KEYS (`const_value` is written `const`), then
+    `const_str=xHEX`, `variant=`, `struct=`, the flags `scalar` and `send`, and `slots=`. Nothing is
+    written for what the checker did not set, or left at the value the parser gives it (NOTE_DEFAULTS); a function that was not checked has no notes at all."""
+    parts = []
+    ty = getattr(n, "ty", None)
+    if ty is not None:
+        parts.append(f": {ty}")
+    if isinstance(n, S.FnDecl) and not getattr(n, "checked", False):
+        return " ".join(parts)
+    for key in NOTE_KEYS:
+        value = getattr(n, key, None)
+        if value is not None and NOTE_DEFAULTS.get(key) != value:
+            parts.append(f"{'const' if key == 'const_value' else key}={int(value)}")
+    if getattr(n, "const_str", None) is not None:
+        parts.append(f"const_str=x{n.const_str.data.hex()}")
+    variant = getattr(n, "variant", None)
+    if variant is not None:
+        parts.append(f"variant={variant.name}")
+    struct = getattr(n, "struct", None)
+    if struct is not None:
+        parts.append(f"struct={struct.name}")
+    if getattr(n, "scalar", False):
+        parts.append("scalar")
+    if getattr(n, "send", False):
+        parts.append("send")
+    slots = getattr(n, "slots", None)
+    if slots:
+        parts.append("slots=" + ",".join(f"{slot}/{offset}/{int(agg)}" for slot, offset, agg in slots))
+    return " ".join(parts)
+
+
 def tree(n):
     """The `(kind, pos, text, kids)` form of syntax node `n`. A top-level item of a program (it has
     `file`) ends with a `File` child; a generic's instance with a `GenericBase` child."""
     kind, pos, text, kids = _tree(n)
+    if _annotate[0]:
+        notes = _notes(n)
+        if notes:
+            text = f"{text} {notes}" if text else notes
     if isinstance(n, (S.StructDecl, S.EnumDecl)) and n.generic_base is not None:
         kids = kids + [("GenericBase", None, n.generic_base, [])]
     if getattr(n, "file", None) is not None:
@@ -328,3 +375,36 @@ def dump_declarations(stream):
     for name, sig in checker.fns.items():
         out.append(f"fn {name} {_signature(sig)}")
     return "\n".join(out) + "\n"
+
+
+# ---- the bodies of a checked program -----------------------------------------------------------
+
+def dump_bodies(stream, ownership=False, actors=False, bodies=True):
+    """The program in `stream` checked as far as the self-hosted checker is (decision 165): the
+    constants (`const NAME TYPE VALUE`), then the tree of the items declared in the stream's last file
+    after the checker, every expression with `: TYPE` and the slots and values it recorded. The
+    bodies of the other files are not checked (`bodies=` the last file); an actor's `new` and handlers
+    are checked only with `actors`; with `bodies=False` no body is. An error is one line, `error FILE:LINE:COL: MESSAGE`. The
+    self-hosted program is compiler/bodiesdump.rook."""
+    program = S.Program()
+    files = split_stream(stream)
+    try:
+        for path, trusted, source in files:
+            for item in parse(lex(source, path)).items:
+                item.file, item.trusted = path, trusted
+                program.items.append(item)
+        expand(program)
+        last = files[-1][0] if files else None
+        checker = check(program, ownership=ownership, bodies=(last if bodies else None) or "none", actor_bodies=actors)
+    except CompileError as err:
+        return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
+    out = [f"const {name} {ty} " + (f"x{value.data.hex()}" if isinstance(value, S.StrLit) else str(int(value)))
+           for name, (ty, value) in checker.consts.items()]
+    shown = S.Program()
+    shown.items = [item for item in program.items if item.file == last]
+    _annotate[0] = True
+    try:
+        body = _print_tree(tree(shown))
+    finally:
+        _annotate[0] = False
+    return "\n".join(out) + ("\n" if out else "") + body

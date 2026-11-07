@@ -1,0 +1,5 @@
+@@@ lib.rook
+HIDDEN: u64 = 5
+@@@ a.rook
+import lib: HIDDEN
+A: u64 = HIDDEN

@@ -1,0 +1,1 @@
+error a.rook:2:11: `Pair` has private fields, so it can only be built in lib.rook

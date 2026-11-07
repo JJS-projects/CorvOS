@@ -1,0 +1,1 @@
+error a.rook:1:31: constant overflows u64

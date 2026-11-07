@@ -1,0 +1,19 @@
+const LIMIT u64 12
+const NEG i32 -5
+const FLAG bool 1
+Program
+  Const 1:1 LIMIT
+    Type 1:8 u64
+    Binary 1:16 * : u64
+      Int 1:14 3 : u64
+      Int 1:18 4 : u64
+    File a.rook
+  Const 2:1 NEG
+    Type 2:6 i32
+    Int 2:12 -5 : i32
+    File a.rook
+  Const 3:1 FLAG
+    Type 3:7 bool
+    Unary 3:14 not : bool
+      Bool 3:18 false : bool
+    File a.rook

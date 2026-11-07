@@ -1,0 +1,20 @@
+const HELLO Bytes x6869
+const EMPTY Bytes x
+Program
+  Struct 1:5 pub Bytes
+    TypeParams
+    Fields
+      Field 2:9 pub address
+        Type 2:18 u64
+      Field 3:9 pub length
+        Type 3:17 u64
+    Methods
+    File a.rook
+  Const 5:1 HELLO
+    Type 5:8 Bytes
+    Str 5:16 x6869 : Bytes
+    File a.rook
+  Const 6:1 EMPTY
+    Type 6:8 Bytes
+    Str 6:16 x : Bytes
+    File a.rook
