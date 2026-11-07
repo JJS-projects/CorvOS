@@ -3074,6 +3074,9 @@ pub struct Checker {
             return
         }
         .set_note(decl, CHK_NOTE_NSLOTS, .nslots)
+        if info.role == CHK_ROLE_HANDLER {
+            .set_note(decl, CHK_NOTE_NUMBER, info.number)
+        }
         if .in_new {
             names: List<u64> = .fields_of(info.owner, false)
             all: loop j: u64 in 0..(names.len()) {
