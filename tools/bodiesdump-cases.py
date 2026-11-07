@@ -25,6 +25,7 @@ cases = {
  "empty_program": "",
  "imported_constant": [("lib.rook", False, "pub SHOWN: u64 = 5\n"), ("a.rook", False, "import lib: SHOWN\nA: u64 = SHOWN + 1\n")],
  "two_files": [("lib.rook", False, "pub A: u64 = 1\nB: u64 = 2\n"), ("a.rook", False, "pub C: u64 = 3\nfn f() {\n}\n")],
+ "actor_and_interface": "interface Go {\n    lossy on go(n: u8)\n}\nactor Bot: Go {\n    mut hits: u64\n    new() {\n        .hits = 0\n    }\n    lossy on go(n: u8) {\n    }\n}\nLIMIT: u64 = 2\n",
  "wide_bool": "A: bool = 1 < 2 and 3 < 4\n",
 }
 errors = {

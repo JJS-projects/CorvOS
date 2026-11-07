@@ -166,6 +166,7 @@ CHK_NOTE_CONST_STR: u64 = 22    // the node of the text a name stands for
 CHK_NOTE_VARIANT: u64 = 23      // row of the variants, plus one
 CHK_NOTE_STRUCT: u64 = 24       // row of the types
 CHK_NOTE_FLAGS: u64 = 25        // 1 scalar, 2 send
+CHK_NOTE_FILE: u64 = 26         // a method, `new` or handler: the file of its type (the checker sets `file` on them)
 CHK_NOTE_STRIDE: u64 = 32       // words of a row of notes: the mask of the keys set, then a word a key
 
 pub struct ConstInfo {
@@ -1575,6 +1576,7 @@ pub struct Checker {
                 .type_names.put(name, id)
                 .declared.put(name, 1)
                 .actor_ids.push(id)
+                .set_note(item, CHK_NOTE_TYPE, id)
             } else if .kind_is(item, "Interface") {
                 name: Text = .name_of(item)
                 .require_camel(name, "interface", item)
@@ -1586,6 +1588,7 @@ pub struct Checker {
                 .type_names.put(name, id)
                 .declared.put(name, 1)
                 .interface_ids.push(id)
+                .set_note(item, CHK_NOTE_TYPE, id)
             }
         }
         structs: loop k: u64 in 0..(.struct_ids.len()) {
@@ -1895,6 +1898,37 @@ pub struct Checker {
 
     // ---- constants -------------------------------------------------------------------------------
 
+    /// The checker gives the file of its type to each method, `new` and handler (Fledgling sets `file` on
+    /// them), which the dump shows as a `File` line below them.
+    mut fn mark_member_files() {
+        structs: loop k: u64 in 0..(.struct_ids.len()) {
+            decl: u64 = .types.get(.struct_ids.get(k)).decl
+            .mark_group(.kid(decl, 2), .file_of(decl))
+        }
+        enums: loop k: u64 in 0..(.enum_ids.len()) {
+            decl: u64 = .types.get(.enum_ids.get(k)).decl
+            .mark_group(.kid(decl, 2), .file_of(decl))
+        }
+        actors: loop k: u64 in 0..(.actor_ids.len()) {
+            decl: u64 = .types.get(.actor_ids.get(k)).decl
+            if .kid(decl, 2) != 0 {
+                .set_note(.kid(decl, 2), CHK_NOTE_FILE, .file_of(decl))
+            }
+            .mark_group(.kid(decl, 3), .file_of(decl))
+        }
+        interfaces: loop k: u64 in 0..(.interface_ids.len()) {
+            decl: u64 = .types.get(.interface_ids.get(k)).decl
+            .mark_group(.kid(decl, 0), .file_of(decl))
+        }
+    }
+
+    mut fn mark_group(group: u64, file: u64) {
+        members: List<u64> = copy(.nodes.get(group).kids)
+        marking: loop j: u64 in 0..(members.len()) {
+            .set_note(members.get(j), CHK_NOTE_FILE, file)
+        }
+    }
+
     fn is_screaming(name: Text) -> bool {
         if name.len() == 0 or name.at(0) < 'A' or name.at(0) > 'Z' {
             return false
@@ -1923,6 +1957,7 @@ pub struct Checker {
         if .failed {
             return
         }
+        .mark_member_files()
         items: List<u64> = copy(.nodes.get(.root).kids)
         scanning: loop k: u64 in 0..(items.len()) {
             item: u64 = items.get(k)
