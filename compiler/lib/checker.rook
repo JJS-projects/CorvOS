@@ -1907,7 +1907,8 @@ pub struct Checker {
         }
         enums: loop k: u64 in 0..(.enum_ids.len()) {
             decl: u64 = .types.get(.enum_ids.get(k)).decl
-            .mark_group(.kid(decl, 2), .file_of(decl))
+            file: u64 = .file_of(decl)
+            .mark_group(.kid(decl, 2), file)
         }
         actors: loop k: u64 in 0..(.actor_ids.len()) {
             decl: u64 = .types.get(.actor_ids.get(k)).decl

@@ -1,0 +1,15 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+    fn get() -> u64 {
+        return .x
+    }
+}
+enum Mode {
+    Fast
+    Slow
+    fn label() -> u8 {
+        return 1
+    }
+}
+LIMIT: u64 = 2
