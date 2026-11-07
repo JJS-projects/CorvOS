@@ -643,6 +643,7 @@ class HostedTest:
     input_path: str
     expected_path: str
     timeout: float = 60.0   # a safety net, not a speed test: a busy machine runs many QEMUs at once
+                            # (a whole program from live.txt gets 240 s: CI timed out on four at 60 s)
     live: bool = False      # no .out file: Fledgling's own output for the input is the expectation
     sources: tuple = ()     # live, for a stream stage: the repository files (paths from the root) it is made of
 
@@ -659,7 +660,7 @@ class HostedTest:
                 shown = f"{names[-1]} (+{len(names) - 1} files)" if len(names) > 1 else line
                 tests.append(cls(f"hosted/{program}/live:{shown}", f"{program} on {line}, against Fledgling",
                                  f"build/compiler/{program}.img", os.path.join(ROOT, names[-1] if names else line),
-                                 None, 60.0, True, names))
+                                 None, 240.0 if names else 60.0, True, names))
         return tests
 
     @classmethod
