@@ -386,3 +386,5 @@ tests/rook/errors/watch_stopped_args.rook
 tests/rook/errors/watch_stopped_reliable.rook
 tests/rook/errors/words_of_untrusted.rook
 tests/rook/errors/wrap_lossless.rook
+tests/rook/errors/struct_new_field_in_block.rook
+tests/rook/errors/struct_if_expression_copy.rook

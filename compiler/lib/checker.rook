@@ -3091,46 +3091,6 @@ pub struct Checker {
         return returns
     }
 
-    /// Does control never continue past statement `st`: it returns, breaks, continues or panics?
-    fn diverges(st: u64) -> bool {
-        if .kind_is(st, "Return") or .kind_is(st, "Break") or .kind_is(st, "Continue") {
-            return true
-        }
-        if .kind_is(st, "ExprStmt") {
-            call: u64 = .kid(st, 0)
-            return .kind_is(call, "Call") and .nodes.get(call).text.same_as("panic")
-        }
-        if .kind_is(st, "Block") {
-            return .block_diverges(st)
-        }
-        if .kind_is(st, "If") {
-            return .kid(st, 2) != 0 and .block_diverges(.kid(st, 1)) and .diverges(.kid(st, 2))
-        }
-        if .kind_is(st, "Match") {
-            arms: Node = .nodes.get(.kid(st, 1))
-            scanning: loop k: u64 in 0..(arms.kids.len()) {
-                if not .diverges(.kid(arms.kids.get(k), 1)) {
-                    return false
-                }
-            }
-            return true
-        }
-        if .kind_is(st, "Unsafe") {
-            return .block_diverges(.kid(st, 0))
-        }
-        return false
-    }
-
-    fn block_diverges(b: u64) -> bool {
-        stmts: List<u64> = copy(.nodes.get(b).kids)
-        scanning: loop k: u64 in 0..(stmts.len()) {
-            if .diverges(stmts.get(k)) {
-                return true
-            }
-        }
-        return false
-    }
-
     /// Does anything inside `n`, at any depth, `break label`?
     fn breaks_to(n: u64, label: Text) -> bool {
         node: Node = .nodes.get(n)

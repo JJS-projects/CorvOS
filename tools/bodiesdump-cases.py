@@ -100,6 +100,8 @@ errors = {
  "error_generic_variant_in_constant": "enum Maybe<T> {\n    Has(value: T)\n    Empty\n}\nA: Maybe<u64> = Empty\n",
  "error_type_in_other_file": [("lib.rook", False, "struct Hidden {\n    x: u64\n}\n"), ("a.rook", False, "A: Hidden = Hidden(x: 1)\n")],
  "error_private_fields_literal": [("lib.rook", False, "pub struct Pair {\n    pub a: u64\n    b: u64\n}\n"), ("a.rook", False, "import lib: Pair\nX: Pair = Pair(a: 1, b: 2)\n")],
+ "error_private_field_access": [("lib.rook", False, "pub struct Pair {\n    pub a: u64\n    b: u64\n}\n"), ("a.rook", False, "import lib: Pair\nfn f(p: Pair) -> u64 {\n    return p.b\n}\n")],
+ "error_private_method_call": [("lib.rook", False, "pub struct Pair {\n    pub a: u64\n    fn hidden() -> u64 {\n        return .a\n    }\n}\n"), ("a.rook", False, "import lib: Pair\nfn f(p: Pair) -> u64 {\n    return p.hidden()\n}\n")],
  "error_generic_variant": "enum Maybe<T> {\n    Has(value: T)\n    Empty\n}\nA: u64 = Empty\n",
 }
 for name, src in {**cases, **errors}.items():

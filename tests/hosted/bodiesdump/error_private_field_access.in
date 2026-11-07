@@ -1,0 +1,10 @@
+@@@ lib.rook
+pub struct Pair {
+    pub a: u64
+    b: u64
+}
+@@@ a.rook
+import lib: Pair
+fn f(p: Pair) -> u64 {
+    return p.b
+}
