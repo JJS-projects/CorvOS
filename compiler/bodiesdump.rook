@@ -170,6 +170,15 @@ fn put_node(console: Pl011, checker: Checker, files: List<SourceFile>, index: u6
     if node.generic_base.len() > 0 {
         put_extra(console, depth + 1, "GenericBase", node.generic_base)
     }
+    if checker.note_has(index, 26) {
+        put_indent(console, depth + 1)
+        console.write("File ")
+        if files.get(checker.note_get(index, 26) - 1).trusted {
+            console.write("trusted ")
+        }
+        put_text(console, files.get(checker.note_get(index, 26) - 1).path)
+        console.put('\n')
+    }
     if depth == 1 and node.file != 0 {
         put_indent(console, depth + 1)
         console.write("File ")

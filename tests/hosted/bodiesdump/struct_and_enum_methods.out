@@ -1,0 +1,37 @@
+const LIMIT u64 2
+Program
+  Struct 1:1 Pt
+    TypeParams
+    Fields
+      Field 2:5 x
+        Type 2:8 u64
+    Methods
+      Fn 3:5 get
+        Params
+        Type 3:17 u64
+        Block 3:21
+          Return 4:9
+            Access 4:17 x
+              none
+        File a.rook
+    File a.rook
+  Enum 7:1 Mode
+    TypeParams
+    Variants
+      Variant 8:5 Fast
+        none
+      Variant 9:5 Slow
+        none
+    Methods
+      Fn 10:5 label
+        Params
+        Type 10:19 u8
+        Block 10:22
+          Return 11:9
+            Int 11:16 1
+        File a.rook
+    File a.rook
+  Const 14:1 LIMIT
+    Type 14:8 u64
+    Int 14:14 2 : u64
+    File a.rook
