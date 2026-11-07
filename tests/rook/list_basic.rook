@@ -6,7 +6,7 @@
 // `get(4)` 7. `pop` gives 100 and leaves length 9. The sum of all nine remaining values is
 // 1 + 4 + 9 + 16 + 7 + 36 + 49 + 64 + 81 = 267. `clear` leaves length 0.
 // The room taken from the region is 4 + 8 + 16 = 28 slots of 8 bytes = 224 bytes (the growth doubles), so
-// 67108864 - 224 = 67108640 bytes are left.
+// 134217728 - 224 = 134217504 bytes are left.
 // expect: 10
 // expect: 1
 // expect: 100
@@ -16,7 +16,7 @@
 // expect: 9
 // expect: 267
 // expect: 0
-// expect: 67108640
+// expect: 134217504
 
 import devices: Mmio
 import print: print_u64
