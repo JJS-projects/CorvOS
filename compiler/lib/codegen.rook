@@ -1551,9 +1551,15 @@ pub struct Codegen {
             at += n
         }
         act: u64 = .ty_of(e)
+        // the words of the actor's fields
+        mut actor_words: u64 = 0
+        fields: List<u64> = .c.fields_of(act, false)
+        summing: loop j: u64 in 0..(fields.len()) {
+            actor_words += .words(.c.fields.get(fields.get(j)).ty)
+        }
         .o4()
         .ob("mov x0, #")
-        .num(.c.types.get(act).words)
+        .num(actor_words)
         .nl()
         .o4()
         .ob("adr x1, ")
