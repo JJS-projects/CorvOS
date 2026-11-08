@@ -1,0 +1,4 @@
+@@@ a.rook
+fn add(a: u64, b: u8, c: bool) -> u64 {
+    return a
+}

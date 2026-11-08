@@ -1,8 +1,8 @@
 // A `Region` hands out zeroed `Block`s that don't overlap; reads and writes are by byte or by
 // 64-bit word; the space left goes down by each block rounded up to 8 bytes.
 //
-// Worked out: the region starts with 128 MB = 134217728 bytes. A block of 20 bytes takes 24 (20
-// rounded up to a multiple of 8), a block of 16 takes 16, so 134217728 - 24 - 16 = 134217688 are
+// Worked out: the region starts with 256 MB = 268435456 bytes. A block of 20 bytes takes 24 (20
+// rounded up to a multiple of 8), a block of 16 takes 16, so 268435456 - 24 - 16 = 268435416 are
 // left. Block `a` reads 0 at 0 and at 19, and its length is 20. Writing 200 to a byte and
 // 1000000007 to word 1 (bytes 8 to 15) is read back as written; byte 8 of `a` is then 1000000007 mod
 // 256 = 7 (little endian: 1000000007 = 0x3B9ACA07, whose lowest byte is 0x07). Block `b` is untouched: 0.
@@ -13,7 +13,7 @@
 // expect: 1000000007
 // expect: 7
 // expect: 0
-// expect: 134217688
+// expect: 268435416
 
 import devices: Mmio
 import print: print_u64

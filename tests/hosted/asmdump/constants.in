@@ -1,0 +1,13 @@
+@@@ a.rook
+LIMIT: u64 = 10
+NEG: i32 = -3
+FLAG: bool = true
+fn f() -> u64 {
+    return LIMIT
+}
+fn g() -> i32 {
+    return NEG
+}
+fn h() -> bool {
+    return FLAG
+}

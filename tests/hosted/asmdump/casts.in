@@ -1,0 +1,4 @@
+@@@ a.rook
+fn f(a: u8, b: i16) -> u64 {
+    return a as u64 + b wrap u64 + true as u64
+}

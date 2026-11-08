@@ -1,7 +1,7 @@
 // The whole region can be taken in one block; after that there is nothing left and any block panics.
 //
-// Worked out: 128 MB is 134217728 bytes. That block fits exactly, leaving 0. The last word (word
-// 16777215) is written and read back (4); then a block of 1 byte does not fit.
+// Worked out: 256 MB is 268435456 bytes. That block fits exactly, leaving 0. The last word (word
+// 33554431) is written and read back (4); then a block of 1 byte does not fit.
 // expect: 0
 // expect: 4
 // expect-panic: the region is full at region.rook:*
@@ -12,10 +12,10 @@ import region: Block, Region, make_region
 
 fn test_main(peripherals: Mmio) {
     mut region: Region = make_region(peripherals)
-    all: Block = region.block(134217728)
+    all: Block = region.block(268435456)
     print_u64(region.left())
-    all.set64(16777215, 4)
-    print_u64(all.get64(16777215))
+    all.set64(33554431, 4)
+    print_u64(all.get64(33554431))
     more: Block = region.block(1)
     print_u64(more.len())
 }

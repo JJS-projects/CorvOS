@@ -1,0 +1,15 @@
+@@@ a.rook
+enum Sent {
+    Delivered
+}
+struct Bytes {
+    address: u64
+    length: u64
+}
+HELLO: Bytes = "hi"
+fn f() {
+    panic("stop")
+}
+fn g() -> Bytes {
+    return HELLO
+}

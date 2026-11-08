@@ -1,0 +1,16 @@
+@@@ a.rook
+struct Counter {
+    n: u64
+
+    fn get() -> u64 {
+        return .n
+    }
+
+    mut fn bump(by: u64) {
+        .n += by
+    }
+}
+fn f(c: mut Counter) -> u64 {
+    c.bump(2)
+    return c.get()
+}

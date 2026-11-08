@@ -1,0 +1,4 @@
+@@@ a.rook
+fn f(a: bool, b: bool) -> bool {
+    return not (a and b) or (a xor b)
+}

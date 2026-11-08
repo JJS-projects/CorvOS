@@ -1,0 +1,6 @@
+@@@ a.rook
+fn f(a: u8, b: u8, c: i32) -> i32 {
+    d: u8 = a shl b
+    e: u8 = a shr b
+    return (c shr 3) + (c shl 1)
+}

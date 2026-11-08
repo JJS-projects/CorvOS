@@ -1,0 +1,11 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+    y: u64
+}
+fn f(a: u64) -> Pt {
+    return Pt(x: a, y: a)
+}
+fn g() -> u64 {
+    return f(3).y
+}

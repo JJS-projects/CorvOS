@@ -23,7 +23,7 @@ protocol. `compiler/numberer.rook` is the stage-0 program: it numbers the lines 
 
 ## Memory: `Region` and `Block` (step 5b, decision 153)
 
-A hosted program gets memory from one 128 MB region at physical 64 MB, far larger than the 64 KB
+A hosted program gets memory from one 256 MB region at physical 64 MB, far larger than the 64 KB
 actor arena. `make_region(peripherals)` makes the one `Region` (only from the whole peripherals,
 and only once). `region.block(bytes)` returns a zeroed `Block`; nothing is ever freed, because a
 job runs once and ends. A `Block` is read and written by byte (`get`, `set`) or by 64-bit word

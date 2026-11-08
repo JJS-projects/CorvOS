@@ -1,0 +1,4 @@
+@@@ a.rook
+fn f() -> u64 {
+    return 7
+}

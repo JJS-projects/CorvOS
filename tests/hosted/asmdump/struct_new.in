@@ -1,0 +1,12 @@
+@@@ a.rook
+struct Box {
+    v: u64
+
+    new(start: u64) {
+        .v = start
+    }
+}
+fn f() -> u64 {
+    b: Box = Box(start: 4)
+    return b.v
+}

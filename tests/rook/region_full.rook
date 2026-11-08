@@ -1,6 +1,6 @@
 // A block that does not fit panics, and does not use any of the region.
 //
-// Worked out: 128 MB is 134217728 bytes; a block of 134217729 does not fit.
+// Worked out: 256 MB is 268435456 bytes; a block of 268435457 does not fit.
 // expect-panic: the region is full at region.rook:*
 
 import devices: Mmio
@@ -9,6 +9,6 @@ import region: Block, Region, make_region
 
 fn test_main(peripherals: Mmio) {
     mut region: Region = make_region(peripherals)
-    block: Block = region.block(134217729)
+    block: Block = region.block(268435457)
     print_u64(block.len())
 }

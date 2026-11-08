@@ -1,0 +1,14 @@
+@@@ a.rook
+fn f(n: u64) -> u64 {
+    mut s: u64 = 0
+    outer: loop s < n {
+        s += 1
+        if s == 5 {
+            break outer
+        }
+        if s == 3 {
+            continue outer
+        }
+    }
+    return s
+}

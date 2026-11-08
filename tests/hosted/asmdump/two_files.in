@@ -1,0 +1,9 @@
+@@@ lib.rook
+pub fn helper() -> u64 {
+    return 1
+}
+@@@ a.rook
+import lib: helper
+fn f() -> u64 {
+    return helper()
+}
