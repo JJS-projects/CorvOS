@@ -103,6 +103,7 @@ def compile_everything():
             dump_bodies(stream)
             dump_bodies(stream, ownership=True, actors=True)
             dump_bodies(stream, bodies=False)
+            dump_bodies(stream, ownership=True, actors=True, bodies="all")
     dump_bodies("@@@ a.rook\nA: u8 = 256\n")
     dump_bodies("@@@ a.rook\nstruct Box<T> {\n    value: T\n    fn get() -> T {\n        return copy(.value)\n    }\n}\n"
                 "fn f() -> u64 {\n    b: Box<u64> = Box(value: 1)\n    return b.get()\n}\n")

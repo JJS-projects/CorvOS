@@ -214,7 +214,7 @@ The Rook checker is compared under the same switches, in stages:
 | 5d-3c-0 (built) | constants, nothing in a function | `--dump-bodies --no-bodies` |
 | 5d-3c-1 (built) | + plain function and method bodies of the last file (and of the instances of generics declared there), ownership off, actors skipped | `--dump-bodies` |
 | 5d-3c-2 (built) | + actor `new` and handlers (a handler's declaration also carries its `number`) | `--dump-bodies --actors` |
-| 5d-3d-1/2 | + ownership, then every file's bodies | `--dump-bodies --ownership --actors` |
+| 5d-3d (built; the planned 5d-3d-1 and 5d-3d-2 in one) | + ownership (moves, locks, loop states) and the bodies of every file | `--dump-bodies --all-bodies --ownership --actors` |
 
 `compiler/bodiesdump.rook` is the hosted program: it reads a stream of files (as `declsdump` does), runs the
 generics pass and the declarations, then `Checker.constants()`, and prints the constants and the tree of the
@@ -235,14 +235,14 @@ a node (`words=1`, `stopped=0`, `payload_words=0`, `args_words=0`) is not writte
 checked has no notes. In Rook the notes are **side tables** of the checker (`note_rows`, `notes`: a row per
 node that has any), not fields of the nodes, so the parser's arena stays what the parser built.
 
-- 5d-3c-1 adds to `Checker`: `bodies()`, `function()`, the statements, every expression, calls and built-ins, struct and enum values, fields and methods, sends, `match`, `copy`, `consume`, `narrow`, `spawn`, `watch`, `stop` (ownership off: `consume` checks its operand but no move is recorded; the divergence code arrives with ownership in 5d-3d). Slots, temps and values are recorded as notes; `a += b` is rewritten to `a = a + b` in the tree, as Fledgling does. 5d-3c-2 adds an actor's `new` and handlers (the hosted program is compared with Fledgling's `--dump-bodies --actors`). Not yet: moves, locks and loop states (5d-3d).
+- 5d-3c-1 adds to `Checker`: `bodies()`, `function()`, the statements, every expression, calls and built-ins, struct and enum values, fields and methods, sends, `match`, `copy`, `consume`, `narrow`, `spawn`, `watch`, `stop` (ownership off: `consume` checks its operand but no move is recorded; the divergence code arrives with ownership in 5d-3d). Slots, temps and values are recorded as notes; `a += b` is rewritten to `a = a + b` in the tree, as Fledgling does. 5d-3c-2 adds an actor's `new` and handlers. 5d-3d adds ownership: what `consume` took is a list of (key, node) pairs kept in the order consumed, joined at `if`/`match`/loop exits as Fledgling's dictionaries are; a `match` locks the variable it lends from; a value lent as `mut` is not lent again in a call. The hosted program now checks the bodies of every file (Raven's too) with everything on; it still prints the tree of the last file only (decision 167). The stage is complete when it equals Fledgling's `--dump-bodies --all-bodies --ownership --actors`.
 - 5d-3c-0 was: literals, names, `not`/`-`, `if` as an expression, the binary operators, `as`/`wrap`, text in
   quotes, and every error a constant can give (`constants can't call functions`, ...). A construct that a
   constant can reach but that needs the machinery of bodies (a field of a text constant, `copy(HELLO)`) says
   `not checked yet: KIND`; nothing in the repository reaches it (`make selfhost-check` shows it if one does).
-- `make test` runs `tests/hosted/bodiesdump/`: 90 cases (written by `tools/bodiesdump-cases.py`; the constants
+- `make test` runs `tests/hosted/bodiesdump/`: 92 cases (written by `tools/bodiesdump-cases.py`; the constants
   of arithmetic, bitwise, shifts, casts, comparisons and int_literals are worked out on paper in the
-  harness test and the case names) and 389 programs in `live.txt` (twelve test programs with Raven's files, and every error test that needs no imports, one file each); `harness/dump_bodies` pins the format
+  harness test and the case names) and 390 programs in `live.txt` (twelve test programs with Raven's files, and every error test that needs no imports, one file each); `harness/dump_bodies` pins the format
   and the switches with a hand-worked example.
 - `make selfhost-check` runs `tools/selfhost-check.py bodiesdump` on every test program and compiler program.
 
