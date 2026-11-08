@@ -1,0 +1,21 @@
+// An actor's iso field read after it was consumed has no value.
+// alone
+// error: 18:19: `.kept` was consumed at 17:25, so it has no value here; assign it again first
+
+struct Reading {
+    temp: i32
+}
+
+actor Holder {
+    mut kept: iso Reading
+
+    new(first: iso Reading) {
+        .kept = copy(first)
+    }
+
+    pub lossy on take() {
+        gone: Reading = consume(.kept)
+        t: i32 = .kept.temp
+        .kept = gone
+    }
+}

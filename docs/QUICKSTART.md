@@ -11,7 +11,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 - Milestone 7 (supervision): restarts (7a, decision 148), `watch` (7b, 149), `stop`/`Gone`/`stopped`
   (7c, 150) and a supervisor written in Rook (7d, 151; `tests/rook/supervisor_demo.rook`,
   `docs/fault-tolerance.md`) are done. Drivers as actors and the DMA question remain, and
-  milestone 5 (self-hosting) is in progress, steps 5a (hosted runner, `compiler/numberer.rook`) and 5b (`Region`/`Block`, decision 153) done; then 6 (domains). Milestone 5d (the compiler in Rook, `compiler/`, `compiler/lib/`) has the lexer, parser, generics pass, the checker's declarations and, from 5d-3c-0 its constants and from 5d-3c-1 the bodies of functions, methods and actors; ownership follows in stages ([self-hosting.md](self-hosting.md), decision 165). Ownership 4c
+  milestone 5 (self-hosting) is in progress, steps 5a (hosted runner, `compiler/numberer.rook`) and 5b (`Region`/`Block`, decision 153) done; then 6 (domains). Milestone 5d (the compiler in Rook, `compiler/`, `compiler/lib/`) has the lexer, parser, generics pass, the checker's declarations and, from 5d-3c-0 its constants and from 5d-3c-1 the bodies of every function, method and actor with ownership (5d-3d); the code generator is next (5d-4) in stages ([self-hosting.md](self-hosting.md), decision 165). Ownership 4c
   (`freeze`/pool) is deferred.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
@@ -26,7 +26,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `python3 tests/run_tests.py [-v] PREFIX...` | Run tests by name or prefix (`rook/restart`, `error/`); `-v` lists every test. Needs images from a `make test` |
 | `make coverage` | Must exit 0 (compiler lines no test reaches, except `tools/coverage-gaps.txt`) |
 | `make selfhost-check` | Each self-hosted compiler stage against Fledgling on every Rook file (slow; not in `make test`) |
-| `python3 -m fledgling FILES [--trusted DIR] --dump-tokens\|--dump-tree\|--dump-expanded\|--dump-declarations\|--dump-bodies [--no-bodies] [--ownership] [--actors]` | The text each self-hosted stage must print for the same input |
+| `python3 -m fledgling FILES [--trusted DIR] --dump-tokens\|--dump-tree\|--dump-expanded\|--dump-declarations\|--dump-bodies [--no-bodies] [--all-bodies] [--ownership] [--actors]` | The text each self-hosted stage must print for the same input |
 | `make difftest` | Random arithmetic against a Python model |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |
 | `tools/new-error-test.py NAME "desc" < prog.rook` | Make an error test: writes a failing placeholder and shows the real error; read it, then `--accept NAME` fills the `// error:` line |

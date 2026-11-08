@@ -1,0 +1,10 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+}
+fn g() -> u64 {
+    mut a: Pt = Pt(x: 1)
+    b: Pt = consume(a)
+    a = Pt(x: 2)
+    return a.x + b.x
+}

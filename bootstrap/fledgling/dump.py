@@ -384,7 +384,7 @@ def dump_bodies(stream, ownership=False, actors=False, bodies=True):
     constants (`const NAME TYPE VALUE`), then the tree of the items declared in the stream's last file
     after the checker, every expression with `: TYPE` and the slots and values it recorded. The
     bodies of the other files are not checked (`bodies=` the last file); an actor's `new` and handlers
-    are checked only with `actors`; with `bodies=False` no body is. An error is one line, `error FILE:LINE:COL: MESSAGE`. The
+    are checked only with `actors`; with `bodies=False` no body is, with `bodies="all"` the bodies of every file are (the tree shown is still the last file's). An error is one line, `error FILE:LINE:COL: MESSAGE`. The
     self-hosted program is compiler/bodiesdump.rook."""
     program = S.Program()
     files = split_stream(stream)
@@ -395,7 +395,8 @@ def dump_bodies(stream, ownership=False, actors=False, bodies=True):
                 program.items.append(item)
         expand(program)
         last = files[-1][0] if files else None
-        checker = check(program, ownership=ownership, bodies=(last if bodies else None) or "none", actor_bodies=actors)
+        which = "all" if bodies == "all" else (last if bodies else None)
+        checker = check(program, ownership=ownership, bodies=which or "none", actor_bodies=actors)
     except CompileError as err:
         return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
     out = [f"const {name} {ty} " + (f"x{value.data.hex()}" if isinstance(value, S.StrLit) else str(int(value)))

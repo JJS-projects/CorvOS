@@ -389,3 +389,4 @@ tests/rook/errors/wrap_lossless.rook
 tests/rook/errors/struct_new_field_in_block.rook
 tests/rook/errors/struct_if_expression_copy.rook
 tests/rook/errors/val_arg_from_iso_field.rook
+tests/rook/errors/field_read_after_consume.rook

@@ -36,6 +36,8 @@ def main(argv=None):
                     help="with --dump-bodies: also track moves, locks and loop states")
     ap.add_argument("--no-bodies", action="store_true",
                     help="with --dump-bodies: check the constants only, no function body")
+    ap.add_argument("--all-bodies", action="store_true",
+                    help="with --dump-bodies: check the bodies of every file (the tree shown is the last file's)")
     ap.add_argument("--actors", action="store_true",
                     help="with --dump-bodies: also check actors' `new` and handlers")
     args = ap.parse_args(argv)
@@ -43,7 +45,7 @@ def main(argv=None):
     if args.dump_bodies:
         files = [(path, is_trusted(path, args.trusted), open(path).read()) for path in args.inputs]
         sys.stdout.write(dump_bodies(make_stream(files), ownership=args.ownership, actors=args.actors,
-                                          bodies=not args.no_bodies))
+                                          bodies="all" if args.all_bodies else not args.no_bodies))
         return 0
 
     if args.dump_declarations:

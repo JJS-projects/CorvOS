@@ -182,6 +182,7 @@ pub struct LocalInfo {
     pub kind: u64
     pub owned: bool             // an `iso` parameter: not a borrow, so it can be consumed
     pub is_val: bool            // a `val` parameter: read-only data that can be passed on
+    pub uid: u64                // a number no other variable of the function has
 }
 
 pub struct ConstInfo {
@@ -282,6 +283,15 @@ pub struct Checker {
     recv_mut: bool
     in_new: bool
     assigned: TextMap<u64>              // fields `new` has set so far
+    moved: List<u64>                    // what is consumed now: (key, consume node) pairs, in order
+    field_keys: List<Text>              // the actor fields that were consumed, by name
+    uid_names: List<Text>               // the name of each variable of the function, by number minus one
+    entry_moved: List<List<u64>>        // per enclosing loop: what was consumed at its start
+    entry_outside: List<List<u64>>      // ... and the variables that existed then
+    break_depths: List<u64>             // the loop each `break` so far leaves
+    break_states: List<List<u64>>       // ... and what was consumed there
+    lock_roots: List<Text>              // variables a `match` is lending a part of
+    lock_names: List<Text>              // ... and the binding that holds the loan
     unsafe_depth: u64
     pub slot_rows: List<u64>                // bindings of variant patterns: slot, offset, is-aggregate
     note_rows: List<u64>                // by node: 0, or the row of `notes` holding what was recorded on it
@@ -338,6 +348,15 @@ pub struct Checker {
         .recv_mut = false
         .in_new = false
         .assigned = TextMap(region: region)
+        .moved = List(region: region)
+        .field_keys = List(region: region)
+        .uid_names = List(region: region)
+        .entry_moved = List(region: region)
+        .entry_outside = List(region: region)
+        .break_depths = List(region: region)
+        .break_states = List(region: region)
+        .lock_roots = List(region: region)
+        .lock_names = List(region: region)
         .unsafe_depth = 0
         .slot_rows = List(region: region)
         .note_rows = List(region: region)
@@ -2214,6 +2233,10 @@ pub struct Checker {
         name: Text = copy(.nodes.get(e).text)
         if .in_fn and .lookup(name) != 0 {
             local: LocalInfo = .locals.get(.lookup(name) - 1)
+            .require_not_consumed(2 * local.uid, name, e)
+            if .failed {
+                return 0
+            }
             .set_note(e, CHK_NOTE_SLOT, local.slot)
             return local.ty
         }
@@ -2981,8 +3004,9 @@ pub struct Checker {
             }
         }
         slot: u64 = .alloc(if kind == CHK_LOCAL_REGION { .words_of_type(ty) } else { 1 })
+        .uid_names.push(copy(name))
         .locals.push(LocalInfo(name: copy(name), ty: ty, mutable: mutable, slot: slot, kind: kind, owned: owned,
-                               is_val: is_val))
+                               is_val: is_val, uid: .uid_names.len()))
         return slot
     }
 
@@ -3032,6 +3056,15 @@ pub struct Checker {
         .recv_mut = info.mutating
         .in_new = info.role == CHK_ROLE_NEW
         .assigned = TextMap(region: .region)
+        .moved = List(region: .region)
+        .field_keys = List(region: .region)
+        .uid_names = List(region: .region)
+        .entry_moved = List(region: .region)
+        .entry_outside = List(region: .region)
+        .break_depths = List(region: .region)
+        .break_states = List(region: .region)
+        .lock_roots = List(region: .region)
+        .lock_names = List(region: .region)
         .unsafe_depth = 0
         .file = .file_of(decl)
         .enter_scope()
@@ -3064,6 +3097,12 @@ pub struct Checker {
         returns: bool = .block(.kid(decl, 2))
         if .failed {
             return
+        }
+        if not .block_diverges(.kid(decl, 2)) {
+            .require_fields_back()
+            if .failed {
+                return
+            }
         }
         if info.ret != .unit and not returns {
             .fail_node(decl)
@@ -3112,6 +3151,46 @@ pub struct Checker {
         }
         .leave_scope()
         return returns
+    }
+
+    /// Does control never continue past statement `st`: it returns, breaks, continues or panics?
+    fn diverges(st: u64) -> bool {
+        if .kind_is(st, "Return") or .kind_is(st, "Break") or .kind_is(st, "Continue") {
+            return true
+        }
+        if .kind_is(st, "ExprStmt") {
+            call: u64 = .kid(st, 0)
+            return .kind_is(call, "Call") and .nodes.get(call).text.same_as("panic")
+        }
+        if .kind_is(st, "Block") {
+            return .block_diverges(st)
+        }
+        if .kind_is(st, "If") {
+            return .kid(st, 2) != 0 and .block_diverges(.kid(st, 1)) and .diverges(.kid(st, 2))
+        }
+        if .kind_is(st, "Match") {
+            arms: Node = .nodes.get(.kid(st, 1))
+            scanning: loop k: u64 in 0..(arms.kids.len()) {
+                if not .diverges(.kid(arms.kids.get(k), 1)) {
+                    return false
+                }
+            }
+            return true
+        }
+        if .kind_is(st, "Unsafe") {
+            return .block_diverges(.kid(st, 0))
+        }
+        return false
+    }
+
+    fn block_diverges(b: u64) -> bool {
+        stmts: List<u64> = copy(.nodes.get(b).kids)
+        scanning: loop k: u64 in 0..(stmts.len()) {
+            if .diverges(stmts.get(k)) {
+                return true
+            }
+        }
+        return false
     }
 
     /// Does anything inside `n`, at any depth, `break label`?
@@ -3211,11 +3290,19 @@ pub struct Checker {
             if .failed {
                 return false
             }
+            before: List<u64> = .state_clone(.moved)
             then_returns: bool = .block(.kid(s, 1))
             if .failed {
                 return false
             }
+            mut ends: List<List<u64>> = List(region: .region)
+            if not .block_diverges(.kid(s, 1)) {
+                ends.push(.moved)
+            }
+            .moved = .state_clone(before)
             if .kid(s, 2) == 0 {
+                ends.push(.moved)
+                .moved = .merge_states(ends, before)
                 return false
             }
             mut else_returns: bool = false
@@ -3224,6 +3311,13 @@ pub struct Checker {
             } else {
                 else_returns = .block(.kid(s, 2))
             }
+            if .failed {
+                return false
+            }
+            if not .diverges(.kid(s, 2)) {
+                ends.push(.moved)
+            }
+            .moved = .merge_states(ends, before)
             return then_returns and else_returns
         }
         if node.kind.same_as("Loop") {
@@ -3239,7 +3333,12 @@ pub struct Checker {
                 }
             }
             .loops.push(copy(label))
+            .enter_loop()
             discard .block(.kid(s, 1))
+            if .failed {
+                return false
+            }
+            .leave_loop(.kid(s, 1))
             discard .loops.pop()
             if .failed {
                 return false
@@ -3290,6 +3389,14 @@ pub struct Checker {
                     .say("`: no enclosing loop is named ")
                     .say_name(label)
                 }
+                return false
+            }
+            at: u64 = .loop_index(label)
+            if node.kind.same_as("Break") {
+                .break_depths.push(at)
+                .break_states.push(.state_clone(.moved))
+            } else {
+                .require_loop_ready(at)
             }
             return false
         }
@@ -3301,6 +3408,16 @@ pub struct Checker {
         }
         discard .unported(s)
         return false
+    }
+
+    /// The place of the loop called `label` among the enclosing ones.
+    fn loop_index(label: Text) -> u64 {
+        scanning: loop k: u64 in 0..(.loops.len()) {
+            if .loops.get(k).equals(label) {
+                return k
+            }
+        }
+        return 0
     }
 
     mut fn say_name_bytes(words: Bytes) {
@@ -3317,7 +3434,9 @@ pub struct Checker {
                 .fail_node(s)
                 .say("missing return value of type ")
                 .say_type(ret)
+                return true
             }
+            .require_fields_back()
             return true
         }
         if ret == .unit {
@@ -3341,8 +3460,12 @@ pub struct Checker {
             }
             if not owned_local {
                 .require_fresh(value, .text_of("the result"))
+                if .failed {
+                    return false
+                }
             }
         }
+        .require_fields_back()
         return true
     }
 
@@ -3387,7 +3510,12 @@ pub struct Checker {
         }
         .set_note(s, CHK_NOTE_SLOT, slot)
         .loops.push(copy(label))
+        .enter_loop()
         discard .block(.kid(s, 3))
+        if .failed {
+            return false
+        }
+        .leave_loop(.kid(s, 3))
         discard .loops.pop()
         .leave_scope()
         return false
@@ -3444,9 +3572,20 @@ pub struct Checker {
             .say_name(.nodes.get(target).text)
             return false
         }
+        // Assigning to a consumed place gives it a value again, so it is not a use.
+        key: u64 = .moved_key(target)
+        was: u64 = if key != 0 { .state_find(.moved, key) } else { 0 }
+        mut was_at: u64 = 0
+        if was != 0 {
+            was_at = .moved.get(2 * (was - 1) + 1)
+            .moved = .state_without(.moved, key)
+        }
         target_ty: u64 = .expr(target, 0, 0)
         if .failed {
             return false
+        }
+        if was != 0 {
+            .moved = .state_with(.moved, key, was_at)
         }
         .require_mutable(target, s, .text_of("assign to"))
         if .failed {
@@ -3484,6 +3623,12 @@ pub struct Checker {
         }
         if .is_aggregate(target_ty) {
             .require_fresh(.kid(s, 1), .describe_place(target))
+            if .failed {
+                return false
+            }
+        }
+        if key != 0 {
+            .moved = .state_without(.moved, key)
         }
         return false
     }
@@ -3655,6 +3800,13 @@ pub struct Checker {
 
     mut fn require_mutable(place: u64, at: u64, action: Text) {
         node: Node = .nodes.get(place)
+        root: Text = .root_name(place)
+        if root.len() > 0 {
+            .require_unlocked(root, action, .source_text(place), at)
+            if .failed {
+                return
+            }
+        }
         if node.kind.same_as("SelfValue") {
             if not .recv_mut {
                 .fail_node(at)
@@ -3812,7 +3964,7 @@ pub struct Checker {
     }
 
     /// Checks the arguments `args` (nodes) against the parameters of the signature `sig`.
-    mut fn check_args(callee: Text, sig: u64, args: List<u64>, at: u64) {
+    mut fn check_args(callee: Text, sig: u64, args: List<u64>, at: u64, receiver: u64, implicit_self: bool, receiver_mut: bool) {
         rows: List<u64> = .params_of(sig)
         if args.len() != rows.len() {
             .fail_node(at)
@@ -3825,6 +3977,19 @@ pub struct Checker {
             return
         }
         handler: bool = .sigs.get(sig).handler.len() > 0
+        // the structs lent by reference in this call: variable, lent as `mut`, node
+        mut lent_roots: List<Text> = List(region: .region)
+        mut lent_mut: List<bool> = List(region: .region)
+        mut lent_at: List<u64> = List(region: .region)
+        if implicit_self {
+            lent_roots.push(.text_of("self"))
+            lent_mut.push(receiver_mut)
+            lent_at.push(at)
+        } else if receiver != 0 and .root_name(receiver).len() > 0 {
+            lent_roots.push(.root_name(receiver))
+            lent_mut.push(receiver_mut)
+            lent_at.push(receiver)
+        }
         checking: loop k: u64 in 0..(args.len()) {
             arg: u64 = args.get(k)
             p: ParamInfo = .params.get(rows.get(k))
@@ -3877,6 +4042,9 @@ pub struct Checker {
                 if .failed {
                     return
                 }
+                lent_roots.push(.root_name(.kid(arg, 0)))
+                lent_mut.push(true)
+                lent_at.push(arg)
             } else {
                 if .kind_is(arg, "MutArg") {
                     .fail_node(arg)
@@ -3886,6 +4054,23 @@ pub struct Checker {
                 }
                 discard .expr(arg, p.ty, 0)
                 if .failed {
+                    return
+                }
+                if .is_aggregate(p.ty) and .root_name(arg).len() > 0 {
+                    lent_roots.push(.root_name(arg))
+                    lent_mut.push(false)
+                    lent_at.push(arg)
+                }
+            }
+        }
+        // A value lent as `mut` can't be lent again in the same call. Numbers are copied when passed,
+        // so they can't alias.
+        pairs: loop i: u64 in 0..(lent_roots.len()) {
+            earlier: loop j: u64 in 0..i {
+                if lent_roots.get(i).equals(lent_roots.get(j)) and (lent_mut.get(i) or lent_mut.get(j)) {
+                    .fail_node(lent_at.get(i))
+                    .say_name(lent_roots.get(i))
+                    .say(" is lent as `mut` in this call, so it can't be lent again here")
                     return
                 }
             }
@@ -3942,7 +4127,7 @@ pub struct Checker {
         if .failed {
             return 0
         }
-        .check_args(.quote_text(callee), sig, copy(.nodes.get(e).kids), e)
+        .check_args(.quote_text(callee), sig, copy(.nodes.get(e).kids), e, 0, false, false)
         if .failed {
             return 0
         }
@@ -4215,6 +4400,10 @@ pub struct Checker {
                 .say("` is read before `new` sets it")
                 return 0
             }
+            .require_not_consumed(.field_key(name), .dotted(name), e)
+            if .failed {
+                return 0
+            }
             .set_note(e, CHK_NOTE_STRUCT, st)
             return fty
         }
@@ -4303,6 +4492,13 @@ pub struct Checker {
                     .say("()` changes its value, so it can only be called from a `mut fn`")
                     return 0
                 }
+                mut action: Text = .text_of("call `mut fn ")
+                action.append_text(name)
+                action.append("` on")
+                .require_unlocked(.text_of("self"), action, .text_of("."), e)
+                if .failed {
+                    return 0
+                }
             } else {
                 mut action: Text = .text_of("call `mut fn ")
                 action.append_text(name)
@@ -4316,7 +4512,7 @@ pub struct Checker {
         mut callee: Text = copy(.types.get(st).name)
         callee.push('.')
         callee.append_text(name)
-        .check_args(.quote_text(callee), sig, .kids_from(e, 1), e)
+        .check_args(.quote_text(callee), sig, .kids_from(e, 1), e, .kid(e, 0), .kid(e, 0) == 0, .sigs.get(sig).mutating)
         if .failed {
             return 0
         }
@@ -4359,7 +4555,7 @@ pub struct Checker {
         mut callee: Text = copy(.types.get(target).name)
         callee.push('.')
         callee.append_text(name)
-        .check_args(.quote_text(callee), sig, .kids_from(e, 1), e)
+        .check_args(.quote_text(callee), sig, .kids_from(e, 1), e, 0, false, false)
         if .failed {
             return 0
         }
@@ -4474,7 +4670,16 @@ pub struct Checker {
         } else {
             return .constant_error(e, "`consume` gives away a whole variable or an actor's `mut iso` field, nothing else")
         }
-        return .expr(place, 0, 0)
+        ty: u64 = .expr(place, 0, 0)
+        if .failed {
+            return 0
+        }
+        .require_unlocked(.root_name(place), .text_of("consume"), .source_text(place), e)
+        if .failed {
+            return 0
+        }
+        .moved = .state_with(.moved, .moved_key(place), e)
+        return ty
     }
 
     mut fn infer_self_value(e: u64) -> u64 {
@@ -4603,7 +4808,7 @@ pub struct Checker {
         mut rows: List<u64> = List(region: .region)
         if sig != 0 {
             rows = .params_of(sig)
-            .check_args(.quote_text(.spawn_callee(name)), sig, copy(.nodes.get(e).kids), e)
+            .check_args(.quote_text(.spawn_callee(name)), sig, copy(.nodes.get(e).kids), e, 0, false, false)
         } else if .nodes.get(e).kids.len() != 0 {
             .fail_node(e)
             .say_text(.spawn_callee(name))
@@ -4796,7 +5001,7 @@ pub struct Checker {
         callee.append("'s `new`")
         mut shown: Text = .text_of("`")
         shown.append_text(callee)
-        .check_args(shown, sig, values, e)
+        .check_args(shown, sig, values, e, 0, false, false)
         if .failed {
             return 0
         }
@@ -5125,10 +5330,11 @@ pub struct Checker {
     }
 
     /// Declares an arm's bindings in a new scope.
-    mut fn enter_arm(m: u64, arm: u64) {
+    mut fn enter_arm(m: u64, arm: u64) -> Text {
         .enter_scope()
+        mut lends: Text = .empty()
         if .kid(arm, 0) == 0 {
-            return
+            return .empty()
         }
         pats: List<u64> = copy(.nodes.get(.kid(arm, 0)).kids)
         walking: loop i: u64 in 0..(pats.len()) {
@@ -5147,7 +5353,7 @@ pub struct Checker {
                 }
                 .require_snake(name, "variable", node)
                 if .failed {
-                    return
+                    return .empty()
                 }
                 field: Text = .first_word(.nodes.get(node).text)
                 rows: List<u64> = .fields_of(variant - 1, true)
@@ -5156,7 +5362,10 @@ pub struct Checker {
                 agg: bool = .is_aggregate(fty)
                 slot: u64 = .new_local(name, fty, false, if agg { CHK_LOCAL_REF } else { CHK_LOCAL_VALUE }, node, false, false)
                 if .failed {
-                    return
+                    return .empty()
+                }
+                if agg and lends.len() == 0 {
+                    lends = copy(name)
                 }
                 .slot_rows.push(slot)
                 .slot_rows.push(offset)
@@ -5167,6 +5376,20 @@ pub struct Checker {
                 .set_note(p, CHK_NOTE_SLOTS_COUNT, (.slot_rows.len() - start) / 3)
             }
         }
+        root: Text = .root_name(.kid(m, 0))
+        if lends.len() > 0 and root.len() > 0 and .lock_find(root) == 0 {
+            .lock_roots.push(copy(root))
+            .lock_names.push(copy(lends))
+            return root
+        }
+        return .empty()
+    }
+
+    mut fn exit_arm(held: Text) {
+        .leave_scope()
+        if held.len() > 0 {
+            .unlock(held)
+        }
     }
 
     mut fn match_stmt(s: u64) -> bool {
@@ -5176,9 +5399,12 @@ pub struct Checker {
         }
         mut always_returns: bool = true
         arms: List<u64> = copy(.nodes.get(.kid(s, 1)).kids)
+        before: List<u64> = .state_clone(.moved)
+        mut ends: List<List<u64>> = List(region: .region)
         walking: loop a: u64 in 0..(arms.len()) {
             arm: u64 = arms.get(a)
-            .enter_arm(s, arm)
+            .moved = .state_clone(before)
+            held: Text = .enter_arm(s, arm)
             if .failed {
                 return false
             }
@@ -5192,9 +5418,13 @@ pub struct Checker {
             if .failed {
                 return false
             }
-            .leave_scope()
+            .exit_arm(held)
+            if not .diverges(body) {
+                ends.push(.moved)
+            }
             always_returns = always_returns and returns
         }
+        .moved = .merge_states(ends, before)
         // Every value is matched by some arm, so if each arm returns, so does the match.
         return always_returns
     }
@@ -5229,7 +5459,7 @@ pub struct Checker {
                 if (round == 0 and literal) or (round == 1 and not literal) {
                     continue ordered
                 }
-                .enter_arm(e, arm)
+                held: Text = .enter_arm(e, arm)
                 if .failed {
                     return 0
                 }
@@ -5254,7 +5484,7 @@ pub struct Checker {
                 if .failed {
                     return 0
                 }
-                .leave_scope()
+                .exit_arm(held)
             }
         }
         return ty
@@ -5262,6 +5492,250 @@ pub struct Checker {
 
     fn is_leaving(body: u64) -> bool {
         return .kind_is(body, "Return") or .kind_is(body, "Break") or .kind_is(body, "Continue")
+    }
+
+    // ---- ownership: consumed places, locks and loops (5d-3d) ----------------------------------------
+    //
+    // A state of what is consumed is a list of (key, node) pairs in the order they were consumed (a
+    // dictionary in Fledgling): the key is twice a variable's number, or twice a field's number plus one;
+    // the node is the `consume` that did it.
+
+    fn state_find(state: List<u64>, key: u64) -> u64 {
+        scanning: loop k: u64 in 0..(state.len() / 2) {
+            if state.get(2 * k) == key {
+                return k + 1
+            }
+        }
+        return 0
+    }
+
+    fn state_clone(state: List<u64>) -> List<u64> {
+        mut out: List<u64> = List(region: .region)
+        copying: loop k: u64 in 0..(state.len()) {
+            out.push(state.get(k))
+        }
+        return out
+    }
+
+    fn state_without(state: List<u64>, key: u64) -> List<u64> {
+        mut out: List<u64> = List(region: .region)
+        copying: loop k: u64 in 0..(state.len() / 2) {
+            if state.get(2 * k) != key {
+                out.push(state.get(2 * k))
+                out.push(state.get(2 * k + 1))
+            }
+        }
+        return out
+    }
+
+    /// `state` with `key` consumed at `at` (a key already there keeps its place and takes the new node).
+    fn state_with(state: List<u64>, key: u64, at: u64) -> List<u64> {
+        mut out: List<u64> = .state_clone(state)
+        found: u64 = .state_find(out, key)
+        if found != 0 {
+            out.set(2 * (found - 1) + 1, at)
+        } else {
+            out.push(key)
+            out.push(at)
+        }
+        return out
+    }
+
+    /// The consumed places after paths join: consumed on any of them. With no path left (all returned or
+    /// broke out), nothing after matters, so `before` stands.
+    fn merge_states(states: List<List<u64>>, before: List<u64>) -> List<u64> {
+        if states.len() == 0 {
+            return .state_clone(before)
+        }
+        mut merged: List<u64> = List(region: .region)
+        joining: loop i: u64 in 0..(states.len()) {
+            state: List<u64> = states.get(i)
+            adding: loop k: u64 in 0..(state.len() / 2) {
+                merged = .state_with(merged, state.get(2 * k), state.get(2 * k + 1))
+            }
+        }
+        return merged
+    }
+
+    /// The key `consume` would record for `place`: a variable's, a field's; 0 for anything else.
+    mut fn moved_key(place: u64) -> u64 {
+        if .kind_is(place, "Name") {
+            row: u64 = .lookup(.nodes.get(place).text)
+            if row != 0 {
+                return 2 * .locals.get(row - 1).uid
+            }
+            return 0
+        }
+        if .kind_is(place, "Access") and .kid(place, 0) == 0 and .recv != 0 and .types.get(.recv).kind == CHK_ACTOR {
+            return .field_key(.nodes.get(place).text)
+        }
+        return 0
+    }
+
+    /// The key of the field `name` of the actor: twice its number in `field_keys`, plus one (1 is never a variable's).
+    mut fn field_key(name: Text) -> u64 {
+        scanning: loop k: u64 in 0..(.field_keys.len()) {
+            if .field_keys.get(k).equals(name) {
+                return 2 * k + 3
+            }
+        }
+        .field_keys.push(copy(name))
+        return 2 * (.field_keys.len() - 1) + 3
+    }
+
+    fn key_name(key: u64) -> Text {
+        if key % 2 == 1 {
+            return .dotted(.field_keys.get((key - 3) / 2))
+        }
+        return copy(.uid_names.get(key / 2 - 1))
+    }
+
+    mut fn require_not_consumed(key: u64, name: Text, at: u64) {
+        found: u64 = .state_find(.moved, key)
+        if found != 0 {
+            consumed: Node = .nodes.get(.moved.get(2 * (found - 1) + 1))
+            .fail_node(at)
+            .say_name(name)
+            .say(" was consumed at ")
+            .say_number(consumed.line)
+            .say(":")
+            .say_number(consumed.col)
+            .say(", so it has no value here; assign it again first")
+        }
+    }
+
+    /// An actor's `iso` field a handler consumed must have a value again before the handler ends.
+    mut fn require_fields_back() {
+        scanning: loop k: u64 in 0..(.moved.len() / 2) {
+            key: u64 = .moved.get(2 * k)
+            if key % 2 == 1 {
+                .fail_node(.moved.get(2 * k + 1))
+                .say_name(.key_name(key))
+                .say(" is consumed here and not assigned again before the handler ends")
+                return
+            }
+        }
+    }
+
+    mut fn enter_loop() {
+        mut outside: List<u64> = List(region: .region)
+        scanning: loop k: u64 in 0..(.locals.len()) {
+            outside.push(.locals.get(k).uid)
+        }
+        .entry_moved.push(.state_clone(.moved))
+        .entry_outside.push(outside)
+    }
+
+    /// What the next turn of loop number `depth` would use must still have its value.
+    mut fn require_loop_ready(depth: u64) {
+        before: List<u64> = .entry_moved.get(depth)
+        outside: List<u64> = .entry_outside.get(depth)
+        scanning: loop k: u64 in 0..(.moved.len() / 2) {
+            key: u64 = .moved.get(2 * k)
+            if .state_find(before, key) != 0 {
+                continue scanning
+            }
+            mut counts: bool = key % 2 == 1
+            if not counts {
+                inside: loop j: u64 in 0..(outside.len()) {
+                    if outside.get(j) == key / 2 {
+                        counts = true
+                    }
+                }
+            }
+            if counts {
+                .fail_node(.moved.get(2 * k + 1))
+                .say_name(.key_name(key))
+                .say(" is consumed here, inside a loop, but the next turn needs it: assign it again before the end of the loop")
+                return
+            }
+        }
+    }
+
+    mut fn leave_loop(body: u64) {
+        depth: u64 = .entry_moved.len() - 1
+        before: List<u64> = .entry_moved.get(depth)
+        if not .block_diverges(body) {
+            .require_loop_ready(depth)
+            if .failed {
+                return
+            }
+        }
+        // the states at the `break`s of this loop, in the order they were met; the others stay
+        mut ordered: List<List<u64>> = List(region: .region)
+        mut kept_depths: List<u64> = List(region: .region)
+        mut kept_states: List<List<u64>> = List(region: .region)
+        sorting: loop k: u64 in 0..(.break_depths.len()) {
+            if .break_depths.get(k) == depth {
+                ordered.push(.break_states.get(k))
+            } else {
+                kept_depths.push(.break_depths.get(k))
+                kept_states.push(.break_states.get(k))
+            }
+        }
+        .break_depths = copy(kept_depths)
+        .break_states = copy(kept_states)
+        discard .entry_moved.pop()
+        discard .entry_outside.pop()
+        ordered.push(.state_clone(before))
+        .moved = .merge_states(ordered, before)
+    }
+
+    // ---- locks: a `match` lends a part of its subject ---------------------------------------------
+
+    /// The variable a place starts from (`p` in `p.a.b`), or "self" for `.x` and `.`; "" for anything else.
+    fn root_name(e: u64) -> Text {
+        mut cur: u64 = e
+        walking: loop .kind_is(cur, "Access") {
+            if .kid(cur, 0) == 0 {
+                return .text_of("self")
+            }
+            cur = .kid(cur, 0)
+        }
+        if .kind_is(cur, "SelfValue") {
+            return .text_of("self")
+        }
+        if .kind_is(cur, "Name") and not .note_has(cur, CHK_NOTE_VARIANT) and not .note_has(cur, CHK_NOTE_CONST_STR) {
+            return copy(.nodes.get(cur).text)
+        }
+        return .empty()
+    }
+
+    fn lock_find(root: Text) -> u64 {
+        scanning: loop k: u64 in 0..(.lock_roots.len()) {
+            if .lock_roots.get(k).equals(root) {
+                return k + 1
+            }
+        }
+        return 0
+    }
+
+    mut fn require_unlocked(root: Text, action: Text, text: Text, at: u64) {
+        found: u64 = .lock_find(root)
+        if root.len() > 0 and found != 0 {
+            .fail_node(at)
+            .say("can't ")
+            .say_text(action)
+            .say(" ")
+            .say_name(text)
+            .say(" while ")
+            .say_name(.lock_names.get(found - 1))
+            .say(" is lent from it by this `match`")
+        }
+    }
+
+    mut fn unlock(root: Text) {
+        found: u64 = .lock_find(root)
+        mut roots: List<Text> = List(region: .region)
+        mut names: List<Text> = List(region: .region)
+        copying: loop k: u64 in 0..(.lock_roots.len()) {
+            if k + 1 != found {
+                roots.push(copy(.lock_roots.get(k)))
+                names.push(copy(.lock_names.get(k)))
+            }
+        }
+        .lock_roots = copy(roots)
+        .lock_names = copy(names)
     }
 
     // ---- for the dump --------------------------------------------------

@@ -1,0 +1,13 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+}
+fn f(c: bool) -> u64 {
+    a: Pt = Pt(x: 1)
+    if c {
+    } else {
+        b: Pt = consume(a)
+        return b.x
+    }
+    return a.x
+}

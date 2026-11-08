@@ -27,6 +27,8 @@ cases = {
  "two_files": [("lib.rook", False, "pub A: u64 = 1\nB: u64 = 2\n"), ("a.rook", False, "pub C: u64 = 3\nfn f() {\n}\n")],
  "actor_and_interface": "interface Go {\n    lossy on go(n: u8)\n}\nactor Bot: Go {\n    mut hits: u64\n    new() {\n        .hits = 0\n    }\n    lossy on go(n: u8) {\n    }\n}\nLIMIT: u64 = 2\n",
  "struct_and_enum_methods": "struct Pt {\n    x: u64\n    fn get() -> u64 {\n        return .x\n    }\n}\nenum Mode {\n    Fast\n    Slow\n    fn label() -> u8 {\n        return 1\n    }\n}\nLIMIT: u64 = 2\n",
+ "ownership_else_diverges": "struct Pt {\n    x: u64\n}\nfn f(c: bool) -> u64 {\n    a: Pt = Pt(x: 1)\n    if c {\n    } else {\n        b: Pt = consume(a)\n        return b.x\n    }\n    return a.x\n}\n",
+ "ownership_reassign": "struct Pt {\n    x: u64\n}\nfn g() -> u64 {\n    mut a: Pt = Pt(x: 1)\n    b: Pt = consume(a)\n    a = Pt(x: 2)\n    return a.x + b.x\n}\n",
  "wide_bool": "A: bool = 1 < 2 and 3 < 4\n",
 }
 errors = {
@@ -108,5 +110,5 @@ for name, src in {**cases, **errors}.items():
     files = src if isinstance(src, list) else [("a.rook", False, src)]
     stream = make_stream(files)
     open(f"{here}/{name}.in", "w").write(stream)
-    open(f"{here}/{name}.out", "w").write(dump_bodies(stream, actors=True))
+    open(f"{here}/{name}.out", "w").write(dump_bodies(stream, ownership=True, actors=True, bodies="all"))
 print(len(cases), len(errors))
