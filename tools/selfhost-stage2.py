@@ -40,8 +40,8 @@ def run_image(image, stream, label, timeout):
     run_tests.save_log(label, machine, output, qemu_log)
     lines = run_tests.complete_lines(output)
     if run_tests.HOSTED_BEGIN not in lines or run_tests.HOSTED_END not in lines:
-        sys.exit(f"{label}: no Hosted: begin/end output" + (" before the timeout" if timed_out else "") +
-                 "\n" + "\n".join(lines[-5:]))
+        raise RuntimeError(f"{label}: no Hosted: begin/end output" + (" before the timeout" if timed_out else "") +
+                           ": " + " | ".join(lines[-3:]))
     return lines[lines.index(run_tests.HOSTED_BEGIN) + 1:lines.index(run_tests.HOSTED_END)]
 
 
@@ -52,8 +52,8 @@ def first_difference(a, b):
     return None
 
 
-def main(argv):
-    name = argv[argv.index("--program") + 1] if "--program" in argv else "asmdump"
+def stage2(name="asmdump", compare_fledgling=True, say=lambda text: None):
+    """Run the three steps for compiler/NAME.rook; returns (ok, one line saying what happened)."""
     names = program_files(name)
     files = [(rel, run_tests.is_trusted(os.path.join(ROOT, rel), run_tests.TRUSTED_DIRS),
               open(os.path.join(ROOT, rel)).read()) for rel in names]
@@ -61,32 +61,40 @@ def main(argv):
     timeout = float(os.environ.get("STAGE2_TIMEOUT", 3600))
     os.makedirs(os.path.join(ROOT, "build", "stage2"), exist_ok=True)
 
-    print(f"stage 1: build/compiler/{name}.img compiles {len(names)} files ({len(stream)} bytes)", flush=True)
+    say(f"stage 1: build/compiler/{name}.img compiles {len(names)} files ({len(stream)} bytes)")
     a = run_image(f"build/compiler/{name}.img", stream, "stage2_A", timeout)
     if len(a) == 1 and a[0].startswith("error "):
-        sys.exit("stage 1 stopped: " + a[0])
+        return False, "stage 1 stopped: " + a[0]
     with open(os.path.join(ROOT, "build", "stage2", name + ".s"), "w") as f:
         f.write("\n".join(a) + "\n")
-    print(f"  assembly A: {len(a)} lines", flush=True)
+    say(f"  assembly A: {len(a)} lines")
 
-    if "--skip-fledgling" not in argv:
+    if compare_fledgling:
         d = first_difference(a, run_tests.dump_asm(stream).splitlines())
-        print("  A equals Fledgling's assembly" if d is None else f"  A differs from Fledgling: {d}", flush=True)
         if d:
-            return 1
+            return False, f"A differs from Fledgling's assembly at {d}"
+        say("  A equals Fledgling's assembly")
 
-    subprocess.run(["make", "-s", f"build/stage2/{name}.img"], cwd=ROOT, check=True)
-    print(f"stage 2: build/stage2/{name}.img compiles the same input", flush=True)
+    made = subprocess.run(["make", "-s", f"build/stage2/{name}.img"], cwd=ROOT, capture_output=True, text=True)
+    if made.returncode:
+        return False, "the stage-2 image does not build: " + made.stderr.strip()[-300:]
+    say(f"stage 2: build/stage2/{name}.img compiles the same input")
     b = run_image(f"build/stage2/{name}.img", stream, "stage2_B", timeout)
     with open(os.path.join(ROOT, "build", "stage2", name + ".B.s"), "w") as f:
         f.write("\n".join(b) + "\n")
-    print(f"  assembly B: {len(b)} lines", flush=True)
+    say(f"  assembly B: {len(b)} lines")
     d = first_difference(a, b)
     if d:
-        print(f"A and B DIFFER at {d}")
-        return 1
-    print("A and B are identical")
-    return 0
+        return False, f"A and B differ at {d}"
+    return True, f"A and B are identical ({len(a)} lines)"
 
 
-sys.exit(main(sys.argv[1:]))
+def main(argv):
+    name = argv[argv.index("--program") + 1] if "--program" in argv else "asmdump"
+    ok, message = stage2(name, "--skip-fledgling" not in argv, lambda text: print(text, flush=True))
+    print(message)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

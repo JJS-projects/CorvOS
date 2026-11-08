@@ -1256,6 +1256,22 @@ def check_batch_and_body_tools():
     return None
 
 
+def check_selfhost_stage2():
+    """Milestone 5e: the Rook compiler (build/compiler/asmdump.img) compiles its own source to assembly A,
+    A is built into an image, and that image compiles the same source to B; A equals Fledgling's assembly
+    and B equals A (tools/selfhost-stage2.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("selfhost_stage2", os.path.join(ROOT, "tools", "selfhost-stage2.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if board_mode():
+        return None
+    if not os.path.exists(os.path.join(ROOT, "build", "compiler", "asmdump.img")):
+        return missing_image("build/compiler/asmdump.img")
+    ok, message = module.stage2()
+    return None if ok else message
+
+
 def check_hosted_expectations():
     """A hosted test fails when the output differs, when the program never writes the
     `Hosted:` lines, and when it takes too long."""
@@ -1458,6 +1474,8 @@ HARNESS_TESTS = [
                 check_dump_expanded),
     HarnessTest("harness/dump_tree", "Fledgling's tree dump has the documented format", check_dump_tree),
     HarnessTest("harness/dump_tokens", "Fledgling's token dump has the documented format", check_dump_tokens),
+    HarnessTest("selfhost/stage2", "The Rook compiler compiles itself, and the image made from that assembly "
+                "compiles it to the same assembly", check_selfhost_stage2),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "
