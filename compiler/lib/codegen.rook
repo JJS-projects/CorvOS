@@ -1367,7 +1367,7 @@ pub struct Codegen {
                         start: u64 = .note(p, CHK_NOTE_SLOTS) - 1
                         count: u64 = .note(p, CHK_NOTE_SLOTS_COUNT)
                         slots: loop i: u64 in 0..count {
-                            .load_slot(.c.slot_rows.get(start + 3 * i))
+                            .load_slot(.note(m, CHK_NOTE_SUBJECT_SLOT))
                             offset: u64 = .c.slot_rows.get(start + 3 * i + 1)
                             .o4()
                             if .c.slot_rows.get(start + 3 * i + 2) == 1 {
