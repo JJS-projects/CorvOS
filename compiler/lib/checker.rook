@@ -17,28 +17,28 @@ import region: List, Region
 import text: Text
 import textmap: TextMap
 
-CHK_NONE: u64 = 0
-CHK_INT: u64 = 1
-CHK_BOOL: u64 = 2
-CHK_UNIT: u64 = 3
-CHK_STRUCT: u64 = 4
-CHK_ENUM: u64 = 5
-CHK_ACTOR: u64 = 6
-CHK_INTERFACE: u64 = 7
+pub CHK_NONE: u64 = 0
+pub CHK_INT: u64 = 1
+pub CHK_BOOL: u64 = 2
+pub CHK_UNIT: u64 = 3
+pub CHK_STRUCT: u64 = 4
+pub CHK_ENUM: u64 = 5
+pub CHK_ACTOR: u64 = 6
+pub CHK_INTERFACE: u64 = 7
 
-CHK_ROLE_FN: u64 = 1            // what a signature is: a function, a method, `new`, a handler
-CHK_ROLE_METHOD: u64 = 2
-CHK_ROLE_NEW: u64 = 3
-CHK_ROLE_HANDLER: u64 = 4
+pub CHK_ROLE_FN: u64 = 1            // what a signature is: a function, a method, `new`, a handler
+pub CHK_ROLE_METHOD: u64 = 2
+pub CHK_ROLE_NEW: u64 = 3
+pub CHK_ROLE_HANDLER: u64 = 4
 
-CHK_FIELD_MUT: u64 = 1          // flags of an actor's field
-CHK_FIELD_VAL: u64 = 2
-CHK_FIELD_ISO: u64 = 4
+pub CHK_FIELD_MUT: u64 = 1          // flags of an actor's field
+pub CHK_FIELD_VAL: u64 = 2
+pub CHK_FIELD_ISO: u64 = 4
 
-CHK_MESSAGE_PARAMS: u64 = 4     // a handler takes at most 4 parameters
-CHK_MESSAGE_WORDS: u64 = 8      // and a message carries at most 8 words (decision 135)
-CHK_NEW_PARAMS: u64 = 7
-CHK_NEW_WORDS: u64 = 16         // words of `new` arguments Raven keeps to restart an actor
+pub CHK_MESSAGE_PARAMS: u64 = 4     // a handler takes at most 4 parameters
+pub CHK_MESSAGE_WORDS: u64 = 8      // and a message carries at most 8 words (decision 135)
+pub CHK_NEW_PARAMS: u64 = 7
+pub CHK_NEW_WORDS: u64 = 16         // words of `new` arguments Raven keeps to restart an actor
 
 // ---- numbers of a constant ------------------------------------------------------------------
 //
@@ -46,7 +46,7 @@ CHK_NEW_WORDS: u64 = 16         // words of `new` arguments Raven keeps to resta
 // type (`fit`). Every value that is kept fits its type, so one 64-bit magnitude and a sign are enough;
 // a result beyond 64 bits is `big`, which fits no type.
 
-CHK_MAX_U64: u64 = 18446744073709551615
+pub CHK_MAX_U64: u64 = 18446744073709551615
 
 pub struct Num {
     pub neg: bool
@@ -54,7 +54,7 @@ pub struct Num {
     pub big: bool
 }
 
-fn chk_num(neg: bool, mag: u64) -> Num {
+pub fn chk_num(neg: bool, mag: u64) -> Num {
     return Num(neg: neg and mag != 0, mag: mag, big: false)
 }
 
@@ -120,7 +120,7 @@ fn chk_num_rem(a: Num, b: Num) -> Num {
 }
 
 /// The 64 bits of two's complement of `a`.
-fn chk_num_bits(a: Num) -> u64 {
+pub fn chk_num_bits(a: Num) -> u64 {
     if a.neg {
         return (a.mag xor CHK_MAX_U64) + 1
     }
@@ -143,36 +143,38 @@ fn chk_low_mask(count: u64) -> u64 {
     return (1 shl count) - 1
 }
 
-CHK_NOTE_SLOT: u64 = 0          // what the checker records on a node (docs/self-hosting.md): the keys, in the
-CHK_NOTE_END_SLOT: u64 = 1      // order the dump writes them. A key with a sign (lo, hi, const) has the sign
-CHK_NOTE_SUBJECT_SLOT: u64 = 2  // in the word after its value.
-CHK_NOTE_SELF_SLOT: u64 = 3
-CHK_NOTE_RESULT_SLOT: u64 = 4
-CHK_NOTE_TEMP: u64 = 5
-CHK_NOTE_ARGS_SLOT: u64 = 6
-CHK_NOTE_ARGS_WORDS: u64 = 7
-CHK_NOTE_PAYLOAD: u64 = 8
-CHK_NOTE_PAYLOAD_WORDS: u64 = 9
-CHK_NOTE_HANDLER_INDEX: u64 = 10
-CHK_NOTE_WORDS: u64 = 11
-CHK_NOTE_NUMBER: u64 = 12
-CHK_NOTE_STOPPED: u64 = 13
-CHK_NOTE_LO: u64 = 14
-CHK_NOTE_HI: u64 = 16
-CHK_NOTE_CONST: u64 = 18
-CHK_NOTE_NSLOTS: u64 = 20
-CHK_NOTE_TYPE: u64 = 21
-CHK_NOTE_CONST_STR: u64 = 22    // the node of the text a name stands for
-CHK_NOTE_VARIANT: u64 = 23      // row of the variants, plus one
-CHK_NOTE_STRUCT: u64 = 24       // row of the types
-CHK_NOTE_FLAGS: u64 = 25        // 1 scalar, 2 send
-CHK_NOTE_SLOTS: u64 = 27          // a variant pattern: where its bindings start in `slot_rows` (plus one)
-CHK_NOTE_SLOTS_COUNT: u64 = 28
-CHK_NOTE_FILE: u64 = 26         // a method, `new` or handler: the file of its type (the checker sets `file` on them)
-CHK_LOCAL_VALUE: u64 = 1        // what a variable is: a number, a lent struct, or a struct the function owns
-CHK_LOCAL_REF: u64 = 2
-CHK_LOCAL_REGION: u64 = 3
-CHK_NOTE_STRIDE: u64 = 32       // words of a row of notes: the mask of the keys set, then a word a key
+pub CHK_NOTE_SLOT: u64 = 0          // what the checker records on a node (docs/self-hosting.md): the keys, in the
+pub CHK_NOTE_END_SLOT: u64 = 1      // order the dump writes them. A key with a sign (lo, hi, const) has the sign
+pub CHK_NOTE_SUBJECT_SLOT: u64 = 2  // in the word after its value.
+pub CHK_NOTE_SELF_SLOT: u64 = 3
+pub CHK_NOTE_RESULT_SLOT: u64 = 4
+pub CHK_NOTE_TEMP: u64 = 5
+pub CHK_NOTE_ARGS_SLOT: u64 = 6
+pub CHK_NOTE_ARGS_WORDS: u64 = 7
+pub CHK_NOTE_PAYLOAD: u64 = 8
+pub CHK_NOTE_PAYLOAD_WORDS: u64 = 9
+pub CHK_NOTE_HANDLER_INDEX: u64 = 10
+pub CHK_NOTE_WORDS: u64 = 11
+pub CHK_NOTE_NUMBER: u64 = 12
+pub CHK_NOTE_STOPPED: u64 = 13
+pub CHK_NOTE_LO: u64 = 14
+pub CHK_NOTE_HI: u64 = 16
+pub CHK_NOTE_CONST: u64 = 18
+pub CHK_NOTE_NSLOTS: u64 = 20
+pub CHK_NOTE_TYPE: u64 = 21
+pub CHK_NOTE_CONST_STR: u64 = 22    // the node of the text a name stands for
+pub CHK_NOTE_VARIANT: u64 = 23      // row of the variants, plus one
+pub CHK_NOTE_STRUCT: u64 = 24       // row of the types
+pub CHK_NOTE_FLAGS: u64 = 25        // 1 scalar, 2 send
+pub CHK_NOTE_SLOTS: u64 = 27          // a variant pattern: where its bindings start in `slot_rows` (plus one)
+pub CHK_NOTE_SLOTS_COUNT: u64 = 28
+pub CHK_NOTE_LKIND: u64 = 29          // a variable's name: what kind it is (CHK_LOCAL_*); the code generator reads it
+pub CHK_NOTE_SIG: u64 = 30            // a method call, send or struct `new`: the signature row it calls
+pub CHK_NOTE_FILE: u64 = 26         // a method, `new` or handler: the file of its type (the checker sets `file` on them)
+pub CHK_LOCAL_VALUE: u64 = 1        // what a variable is: a number, a lent struct, or a struct the function owns
+pub CHK_LOCAL_REF: u64 = 2
+pub CHK_LOCAL_REGION: u64 = 3
+pub CHK_NOTE_STRIDE: u64 = 32       // words of a row of notes: the mask of the keys set, then a word a key
 
 pub struct LocalInfo {
     pub name: Text
@@ -269,10 +271,10 @@ pub struct Checker {
     pub imports: List<TextMap<u64>>     // by file number: name -> the file number it is imported from
     pub import_order: List<u64>         // the files that have imports, in the order of their first
     exports: List<TextMap<u64>>         // by file number: name -> the declaring node
-    unit: u64
-    bool_type: u64
-    u8_type: u64
-    u64_type: u64
+    pub unit: u64
+    pub bool_type: u64
+    pub u8_type: u64
+    pub u64_type: u64
     in_fn: bool                         // checking a function body (else a constant)
     locals: List<LocalInfo>             // the variables in scope, innermost last
     scope_marks: List<u64>              // where each open scope starts in `locals`
@@ -375,7 +377,7 @@ pub struct Checker {
 
     // ---- text ----------------------------------------------------------
 
-    fn empty() -> Text {
+    pub fn empty() -> Text {
         return Text(region: .region)
     }
 
@@ -386,7 +388,7 @@ pub struct Checker {
     }
 
     /// The word after the last space (the whole text if there is no space).
-    fn last_word(t: Text) -> Text {
+    pub fn last_word(t: Text) -> Text {
         mut from: u64 = 0
         looking: loop k: u64 in 0..t.len() {
             if t.at(k) == ' ' {
@@ -401,7 +403,7 @@ pub struct Checker {
     }
 
     /// Is `word` one of the words of `t` (separated by spaces)?
-    fn has_word(t: Text, word: Bytes) -> bool {
+    pub fn has_word(t: Text, word: Bytes) -> bool {
         mut start: u64 = 0
         scanning: loop k: u64 in 0..(t.len() + 1) {
             if k == t.len() or t.at(k) == ' ' {
@@ -423,7 +425,7 @@ pub struct Checker {
     }
 
     /// The text after the last `/` of a path.
-    fn basename(path: Text) -> Text {
+    pub fn basename(path: Text) -> Text {
         mut from: u64 = 0
         looking: loop k: u64 in 0..path.len() {
             if path.at(k) == '/' {
@@ -604,15 +606,15 @@ pub struct Checker {
 
     // ---- the tree ------------------------------------------------------
 
-    fn kid(n: u64, k: u64) -> u64 {
+    pub fn kid(n: u64, k: u64) -> u64 {
         return .nodes.get(n).kids.get(k)
     }
 
-    fn kind_is(n: u64, kind: Bytes) -> bool {
+    pub fn kind_is(n: u64, kind: Bytes) -> bool {
         return .nodes.get(n).kind.same_as(kind)
     }
 
-    fn name_of(n: u64) -> Text {
+    pub fn name_of(n: u64) -> Text {
         return .last_word(.nodes.get(n).text)
     }
 
@@ -620,7 +622,7 @@ pub struct Checker {
         return .has_word(.nodes.get(n).text, "pub")
     }
 
-    fn file_of(n: u64) -> u64 {
+    pub fn file_of(n: u64) -> u64 {
         return .nodes.get(n).file
     }
 
@@ -685,7 +687,7 @@ pub struct Checker {
         }
     }
 
-    fn is_aggregate(ty: u64) -> bool {
+    pub fn is_aggregate(ty: u64) -> bool {
         kind: u64 = .types.get(ty).kind
         return kind == CHK_STRUCT or kind == CHK_ENUM
     }
@@ -696,7 +698,7 @@ pub struct Checker {
     }
 
     /// Size in words: an aggregate's size once known, else 1.
-    fn words_of_type(ty: u64) -> u64 {
+    pub fn words_of_type(ty: u64) -> u64 {
         if .is_aggregate(ty) {
             return .types.get(ty).words
         }
@@ -982,7 +984,7 @@ pub struct Checker {
     }
 
     /// The rows of the fields owned by `owner` (a type, or a variant if `in_variant`).
-    fn fields_of(owner: u64, in_variant: bool) -> List<u64> {
+    pub fn fields_of(owner: u64, in_variant: bool) -> List<u64> {
         mut rows: List<u64> = List(region: .region)
         scanning: loop k: u64 in 0..(.fields.len()) {
             f: FieldInfo = .fields.get(k)
@@ -1232,7 +1234,7 @@ pub struct Checker {
     }
 
     /// The key of a method or handler in `methods`: "Owner.name".
-    fn method_key(owner: u64, name: Text) -> Text {
+    pub fn method_key(owner: u64, name: Text) -> Text {
         mut key: Text = .empty()
         key.append_text(.types.get(owner).name)
         key.push('.')
@@ -1428,7 +1430,7 @@ pub struct Checker {
     }
 
     /// The parameters of signature `row` as a list of (type, mut) rows of `params`.
-    fn params_of(row: u64) -> List<u64> {
+    pub fn params_of(row: u64) -> List<u64> {
         mut rows: List<u64> = List(region: .region)
         scanning: loop k: u64 in 0..(.params.len()) {
             if .params.get(k).sig == row {
@@ -1858,11 +1860,11 @@ pub struct Checker {
 
     // ---- integer types ---------------------------------------------------------------------------
 
-    fn is_int(ty: u64) -> bool {
+    pub fn is_int(ty: u64) -> bool {
         return .types.get(ty).kind == CHK_INT
     }
 
-    fn int_bits(ty: u64) -> u64 {
+    pub fn int_bits(ty: u64) -> u64 {
         name: Text = copy(.types.get(ty).name)
         if name.len() == 2 {
             return (name.at(1) - '0') as u64
@@ -1870,7 +1872,7 @@ pub struct Checker {
         return (name.at(1) - '0') as u64 * 10 + (name.at(2) - '0') as u64
     }
 
-    fn int_signed(ty: u64) -> bool {
+    pub fn int_signed(ty: u64) -> bool {
         return .types.get(ty).name.at(0) == 'i'
     }
 
@@ -1933,7 +1935,7 @@ pub struct Checker {
     }
 
     /// The value written in an `Int` or `Char` node.
-    fn literal_value(e: u64) -> Num {
+    pub fn literal_value(e: u64) -> Num {
         text: Text = copy(.nodes.get(e).text)
         mut neg: bool = false
         mut mag: u64 = 0
@@ -2238,6 +2240,7 @@ pub struct Checker {
                 return 0
             }
             .set_note(e, CHK_NOTE_SLOT, local.slot)
+            .set_note(e, CHK_NOTE_LKIND, local.kind)
             return local.ty
         }
         match .const_names.find(name) {
@@ -2536,7 +2539,7 @@ pub struct Checker {
         return aty
     }
 
-    fn op_is(e: u64, op: Bytes) -> bool {
+    pub fn op_is(e: u64, op: Bytes) -> bool {
         return .nodes.get(e).text.same_as(op)
     }
 
@@ -2552,7 +2555,7 @@ pub struct Checker {
         return .op_is(e, "and") or .op_is(e, "or") or .op_is(e, "xor")
     }
 
-    fn is_equality(e: u64) -> bool {
+    pub fn is_equality(e: u64) -> bool {
         return .op_is(e, "==") or .op_is(e, "!=")
     }
 
@@ -3469,7 +3472,7 @@ pub struct Checker {
         return true
     }
 
-    fn text_of(words: Bytes) -> Text {
+    pub fn text_of(words: Bytes) -> Text {
         mut out: Text = .empty()
         out.append(words)
         return out
@@ -3521,7 +3524,7 @@ pub struct Checker {
         return false
     }
 
-    fn first_word(t: Text) -> Text {
+    pub fn first_word(t: Text) -> Text {
         mut out: Text = .empty()
         scanning: loop k: u64 in 0..t.len() {
             if t.at(k) == ' ' {
@@ -4097,7 +4100,7 @@ pub struct Checker {
     }
 
     /// The nodes after the first `from` kids of `n`.
-    fn kids_from(n: u64, from: u64) -> List<u64> {
+    pub fn kids_from(n: u64, from: u64) -> List<u64> {
         mut out: List<u64> = List(region: .region)
         all: List<u64> = copy(.nodes.get(n).kids)
         scanning: loop k: u64 in from..(all.len()) {
@@ -4307,7 +4310,7 @@ pub struct Checker {
     }
 
     /// The bytes of a `Str` node (`x` and hex) as text.
-    fn decoded(n: u64) -> Text {
+    pub fn decoded(n: u64) -> Text {
         hex: Text = copy(.nodes.get(n).text)
         mut out: Text = .empty()
         pairs: loop k: u64 in 0..((hex.len() - 1) / 2) {
@@ -4316,7 +4319,7 @@ pub struct Checker {
         return out
     }
 
-    fn hex_value(b: u8) -> u8 {
+    pub fn hex_value(b: u8) -> u8 {
         if b >= 'a' {
             return b - 'a' + 10
         }
@@ -4509,6 +4512,7 @@ pub struct Checker {
                 }
             }
         }
+        .set_note(e, CHK_NOTE_SIG, sig)
         mut callee: Text = copy(.types.get(st).name)
         callee.push('.')
         callee.append_text(name)
@@ -4552,6 +4556,7 @@ pub struct Checker {
         }
         .set_note(e, CHK_NOTE_FLAGS, 2)
         .set_note(e, CHK_NOTE_HANDLER_INDEX, .sigs.get(sig).number)
+        .set_note(e, CHK_NOTE_SIG, sig)
         mut callee: Text = copy(.types.get(target).name)
         callee.push('.')
         callee.append_text(name)
@@ -4927,7 +4932,7 @@ pub struct Checker {
     // ---- struct values and variants ------------------------------------------------------------
 
     /// The offset in words of the field `name` among the fields `rows`, and (for a variant) after the tag.
-    fn field_offset(rows: List<u64>, name: Text) -> u64 {
+    pub fn field_offset(rows: List<u64>, name: Text) -> u64 {
         mut at: u64 = 0
         scanning: loop j: u64 in 0..(rows.len()) {
             f: FieldInfo = .fields.get(rows.get(j))
@@ -4997,6 +5002,7 @@ pub struct Checker {
         if .failed {
             return 0
         }
+        .set_note(e, CHK_NOTE_SIG, sig)
         mut callee: Text = copy(.types.get(st).name)
         callee.append("'s `new`")
         mut shown: Text = .text_of("`")
@@ -5746,6 +5752,18 @@ pub struct Checker {
 
     pub fn node_text(n: u64) -> Text {
         return copy(.nodes.get(n).text)
+    }
+
+    pub fn file_path(file: u64) -> Text {
+        return copy(.files.get(file - 1).path)
+    }
+
+    pub fn root_node() -> u64 {
+        return .root
+    }
+
+    pub fn node_count() -> u64 {
+        return .nodes.len()
     }
 
     pub fn nodes_name(n: u64) -> Text {

@@ -131,6 +131,7 @@ selfhost-check: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
 	$(PYTHON) tools/selfhost-check.py expanddump
 	$(PYTHON) tools/selfhost-check.py declsdump
 	$(PYTHON) tools/selfhost-check.py bodiesdump
+	$(PYTHON) tools/selfhost-check.py asmdump
 
 coverage:
 	$(PYTHON) tools/coverage.py

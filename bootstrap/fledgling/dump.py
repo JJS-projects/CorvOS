@@ -6,6 +6,7 @@ from .lexer import lex
 from .parser import parse
 from .generics import expand
 from .checker import check
+from .codegen import generate
 from . import syntax as S
 
 
@@ -409,3 +410,22 @@ def dump_bodies(stream, ownership=False, actors=False, bodies=True):
     finally:
         _annotate[0] = False
     return "\n".join(out) + ("\n" if out else "") + body
+
+
+# ---- the assembly of a program -----------------------------------------------------------------
+
+def dump_asm(stream):
+    """The assembly Fledgling generates for the program in `stream` (all its files, checked with
+    everything on): exactly the text `compile_program` returns. An error is one line, `error
+    FILE:LINE:COL: MESSAGE`. The self-hosted program is compiler/asmdump.rook (5d-4)."""
+    program = S.Program()
+    try:
+        for path, trusted, source in split_stream(stream):
+            for item in parse(lex(source, path)).items:
+                item.file, item.trusted = path, trusted
+                program.items.append(item)
+        expand(program)
+        check(program)
+    except CompileError as err:
+        return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
+    return generate(program)

@@ -107,7 +107,7 @@ if board_mode():
     MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError, is_trusted  # noqa: E402
-from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, make_stream, tree  # noqa: E402
+from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, dump_asm, make_stream, tree  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -621,10 +621,11 @@ class ErrorTest:
 # What Fledgling prints for the same input, for each hosted program that has a reference.
 HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "expanddump": dump_expanded,
                     "declsdump": dump_declarations,
-                    "bodiesdump": lambda stream: dump_bodies(stream, ownership=True, actors=True, bodies="all")}
+                    "bodiesdump": lambda stream: dump_bodies(stream, ownership=True, actors=True, bodies="all"),
+                    "asmdump": dump_asm}
 # Stages that work on a whole program are given a stream of files (`@@@ PATH` header lines, see
 # fledgling.dump.split_stream); in live.txt a line names the files of one stream, in order.
-STREAM_STAGES = {"expanddump", "declsdump", "bodiesdump"}
+STREAM_STAGES = {"expanddump", "declsdump", "bodiesdump", "asmdump"}
 
 HOSTED_BEGIN = "Hosted: begin"
 HOSTED_END = "Hosted: end"

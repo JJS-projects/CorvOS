@@ -271,6 +271,10 @@ class Gen:
             self.emit(f"adr x0, .Lmsg_{kind}")
             self.emit(f"mov x1, #{len(PANIC_MESSAGES[kind])}")
             self.call_panic(line)
+        # The literals this function loaded (`ldr x, =value`) go here, after its code: the assembler
+        # puts them at the end of the section otherwise, and a program of over a megabyte of code (the
+        # compiler, step 5d-4) would be out of reach of the load.
+        self.emit(".ltorg")
 
     # ---- helpers -------------------------------------------------------
 

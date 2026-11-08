@@ -1,0 +1,1817 @@
+// The self-hosted code generator, step 5d-4: a port of bootstrap/fledgling/codegen.py. It reads the program
+// the checker (compiler/lib/checker.rook) has checked, with the notes the checker recorded on its nodes, and
+// writes the same assembly text Fledgling writes, byte for byte (docs/self-hosting.md). The text is written to
+// the console as it is made, in the order Fledgling makes its lines, so nothing is held but the tables.
+
+import bytes: Bytes
+import checker: Checker, Num, SigInfo, chk_num, chk_num_bits, CHK_NOTE_SLOT, CHK_NOTE_END_SLOT, CHK_NOTE_SUBJECT_SLOT, CHK_NOTE_SELF_SLOT, CHK_NOTE_RESULT_SLOT, CHK_NOTE_TEMP, CHK_NOTE_ARGS_SLOT, CHK_NOTE_ARGS_WORDS, CHK_NOTE_PAYLOAD, CHK_NOTE_PAYLOAD_WORDS, CHK_NOTE_HANDLER_INDEX, CHK_NOTE_WORDS, CHK_NOTE_NUMBER, CHK_NOTE_STOPPED, CHK_NOTE_LO, CHK_NOTE_HI, CHK_NOTE_CONST, CHK_NOTE_NSLOTS, CHK_NOTE_TYPE, CHK_NOTE_CONST_STR, CHK_NOTE_VARIANT, CHK_NOTE_STRUCT, CHK_NOTE_FLAGS, CHK_NOTE_SLOTS, CHK_NOTE_SLOTS_COUNT, CHK_NOTE_LKIND, CHK_NOTE_SIG, CHK_LOCAL_VALUE, CHK_LOCAL_REF, CHK_LOCAL_REGION, CHK_ENUM, CHK_ROLE_NEW
+import parser: Node
+import option: Option
+import pl011: Pl011
+import program: SourceFile
+import region: List, Region
+import text: Text
+import textmap: TextMap
+
+GEN_OVERFLOW: u64 = 0              // the kinds of panic stub, in the order Fledgling lists their messages
+GEN_DIV0: u64 = 1
+GEN_SHIFT: u64 = 2
+GEN_SHIFTLOST: u64 = 3
+GEN_STACK: u64 = 4
+
+pub struct Codegen {
+    region: Region
+    out: Pl011
+    labels: u64
+    file_keys: TextMap<u64>             // source path -> label number of its name, for panics
+    string_keys: TextMap<u64>           // hex of the bytes -> label number of the Bytes value
+    h_symbol: List<Text>                // the handler table: dispatcher symbol, number, "Actor.handler", file, line
+    h_number: List<u64>
+    h_name: List<Text>
+    h_file: List<Text>
+    h_line: List<u64>
+    decl_sig: List<u64>                 // by node: the signature row of a function declaration
+    // the function being generated
+    sig: u64
+    fn_file: Text
+    ret_label: Text
+    panic_labels: List<Text>
+    panic_kinds: List<u64>
+    panic_lines: List<u64>
+    loop_names: List<Text>              // the enclosing loops: label, continue label, break label, depth
+    loop_cont: List<Text>
+    loop_break: List<Text>
+    loop_depth: List<u64>
+    depth: u64                          // temporaries currently pushed
+    self_slot: u64
+    result_slot: u64
+    c: Checker                          // last: its fields are far from the start, and an offset has to fit an `add`
+
+    new(region: Region, checker: Checker, out: Pl011) {
+        .region = copy(region)
+        .c = copy(checker)
+        .out = copy(out)
+        .labels = 0
+        .file_keys = TextMap(region: region)
+        .string_keys = TextMap(region: region)
+        .h_symbol = List(region: region)
+        .h_number = List(region: region)
+        .h_name = List(region: region)
+        .h_file = List(region: region)
+        .h_line = List(region: region)
+        .decl_sig = List(region: region)
+        .sig = 0
+        .fn_file = Text(region: region)
+        .ret_label = Text(region: region)
+        .panic_labels = List(region: region)
+        .panic_kinds = List(region: region)
+        .panic_lines = List(region: region)
+        .loop_names = List(region: region)
+        .loop_cont = List(region: region)
+        .loop_break = List(region: region)
+        .loop_depth = List(region: region)
+        .depth = 0
+        .self_slot = 0
+        .result_slot = 0
+    }
+
+    // ---- output ------------------------------------------------------------------------------------
+
+    fn ob(words: Bytes) {
+        .out.write(words)
+    }
+
+    fn num(n: u64) {
+        .out.write_dec(n)
+    }
+
+    fn ot(t: Text) {
+        printing: loop i: u64 in 0..t.len() {
+            .out.put(t.at(i))
+        }
+    }
+
+    fn nl() {
+        .out.put('\n')
+    }
+
+    /// `0x` and the hex digits of `n`, lowercase, no leading zeros.
+    fn oh(n: u64) {
+        .ob("0x")
+        mut started: bool = false
+        digits: loop k: u64 in 0..16 {
+            d: u8 = ((n shr (4 * (15 - k))) and 15) wrap u8
+            if d != 0 or started or k == 15 {
+                started = true
+                .out.put(if d < 10 { '0' + d } else { 'a' + (d - 10) })
+            }
+        }
+    }
+
+    /// Starts an instruction line.
+    fn o4() {
+        .ob("    ")
+    }
+
+    /// A whole instruction line.
+    fn emit(words: Bytes) {
+        .o4()
+        .ob(words)
+        .nl()
+    }
+
+    fn text_of(words: Bytes) -> Text {
+        return .c.text_of(words)
+    }
+
+    mut fn new_label(hint: Text) -> Text {
+        .labels += 1
+        mut name: Text = .text_of(".L")
+        name.append_text(hint)
+        name.push('_')
+        name.append_dec(.labels)
+        return name
+    }
+
+    mut fn new_label_b(hint: Bytes) -> Text {
+        return .new_label(.text_of(hint))
+    }
+
+    // ---- notes -------------------------------------------------------------------------------------
+
+    fn kind_is(n: u64, kind: Bytes) -> bool {
+        return .c.kind_is(n, kind)
+    }
+
+    fn kid(n: u64, k: u64) -> u64 {
+        return .c.kid(n, k)
+    }
+
+    fn line_of(n: u64) -> u64 {
+        return .c.node_at(n).line
+    }
+
+    fn ty_of(n: u64) -> u64 {
+        return .c.note_get(n, CHK_NOTE_TYPE)
+    }
+
+    fn note(n: u64, key: u64) -> u64 {
+        return .c.note_get(n, key)
+    }
+
+    fn has(n: u64, key: u64) -> bool {
+        return .c.note_has(n, key)
+    }
+
+    fn is_agg(ty: u64) -> bool {
+        return .c.is_aggregate(ty)
+    }
+
+    fn words(ty: u64) -> u64 {
+        return .c.words_of_type(ty)
+    }
+
+    fn is_bool(ty: u64) -> bool {
+        return ty == .c.bool_type
+    }
+
+    fn is_int(ty: u64) -> bool {
+        return .c.is_int(ty)
+    }
+
+    fn bits(ty: u64) -> u64 {
+        return .c.int_bits(ty)
+    }
+
+    fn signed(ty: u64) -> bool {
+        return .c.int_signed(ty)
+    }
+
+    /// The 64 bits a constant takes (negative numbers in two's complement).
+    fn value_bits(n: u64, key: u64) -> u64 {
+        return chk_num_bits(chk_num(.c.note_get(n, key + 1) == 1, .c.note_get(n, key)))
+    }
+
+    /// The signature row's symbol: `name` for a function, `Owner__name` for a method, `new` or handler
+    /// (the owner's `<`, `>` and `,` turned into `_L_`, `_R_` and `_C_`).
+    fn symbol_of(sig: u64) -> Text {
+        info: SigInfo = .c.sigs.get(sig)
+        name: Text = .c.name_of(info.decl)
+        if info.owner == 0 {
+            return name
+        }
+        owner: Text = copy(.c.types.get(info.owner).name)
+        mut out: Text = .c.empty()
+        scanning: loop k: u64 in 0..owner.len() {
+            b: u8 = owner.at(k)
+            if b == '<' {
+                out.append("_L_")
+            } else if b == '>' {
+                out.append("_R_")
+            } else if b == ',' {
+                out.append("_C_")
+            } else {
+                out.push(b)
+            }
+        }
+        out.append("__")
+        out.append_text(name)
+        return out
+    }
+
+    // ---- top level -------------------------------------------------------------------------------
+
+    fn less(a: Text, b: Text) -> bool {
+        scanning: loop k: u64 in 0..a.len() {
+            if k >= b.len() {
+                return false
+            }
+            if a.at(k) != b.at(k) {
+                return a.at(k) < b.at(k)
+            }
+        }
+        return a.len() < b.len()
+    }
+
+    fn path_of(file: u64) -> Text {
+        if file == 0 {
+            return .text_of("<input>")
+        }
+        return copy(.c.file_path(file))
+    }
+
+    pub mut fn program() {
+        root: Node = .c.node_at(.c.root_node())
+        // the base names of the files, sorted, each once
+        mut names: List<Text> = List(region: .region)
+        scanning: loop k: u64 in 0..(root.kids.len()) {
+            name: Text = .c.basename(.path_of(.c.file_of(root.kids.get(k))))
+            mut known: bool = false
+            looking: loop j: u64 in 0..(names.len()) {
+                if names.get(j).equals(name) {
+                    known = true
+                }
+            }
+            if not known {
+                names.push(name)
+            }
+        }
+        sorting: loop i: u64 in 1..(names.len()) {
+            mut j: u64 = i
+            shifting: loop j > 0 and .less(names.get(j), names.get(j - 1)) {
+                held: Text = copy(names.get(j))
+                names.set(j, copy(names.get(j - 1)))
+                names.set(j - 1, held)
+                j -= 1
+            }
+        }
+        .ob("// Generated by Fledgling from ")
+        listing: loop k: u64 in 0..(names.len()) {
+            if k > 0 {
+                .ob(", ")
+            }
+            .ot(names.get(k))
+        }
+        .ob(". Do not edit.\n")
+        .ob("    .text\n")
+        .index_declarations()
+        items: loop k: u64 in 0..(root.kids.len()) {
+            item: u64 = root.kids.get(k)
+            if .kind_is(item, "Fn") {
+                if .kid(item, 2) != 0 {
+                    .function(item)
+                }
+            } else if .kind_is(item, "Struct") or .kind_is(item, "Enum") {
+                methods: List<u64> = copy(.c.node_at(.kid(item, 2)).kids)
+                each: loop j: u64 in 0..(methods.len()) {
+                    .function(methods.get(j))
+                }
+            } else if .kind_is(item, "Actor") {
+                if .kid(item, 2) != 0 {
+                    .function(.kid(item, 2))
+                }
+                handlers: List<u64> = copy(.c.node_at(.kid(item, 3)).kids)
+                each2: loop j: u64 in 0..(handlers.len()) {
+                    .function(handlers.get(j))
+                }
+                .dispatcher(item)
+                .start_stub(item)
+            }
+        }
+        .handler_table()
+        .nl()
+        .ob("    .section .rodata\n")
+        .messages()
+        paths: loop k: u64 in 0..(.file_keys.len()) {
+            .ob(".Lfile_")
+            .num(.file_keys.value_at(k))
+            .ob(": .ascii \"")
+            .ot(.c.basename(.file_keys.key_at(k)))
+            .ob("\"\n")
+        }
+        strings: loop k: u64 in 0..(.string_keys.len()) {
+            hex: Text = .string_keys.key_at(k)
+            label: u64 = .string_keys.value_at(k)
+            .ob("    .balign 8\n")
+            .ob(".Lbytes_")
+            .num(label)
+            .ob(": .quad .Lbytes_")
+            .num(label)
+            .ob("_data, ")
+            .num(hex.len() / 2)
+            .nl()
+            .ob(".Lbytes_")
+            .num(label)
+            .ob("_data:")
+            if hex.len() > 0 {
+                .ob(" .byte ")
+                bytes: loop j: u64 in 0..(hex.len() / 2) {
+                    if j > 0 {
+                        .ob(", ")
+                    }
+                    .num((.c.hex_value(hex.at(2 * j)) * 16 + .c.hex_value(hex.at(2 * j + 1))) as u64)
+                }
+            }
+            .nl()
+        }
+    }
+
+    fn messages() {
+        .ob(".Lmsg_overflow: .ascii \"integer overflow\"\n")
+        .ob(".Lmsg_div0: .ascii \"division by zero\"\n")
+        .ob(".Lmsg_shift: .ascii \"shift amount too large\"\n")
+        .ob(".Lmsg_shiftlost: .ascii \"shl lost set bits\"\n")
+        .ob(".Lmsg_stack: .ascii \"stack overflow\"\n")
+    }
+
+    fn message_length(kind: u64) -> u64 {
+        if kind == GEN_OVERFLOW {
+            return 16
+        }
+        if kind == GEN_DIV0 {
+            return 16
+        }
+        if kind == GEN_SHIFT {
+            return 22
+        }
+        if kind == GEN_SHIFTLOST {
+            return 17
+        }
+        return 14
+    }
+
+    fn kind_word(kind: u64) -> Bytes {
+        if kind == GEN_OVERFLOW {
+            return "overflow"
+        }
+        if kind == GEN_DIV0 {
+            return "div0"
+        }
+        if kind == GEN_SHIFT {
+            return "shift"
+        }
+        if kind == GEN_SHIFTLOST {
+            return "shiftlost"
+        }
+        return "stack"
+    }
+
+    /// Which signature row each function declaration has.
+    mut fn index_declarations() {
+        filling: loop .decl_sig.len() < .c.node_count() {
+            .decl_sig.push(0)
+        }
+        rows: loop row: u64 in 1..(.c.sigs.len()) {
+            .decl_sig.set(.c.sigs.get(row).decl, row)
+        }
+    }
+
+    /// The hex of the bytes of `t`, as the dump of a `Str` writes them (two digits a byte, lowercase).
+    fn hex_of(t: Text) -> Text {
+        mut out: Text = .c.empty()
+        scanning: loop k: u64 in 0..t.len() {
+            b: u8 = t.at(k)
+            hi: u8 = b / 16
+            lo: u8 = b % 16
+            out.push(if hi < 10 { '0' + hi } else { 'a' + (hi - 10) })
+            out.push(if lo < 10 { '0' + lo } else { 'a' + (lo - 10) })
+        }
+        return out
+    }
+
+    /// The label number of a `Bytes` value holding the bytes with this hex (made once).
+    mut fn string_label(hex: Text) -> u64 {
+        match .string_keys.find(hex) {
+            Some(value: found) => return found
+            None => { }
+        }
+        number: u64 = .string_keys.len()
+        .string_keys.put(copy(hex), number)
+        return number
+    }
+
+    mut fn file_label(path: Text) -> u64 {
+        match .file_keys.find(path) {
+            Some(value: found) => return found
+            None => { }
+        }
+        number: u64 = .file_keys.len()
+        .file_keys.put(copy(path), number)
+        return number
+    }
+
+    /// Puts the address of a `Bytes` value holding the bytes with this hex in x0.
+    mut fn string(hex: Text) {
+        label: u64 = .string_label(hex)
+        .o4()
+        .ob("adrp x0, .Lbytes_")
+        .num(label)
+        .nl()
+        .o4()
+        .ob("add x0, x0, :lo12:.Lbytes_")
+        .num(label)
+        .nl()
+    }
+
+    /// `rook_handler_table`: one record of five words for every handler.
+    mut fn handler_table() {
+        .nl()
+        .ob("    .section .rodata\n")
+        .emit(".balign 8")
+        .emit(".global rook_handler_table, rook_handler_table_end")
+        .ob("rook_handler_table:\n")
+        records: loop k: u64 in 0..(.h_symbol.len()) {
+            name_label: u64 = .string_label(.hex_of(.h_name.get(k)))
+            file_label: u64 = .string_label(.hex_of(.c.basename(.h_file.get(k))))
+            .o4()
+            .ob(".quad ")
+            .ot(.h_symbol.get(k))
+            .ob(", ")
+            .num(.h_number.get(k))
+            .ob(", .Lbytes_")
+            .num(name_label)
+            .ob(", .Lbytes_")
+            .num(file_label)
+            .ob(", ")
+            .num(.h_line.get(k))
+            .nl()
+        }
+        .ob("rook_handler_table_end:\n")
+    }
+
+    /// Loads the arguments of an actor's `new` or of a handler from the words at x17 into x1.., as numbers,
+    /// references (loaded) or structs and enums (their address).
+    fn load_message_words(sig: u64) {
+        rows: List<u64> = .c.params_of(sig)
+        mut at: u64 = 0
+        loading: loop i: u64 in 0..(rows.len()) {
+            ty: u64 = .c.params.get(rows.get(i)).ty
+            .o4()
+            if .is_agg(ty) {
+                .ob("add x")
+                .num(i + 1)
+                .ob(", x17, #")
+                .num(8 * at)
+                .nl()
+                at += .words(ty)
+            } else {
+                .ob("ldr x")
+                .num(i + 1)
+                .ob(", [x17, #")
+                .num(8 * at)
+                .ob("]\n")
+                at += 1
+            }
+        }
+    }
+
+    mut fn start_stub(act: u64) {
+        name: Text = .c.name_of(act)
+        .nl()
+        .ob("// start stub for actor ")
+        .ot(name)
+        .ob(" (line ")
+        .num(.line_of(act))
+        .ob(")\n")
+        .o4()
+        .ob(".global ")
+        .ot(name)
+        .ob("__Start\n")
+        .emit(".balign 4")
+        .ot(name)
+        .ob("__Start:\n")
+        if .kid(act, 2) == 0 {
+            .emit("ret")
+            return
+        }
+        .emit("mov x17, x2")
+        .load_message_words(.decl_sig.get(.kid(act, 2)))
+        .o4()
+        .ob("b ")
+        .ot(.symbol_of(.decl_sig.get(.kid(act, 2))))
+        .nl()
+    }
+
+    mut fn dispatcher(act: u64) {
+        name: Text = .c.name_of(act)
+        .nl()
+        .ob("// dispatcher for actor ")
+        .ot(name)
+        .ob(" (line ")
+        .num(.line_of(act))
+        .ob(")\n")
+        .o4()
+        .ob(".global ")
+        .ot(name)
+        .ob("__Dispatch\n")
+        .emit(".balign 4")
+        .ot(name)
+        .ob("__Dispatch:\n")
+        mut symbol: Text = copy(name)
+        symbol.append("__Dispatch")
+        handlers: List<u64> = copy(.c.node_at(.kid(act, 3)).kids)
+        walking: loop k: u64 in 0..(handlers.len()) {
+            handler: u64 = handlers.get(k)
+            sig: u64 = .decl_sig.get(handler)
+            number: u64 = .c.sigs.get(sig).number
+            mut full: Text = copy(name)
+            full.push('.')
+            full.append_text(.c.name_of(handler))
+            .h_symbol.push(copy(symbol))
+            .h_number.push(number)
+            .h_name.push(full)
+            .h_file.push(.path_of(.c.file_of(handler)))
+            .h_line.push(.line_of(handler))
+            skip: Text = .new_label_b("handler")
+            .o4()
+            .ob("cmp x1, #")
+            .num(number)
+            .nl()
+            .o4()
+            .ob("b.ne ")
+            .ot(skip)
+            .nl()
+            .emit("mov x17, x2")
+            .load_message_words(sig)
+            .o4()
+            .ob("b ")
+            .ot(.symbol_of(sig))
+            .nl()
+            .ot(skip)
+            .ob(":\n")
+        }
+        .emit("brk #0x53")
+    }
+
+    // ---- functions -------------------------------------------------------------------------------
+
+    mut fn call_panic(line: u64) {
+        label: u64 = .file_label(copy(.fn_file))
+        .o4()
+        .ob("adr x2, .Lfile_")
+        .num(label)
+        .nl()
+        .o4()
+        .ob("mov x3, #")
+        .num(.c.basename(.fn_file).len())
+        .nl()
+        .o4()
+        .ob("ldr x4, =")
+        .num(line)
+        .nl()
+        .emit("bl rook_panic")
+    }
+
+    mut fn function(fnode: u64) {
+        sig: u64 = .decl_sig.get(fnode)
+        info: SigInfo = .c.sigs.get(sig)
+        name: Text = .c.name_of(fnode)
+        symbol: Text = .symbol_of(sig)
+        .sig = sig
+        .fn_file = .path_of(.c.file_of(fnode))
+        mut hint: Text = .text_of("ret_")
+        hint.append_text(name)
+        .ret_label = .new_label(hint)
+        .panic_labels = List(region: .region)
+        .panic_kinds = List(region: .region)
+        .panic_lines = List(region: .region)
+        .loop_names = List(region: .region)
+        .loop_cont = List(region: .region)
+        .loop_break = List(region: .region)
+        .loop_depth = List(region: .region)
+        .depth = 0
+        .nl()
+        if info.owner != 0 {
+            .ob("// method ")
+            .ot(.c.types.get(info.owner).name)
+            .ob(".")
+        } else {
+            .ob("// fn ")
+        }
+        .ot(name)
+        .ob(" (line ")
+        .num(.line_of(fnode))
+        .ob(")\n")
+        .o4()
+        .ob(".global ")
+        .ot(symbol)
+        .nl()
+        .emit(".balign 4")
+        .ot(symbol)
+        .ob(":\n")
+        .emit("stp x29, x30, [sp, #-16]!")
+        .emit("mov x29, sp")
+        nslots: u64 = .note(fnode, CHK_NOTE_NSLOTS)
+        frame: u64 = (8 * nslots + 15) / 16 * 16
+        if frame > 0 {
+            if frame <= 4095 {
+                .o4()
+                .ob("sub sp, sp, #")
+                .num(frame)
+                .nl()
+            } else {
+                .o4()
+                .ob("ldr x16, =")
+                .num(frame)
+                .nl()
+                .emit("sub sp, sp, x16")
+            }
+        }
+        // Stack guard (decision 164): a frame that would reach below the limit panics, which abandons the
+        // handler (or halts) instead of writing over what lies below the stack.
+        .emit("ldr x16, =boot_stack_limit")
+        .emit("cmp sp, x16")
+        .panic_branch("b.lo", GEN_STACK, .line_of(fnode))
+        if .has(fnode, CHK_NOTE_RESULT_SLOT) {
+            .result_slot = .note(fnode, CHK_NOTE_RESULT_SLOT)
+            // Where to write the struct result. Stored straight from x8: x0 still holds the first argument.
+            .slot_insn("str x8,", .result_slot)
+        }
+        mut first: u64 = 0
+        if .has(fnode, CHK_NOTE_SELF_SLOT) {
+            .self_slot = .note(fnode, CHK_NOTE_SELF_SLOT)
+            .store_slot(.self_slot)         // x0: the method's struct
+            first = 1
+        }
+        // Parameters: normalise numbers (the caller may be assembly) and store.
+        params: List<u64> = copy(.c.node_at(.kid(fnode, 0)).kids)
+        binding: loop i: u64 in 0..(params.len()) {
+            p: u64 = params.get(i)
+            pty: u64 = .ty_of(p)
+            .o4()
+            .ob("mov x0, x")
+            .num(first + i)
+            .nl()
+            if not (.c.has_word(.c.node_at(.kid(p, 0)).text, "mut") or .is_agg(pty)) {
+                .normalize(pty)
+            }
+            .store_slot(.note(p, CHK_NOTE_SLOT))
+        }
+        .block(.kid(fnode, 2))
+        .ot(.ret_label)
+        .ob(":\n")
+        .emit("mov sp, x29")
+        .emit("ldp x29, x30, [sp], #16")
+        .emit("ret")
+        stubs: loop k: u64 in 0..(.panic_labels.len()) {
+            kind: u64 = .panic_kinds.get(k)
+            .ot(.panic_labels.get(k))
+            .ob(":\n")
+            .o4()
+            .ob("adr x0, .Lmsg_")
+            .ob(.kind_word(kind))
+            .nl()
+            .o4()
+            .ob("mov x1, #")
+            .num(.message_length(kind))
+            .nl()
+            .call_panic(.panic_lines.get(k))
+        }
+        // The literals this function loaded (`ldr x, =value`) go here, after its code (see codegen.py).
+        .emit(".ltorg")
+    }
+
+    // ---- helpers -----------------------------------------------------------------------------------
+
+    /// The instruction `insn x?, [slot]` for a slot (`insn` includes the register and the comma).
+    fn slot_insn(insn: Bytes, slot: u64) {
+        offset: u64 = 8 * (slot + 1)
+        if offset > 256 {
+            .o4()
+            .ob("ldr x17, =")
+            .num(offset)
+            .nl()
+            .emit("sub x17, x29, x17")
+            .o4()
+            .ob(insn)
+            .ob(" [x17]\n")
+        } else {
+            .o4()
+            .ob(insn)
+            .ob(" [x29, #-")
+            .num(offset)
+            .ob("]\n")
+        }
+    }
+
+    fn load_slot_reg(slot: u64, reg: Bytes) {
+        offset: u64 = 8 * (slot + 1)
+        if offset > 256 {
+            .o4()
+            .ob("ldr x17, =")
+            .num(offset)
+            .nl()
+            .emit("sub x17, x29, x17")
+            .o4()
+            .ob("ldr ")
+            .ob(reg)
+            .ob(", [x17]\n")
+        } else {
+            .o4()
+            .ob("ldr ")
+            .ob(reg)
+            .ob(", [x29, #-")
+            .num(offset)
+            .ob("]\n")
+        }
+    }
+
+    fn load_slot(slot: u64) {
+        .load_slot_reg(slot, "x0")
+    }
+
+    fn store_slot(slot: u64) {
+        .slot_insn("str x0,", slot)
+    }
+
+    /// The address of the `nwords` slots starting at `slot` (the lowest address) into `reg`.
+    fn region_addr(slot: u64, nwords: u64, reg: Bytes) {
+        offset: u64 = 8 * (slot + nwords)
+        if offset <= 4095 {
+            .o4()
+            .ob("sub ")
+            .ob(reg)
+            .ob(", x29, #")
+            .num(offset)
+            .nl()
+        } else {
+            .o4()
+            .ob("ldr x17, =")
+            .num(offset)
+            .nl()
+            .o4()
+            .ob("sub ")
+            .ob(reg)
+            .ob(", x29, x17\n")
+        }
+    }
+
+    fn region_x0(slot: u64, nwords: u64) {
+        .region_addr(slot, nwords, "x0")
+    }
+
+    /// Copies an `n`-word struct from [x0] to [x1].
+    fn copy_words(n: u64) {
+        copying: loop i: u64 in 0..n {
+            .o4()
+            .ob("ldr x16, [x0, #")
+            .num(8 * i)
+            .ob("]\n")
+            .o4()
+            .ob("str x16, [x1, #")
+            .num(8 * i)
+            .ob("]\n")
+        }
+    }
+
+    mut fn push() {
+        .emit("str x0, [sp, #-16]!")
+        .depth += 1
+    }
+
+    mut fn pop(reg: Bytes) {
+        .o4()
+        .ob("ldr ")
+        .ob(reg)
+        .ob(", [sp], #16\n")
+        .depth -= 1
+    }
+
+    /// Pops by number: `x` and `n`.
+    mut fn pop_n(n: u64) {
+        .o4()
+        .ob("ldr x")
+        .num(n)
+        .ob(", [sp], #16\n")
+        .depth -= 1
+    }
+
+    fn loop_index(label: Text) -> u64 {
+        mut k: u64 = .loop_names.len()
+        searching: loop k > 0 {
+            k -= 1
+            if .loop_names.get(k).equals(label) {
+                return k
+            }
+        }
+        return 0
+    }
+
+    /// Jumps out to a loop label, popping temporaries pushed since the loop began.
+    fn leave_to(label: Text, to_break: bool) {
+        at: u64 = .loop_index(label)
+        if .depth > .loop_depth.get(at) {
+            .o4()
+            .ob("add sp, sp, #")
+            .num(16 * (.depth - .loop_depth.get(at)))
+            .nl()
+        }
+        .o4()
+        .ob("b ")
+        .ot(if to_break { .loop_break.get(at) } else { .loop_cont.get(at) })
+        .nl()
+    }
+
+    fn load_imm_reg(value: u64, reg: Bytes) {
+        .o4()
+        if value < 65536 {
+            .ob("mov ")
+            .ob(reg)
+            .ob(", #")
+            .num(value)
+            .nl()
+        } else {
+            .ob("ldr ")
+            .ob(reg)
+            .ob(", =")
+            .oh(value)
+            .nl()
+        }
+    }
+
+    fn load_imm(value: u64) {
+        .load_imm_reg(value, "x0")
+    }
+
+    /// A branch to a new panic stub. `cond` is e.g. "b.cs" or "cbnz x16".
+    mut fn panic_branch(cond: Bytes, kind: u64, line: u64) {
+        mut hint: Text = .text_of("panic_")
+        hint.append(.kind_word(kind))
+        label: Text = .new_label(hint)
+        .panic_labels.push(copy(label))
+        .panic_kinds.push(kind)
+        .panic_lines.push(line)
+        .o4()
+        .ob(cond)
+        if cond.at(0) == 'c' {
+            .ob(", ")
+        } else {
+            .ob(" ")
+        }
+        .ot(label)
+        .nl()
+    }
+
+    /// Brings x0 into normal form for `ty` (used after casts and calls).
+    fn normalize(ty: u64) {
+        if .is_bool(ty) {
+            .emit("tst w0, #0xff")
+            .emit("cset x0, ne")
+        } else if .is_int(ty) and .bits(ty) < 64 {
+            b: u64 = .bits(ty)
+            if .signed(ty) {
+                .o4()
+                .ob(if b == 8 { "sxtb" } else if b == 16 { "sxth" } else { "sxtw" })
+                .ob(" x0, w0\n")
+            } else if b == 32 {
+                .emit("mov w0, w0")
+            } else {
+                .o4()
+                .ob("and x0, x0, #")
+                .oh((1 shl b) - 1)
+                .nl()
+            }
+        }
+    }
+
+    /// x0 holds an exact result (no 64-bit overflow happened); panic if it doesn't fit in `ty` (bits < 64).
+    mut fn check_fits(ty: u64, line: u64) {
+        if .signed(ty) {
+            b: u64 = .bits(ty)
+            .o4()
+            .ob(if b == 8 { "sxtb" } else if b == 16 { "sxth" } else { "sxtw" })
+            .ob(" x16, w0\n")
+            .emit("cmp x16, x0")
+            .panic_branch("b.ne", GEN_OVERFLOW, line)
+        } else {
+            .o4()
+            .ob("lsr x16, x0, #")
+            .num(.bits(ty))
+            .nl()
+            .panic_branch("cbnz x16", GEN_OVERFLOW, line)
+        }
+    }
+
+    // ---- statements --------------------------------------------------------------------------------
+
+    mut fn block(b: u64) {
+        stmts: List<u64> = copy(.c.node_at(b).kids)
+        walking: loop k: u64 in 0..(stmts.len()) {
+            .stmt(stmts.get(k))
+        }
+    }
+
+    mut fn stmt(s: u64) {
+        .o4()
+        .ob("// line ")
+        .num(.line_of(s))
+        .nl()
+        node: Node = .c.node_at(s)
+        if node.kind.same_as("Decl") {
+            init: u64 = .kid(s, 1)
+            .expr(init)
+            if .is_agg(.ty_of(init)) {
+                .region_addr(.note(s, CHK_NOTE_SLOT), .words(.ty_of(init)), "x1")
+                .copy_words(.words(.ty_of(init)))
+            } else {
+                .store_slot(.note(s, CHK_NOTE_SLOT))
+            }
+        } else if node.kind.same_as("Assign") {
+            target: u64 = .kid(s, 0)
+            if .kind_is(target, "Name") and .note(target, CHK_NOTE_LKIND) == CHK_LOCAL_VALUE {
+                .expr(.kid(s, 1))
+                .store_slot(.note(target, CHK_NOTE_SLOT))
+            } else {
+                .expr(.kid(s, 1))
+                .push()
+                .addr(target)
+                .emit("mov x1, x0")
+                .pop("x0")
+                if .is_agg(.ty_of(target)) {
+                    .copy_words(.words(.ty_of(target)))
+                } else {
+                    .emit("str x0, [x1]")
+                }
+            }
+        } else if node.kind.same_as("ExprStmt") {
+            .expr(.kid(s, 0))
+        } else if node.kind.same_as("If") {
+            else_label: Text = .new_label_b("else")
+            end_label: Text = .new_label_b("endif")
+            .expr(.kid(s, 0))
+            .o4()
+            .ob("cbz x0, ")
+            .ot(else_label)
+            .nl()
+            .block(.kid(s, 1))
+            .o4()
+            .ob("b ")
+            .ot(end_label)
+            .nl()
+            .ot(else_label)
+            .ob(":\n")
+            if .kid(s, 2) != 0 {
+                if .kind_is(.kid(s, 2), "If") {
+                    .stmt(.kid(s, 2))
+                } else {
+                    .block(.kid(s, 2))
+                }
+            }
+            .ot(end_label)
+            .ob(":\n")
+        } else if node.kind.same_as("Loop") {
+            start: Text = .new_label_b("loop")
+            end: Text = .new_label_b("endloop")
+            .ot(start)
+            .ob(":\n")
+            if .kid(s, 0) != 0 {
+                .expr(.kid(s, 0))
+                .o4()
+                .ob("cbz x0, ")
+                .ot(end)
+                .nl()
+            }
+            .loop_names.push(copy(node.text))
+            .loop_cont.push(copy(start))
+            .loop_break.push(copy(end))
+            .loop_depth.push(.depth)
+            .block(.kid(s, 1))
+            .pop_loop()
+            .o4()
+            .ob("b ")
+            .ot(start)
+            .nl()
+            .ot(end)
+            .ob(":\n")
+        } else if node.kind.same_as("ForRange") {
+            // The end is evaluated once. The variable can't overflow when incremented, because it is
+            // always below the end.
+            cond: Text = .new_label_b("range")
+            step: Text = .new_label_b("rangestep")
+            end: Text = .new_label_b("endrange")
+            slot: u64 = .note(s, CHK_NOTE_SLOT)
+            .expr(.kid(s, 1))
+            .store_slot(slot)
+            .expr(.kid(s, 2))
+            .store_slot(.note(s, CHK_NOTE_END_SLOT))
+            .ot(cond)
+            .ob(":\n")
+            .load_slot(slot)
+            .load_slot_reg(.note(s, CHK_NOTE_END_SLOT), "x1")
+            .emit("cmp x0, x1")
+            .o4()
+            .ob(if .signed(.ty_of(s)) { "b.ge " } else { "b.hs " })
+            .ot(end)
+            .nl()
+            .loop_names.push(.c.first_word(node.text))
+            .loop_cont.push(copy(step))
+            .loop_break.push(copy(end))
+            .loop_depth.push(.depth)
+            .block(.kid(s, 3))
+            .pop_loop()
+            .ot(step)
+            .ob(":\n")
+            .load_slot(slot)
+            .emit("add x0, x0, #1")
+            .store_slot(slot)
+            .o4()
+            .ob("b ")
+            .ot(cond)
+            .nl()
+            .ot(end)
+            .ob(":\n")
+        } else if node.kind.same_as("Break") {
+            .leave_to(node.text, true)
+        } else if node.kind.same_as("Continue") {
+            .leave_to(node.text, false)
+        } else if node.kind.same_as("Match") {
+            .gen_match(s)
+        } else if node.kind.same_as("Unsafe") {
+            .block(.kid(s, 0))
+        } else if node.kind.same_as("Return") {
+            value: u64 = .kid(s, 0)
+            if value != 0 {
+                .expr(value)
+                if .is_agg(.ty_of(value)) {
+                    .load_slot_reg(.result_slot, "x1")
+                    .copy_words(.words(.ty_of(value)))
+                }
+            }
+            .o4()
+            .ob("b ")
+            .ot(.ret_label)
+            .nl()
+        }
+    }
+
+    mut fn pop_loop() {
+        discard .loop_names.pop()
+        discard .loop_cont.pop()
+        discard .loop_break.pop()
+        discard .loop_depth.pop()
+    }
+
+    // ---- expressions -------------------------------------------------------------------------------
+
+    mut fn expr(e: u64) {
+        node: Node = .c.node_at(e)
+        kind: Text = copy(node.kind)
+        if kind.same_as("Int") or kind.same_as("Char") {
+            .load_imm(chk_num_bits(.c.literal_value(e)))
+        } else if kind.same_as("Bool") {
+            .o4()
+            .ob("mov x0, #")
+            .num(if node.text.same_as("true") { 1 } else { 0 })
+            .nl()
+        } else if kind.same_as("Str") {
+            .string(.hex_after_x(e))
+        } else if kind.same_as("Name") {
+            .expr_name(e)
+        } else if kind.same_as("Access") {
+            .addr(e)
+            if not .is_agg(.ty_of(e)) {
+                .emit("ldr x0, [x0]")
+            }
+        } else if kind.same_as("StructLit") {
+            .struct_lit(e)
+        } else if kind.same_as("MethodCall") {
+            .method_call(e)
+        } else if kind.same_as("Consume") {
+            .addr(.kid(e, 0))                   // the same storage, which is now the receiver's: nothing is copied here
+        } else if kind.same_as("Copy") {
+            if .has(e, CHK_NOTE_FLAGS) and .note(e, CHK_NOTE_FLAGS) == 1 {
+                .expr(.kid(e, 0))
+            } else {
+                n: u64 = .words(.ty_of(e))
+                .addr(.kid(e, 0))
+                .region_addr(.note(e, CHK_NOTE_TEMP), n, "x1")
+                .copy_words(n)
+                .region_x0(.note(e, CHK_NOTE_TEMP), n)
+            }
+        } else if kind.same_as("Unary") {
+            .unary(e)
+        } else if kind.same_as("Binary") {
+            .binary(e)
+        } else if kind.same_as("Cast") {
+            .expr(.kid(e, 0))
+            .normalize(.ty_of(e))
+        } else if kind.same_as("IfExpr") {
+            else_label: Text = .new_label_b("ifelse")
+            end_label: Text = .new_label_b("ifend")
+            .expr(.kid(e, 0))
+            .o4()
+            .ob("cbz x0, ")
+            .ot(else_label)
+            .nl()
+            .expr(.kid(e, 1))
+            .o4()
+            .ob("b ")
+            .ot(end_label)
+            .nl()
+            .ot(else_label)
+            .ob(":\n")
+            .expr(.kid(e, 2))
+            .ot(end_label)
+            .ob(":\n")
+        } else if kind.same_as("Call") {
+            .expr_call(e)
+        } else if kind.same_as("SelfValue") or kind.same_as("SelfRef") {
+            .load_slot(.self_slot)          // the actor's reference is its fields' address
+        } else if kind.same_as("Narrow") {
+            .expr(.kid(e, 0))               // the same reference
+        } else if kind.same_as("Spawn") {
+            .gen_spawn(e)
+        } else if kind.same_as("MatchExpr") {
+            .gen_match(e)
+        }
+    }
+
+    /// The hex of a `Str` node (its text is `x` and the hex).
+    fn hex_after_x(e: u64) -> Text {
+        t: Text = .c.node_text(e)
+        mut out: Text = .c.empty()
+        skipping: loop k: u64 in 1..t.len() {
+            out.push(t.at(k))
+        }
+        return out
+    }
+
+    mut fn expr_name(e: u64) {
+        if .has(e, CHK_NOTE_VARIANT) {
+            ty: u64 = .ty_of(e)
+            .variant_value(.note(e, CHK_NOTE_TEMP), ty, .note(e, CHK_NOTE_VARIANT))
+            .region_x0(.note(e, CHK_NOTE_TEMP), .words(ty))
+        } else if .has(e, CHK_NOTE_CONST_STR) {
+            .string(.hex_after_x(.note(e, CHK_NOTE_CONST_STR)))
+        } else if .has(e, CHK_NOTE_CONST) {
+            .load_imm(.value_bits(e, CHK_NOTE_CONST))
+        } else if .note(e, CHK_NOTE_LKIND) == CHK_LOCAL_VALUE {
+            .load_slot(.note(e, CHK_NOTE_SLOT))
+        } else {
+            .addr(e)                        // a struct: its address
+            if not .is_agg(.ty_of(e)) {
+                .emit("ldr x0, [x0]")       // a `mut` number parameter
+            }
+        }
+    }
+
+    mut fn expr_call(e: u64) {
+        node: Node = .c.node_at(e)
+        callee: Text = copy(node.text)
+        args: List<u64> = copy(node.kids)
+        if callee.same_as("load8") or callee.same_as("load16") or callee.same_as("load32") or callee.same_as("load64") {
+            .expr(args.get(0))
+            .o4()
+            .ob(if callee.same_as("load8") { "ldrb w0" } else if callee.same_as("load16") { "ldrh w0" } else if callee.same_as("load32") { "ldr w0" } else { "ldr x0" })
+            .ob(", [x0]\n")                 // exactly one access
+        } else if callee.same_as("words_of") {
+            .o4()
+            .ob("mov x0, #")
+            .num(if .has(e, CHK_NOTE_WORDS) { .note(e, CHK_NOTE_WORDS) } else { 1 })
+            .nl()
+        } else if callee.same_as("store_element") {
+            words: u64 = if .has(e, CHK_NOTE_WORDS) { .note(e, CHK_NOTE_WORDS) } else { 1 }
+            .expr(args.get(0))
+            .push()
+            .expr(args.get(1))
+            .push()
+            .expr(args.get(2))              // the value (a struct gives its address)
+            .pop("x2")                      // index
+            .pop("x3")                      // base
+            .o4()
+            .ob("mov x16, #")
+            .num(8 * words)
+            .nl()
+            .emit("mul x2, x2, x16")
+            .emit("add x1, x3, x2")         // where the slot is
+            if .is_agg(.ty_of(args.get(2))) {
+                .copy_words(words)
+            } else {
+                .emit("str x0, [x1]")
+            }
+        } else if callee.same_as("load_element") {
+            words: u64 = if .has(e, CHK_NOTE_WORDS) { .note(e, CHK_NOTE_WORDS) } else { 1 }
+            .expr(args.get(0))
+            .push()
+            .expr(args.get(1))
+            .pop("x1")                      // base
+            .o4()
+            .ob("mov x16, #")
+            .num(8 * words)
+            .nl()
+            .emit("mul x0, x0, x16")
+            .emit("add x0, x1, x0")         // where the slot is
+            if .is_agg(.ty_of(e)) {
+                .region_addr(.note(e, CHK_NOTE_TEMP), words, "x1")
+                .copy_words(words)
+                .region_x0(.note(e, CHK_NOTE_TEMP), words)
+            } else {
+                .emit("ldr x0, [x0]")
+            }
+        } else if callee.same_as("watch") {
+            .expr(args.get(0))
+            .push()
+            .expr(args.get(1))
+            .emit("mov x1, x0")             // who to tell
+            .pop("x0")                      // the actor watched
+            .o4()
+            .ob("mov x2, #")
+            .num(.note(e, CHK_NOTE_NUMBER))  // the number of `restarted`
+            .nl()
+            .o4()
+            .ob("mov x3, #")
+            .num(if .has(e, CHK_NOTE_STOPPED) { .note(e, CHK_NOTE_STOPPED) } else { 0 })
+            .nl()
+            .emit("bl raven_watch")
+        } else if callee.same_as("stop") {
+            if args.len() > 0 {
+                .expr(args.get(0))          // the actor to end
+                .emit("bl raven_stop")
+            } else {
+                .emit("bl raven_stop_self")
+            }
+        } else if callee.same_as("actor_address") {
+            .expr(args.get(0))              // a reference already is its address
+        } else if callee.same_as("handler_number") {
+            .o4()
+            .ob("mov x0, #")
+            .num(.note(e, CHK_NOTE_NUMBER))
+            .nl()
+        } else if callee.same_as("store8") or callee.same_as("store16") or callee.same_as("store32") or callee.same_as("store64") {
+            .expr(args.get(0))
+            .push()
+            .expr(args.get(1))
+            .emit("mov x1, x0")
+            .pop("x0")
+            .o4()
+            .ob(if callee.same_as("store8") { "strb w1" } else if callee.same_as("store16") { "strh w1" } else if callee.same_as("store32") { "str w1" } else { "str x1" })
+            .ob(", [x0]\n")
+        } else if callee.same_as("panic") {
+            .expr(args.get(0))              // a Bytes value's address
+            .emit("ldr x1, [x0, #8]")
+            .emit("ldr x0, [x0]")
+            .call_panic(.line_of(e))
+        } else {
+            .call(callee, 0, false, args, .ty_of(e), if .has(e, CHK_NOTE_TEMP) { .note(e, CHK_NOTE_TEMP) } else { 0 })
+        }
+    }
+
+    // ---- match -------------------------------------------------------------------------------------
+
+    mut fn gen_match(m: u64) {
+        subject: u64 = .kid(m, 0)
+        ty: u64 = .ty_of(subject)
+        arms: List<u64> = copy(.c.node_at(.kid(m, 1)).kids)
+        end: Text = .new_label_b("matchend")
+        mut labels: List<Text> = List(region: .region)
+        making: loop k: u64 in 0..(arms.len()) {
+            labels.push(.new_label_b("arm"))
+        }
+        .expr(subject)
+        .store_slot(.note(m, CHK_NOTE_SUBJECT_SLOT))
+        mut else_label: Text = .c.empty()
+        mut has_else: bool = false
+        if .c.types.get(ty).kind == CHK_ENUM {
+            .emit("ldr x16, [x0]")          // the tag
+            dispatching: loop k: u64 in 0..(arms.len()) {
+                pats: List<u64> = copy(.c.node_at(.kid(arms.get(k), 0)).kids)
+                each: loop j: u64 in 0..(pats.len()) {
+                    .o4()
+                    .ob("cmp x16, #")
+                    .num(.c.variants.get(.note(pats.get(j), CHK_NOTE_VARIANT) - 1).tag)
+                    .nl()
+                    .o4()
+                    .ob("b.eq ")
+                    .ot(labels.get(k))
+                    .nl()
+                }
+            }
+        } else {
+            is_signed: bool = .is_int(ty) and .signed(ty)
+            below: Bytes = if is_signed { "b.lt " } else { "b.lo " }
+            testing: loop k: u64 in 0..(arms.len()) {
+                if .kid(arms.get(k), 0) == 0 {
+                    else_label = copy(labels.get(k))
+                    has_else = true
+                    continue testing
+                }
+                pats: List<u64> = copy(.c.node_at(.kid(arms.get(k), 0)).kids)
+                each2: loop j: u64 in 0..(pats.len()) {
+                    p: u64 = pats.get(j)
+                    lo: u64 = .value_bits(p, CHK_NOTE_LO)
+                    hi: u64 = .value_bits(p, CHK_NOTE_HI)
+                    .load_imm_reg(lo, "x1")
+                    .emit("cmp x0, x1")
+                    if hi == lo + 1 {
+                        .o4()
+                        .ob("b.eq ")
+                        .ot(labels.get(k))
+                        .nl()
+                        continue each2
+                    }
+                    // A range: lo <= x0 < hi.
+                    outside: Text = .new_label_b("outside")
+                    .o4()
+                    .ob(below)
+                    .ot(outside)
+                    .nl()
+                    .load_imm_reg(hi, "x1")
+                    .emit("cmp x0, x1")
+                    .o4()
+                    .ob(below)
+                    .ot(labels.get(k))
+                    .nl()
+                    .ot(outside)
+                    .ob(":\n")
+                }
+            }
+        }
+        if has_else {
+            .o4()
+            .ob("b ")
+            .ot(else_label)
+            .nl()
+        } else {
+            // The checker proved every value is matched, so this is never reached.
+            .emit("brk #0x52")
+        }
+        bodies: loop k: u64 in 0..(arms.len()) {
+            arm: u64 = arms.get(k)
+            .ot(labels.get(k))
+            .ob(":\n")
+            if .kid(arm, 0) != 0 {
+                pats: List<u64> = copy(.c.node_at(.kid(arm, 0)).kids)
+                binding: loop j: u64 in 0..(pats.len()) {
+                    p: u64 = pats.get(j)
+                    if .has(p, CHK_NOTE_SLOTS) {
+                        start: u64 = .note(p, CHK_NOTE_SLOTS) - 1
+                        count: u64 = .note(p, CHK_NOTE_SLOTS_COUNT)
+                        slots: loop i: u64 in 0..count {
+                            .load_slot(.c.slot_rows.get(start + 3 * i))
+                            offset: u64 = .c.slot_rows.get(start + 3 * i + 1)
+                            .o4()
+                            if .c.slot_rows.get(start + 3 * i + 2) == 1 {
+                                .ob("add x0, x0, #")      // lent: its address
+                                .num(8 * offset)
+                                .nl()
+                            } else {
+                                .ob("ldr x0, [x0, #")
+                                .num(8 * offset)
+                                .ob("]\n")
+                            }
+                            .store_slot(.c.slot_rows.get(start + 3 * i))
+                        }
+                    }
+                }
+            }
+            body: u64 = .kid(arm, 1)
+            if .kind_is(body, "Block") {
+                .block(body)
+            } else if .is_statement(body) {
+                .stmt(body)
+            } else {
+                .expr(body)
+            }
+            .o4()
+            .ob("b ")
+            .ot(end)
+            .nl()
+        }
+        .ot(end)
+        .ob(":\n")
+    }
+
+    /// Is this arm body a statement (not a value)?
+    fn is_statement(n: u64) -> bool {
+        return .kind_is(n, "Decl") or .kind_is(n, "Assign") or .kind_is(n, "ExprStmt") or .kind_is(n, "If") or
+               .kind_is(n, "Loop") or .kind_is(n, "ForRange") or .kind_is(n, "Break") or .kind_is(n, "Continue") or
+               .kind_is(n, "Match") or .kind_is(n, "Unsafe") or .kind_is(n, "Return")
+    }
+
+    /// Writes `variant`'s tag into the enum value at `temp`, and zeroes the words its fields don't use.
+    fn variant_value(temp: u64, ty: u64, variant: u64) {
+        rows: List<u64> = .c.fields_of(variant - 1, true)
+        mut used: u64 = 1
+        summing: loop j: u64 in 0..(rows.len()) {
+            used += .words(.c.fields.get(rows.get(j)).ty)
+        }
+        .region_addr(temp, .words(ty), "x1")
+        .o4()
+        .ob("mov x16, #")
+        .num(.c.variants.get(variant - 1).tag)
+        .nl()
+        .emit("str x16, [x1]")
+        zeroing: loop i: u64 in used..(.words(ty)) {
+            .o4()
+            .ob("str xzr, [x1, #")
+            .num(8 * i)
+            .ob("]\n")
+        }
+    }
+
+    // ---- structs and calls -------------------------------------------------------------------------
+
+    /// Puts the address of a place (or of a struct value) in x0.
+    mut fn addr(e: u64) {
+        node: Node = .c.node_at(e)
+        if node.kind.same_as("Name") and (.has(e, CHK_NOTE_CONST_STR) or .has(e, CHK_NOTE_VARIANT)) {
+            .expr(e)                        // a constant or variant: a new value
+        } else if node.kind.same_as("Name") {
+            kind: u64 = .note(e, CHK_NOTE_LKIND)
+            slot: u64 = .note(e, CHK_NOTE_SLOT)
+            if kind == CHK_LOCAL_REGION {
+                .region_x0(slot, .words(.ty_of(e)))
+            } else if kind == CHK_LOCAL_REF {
+                .load_slot(slot)
+            } else {
+                .region_x0(slot, 1)         // a number lent as `mut`
+            }
+        } else if node.kind.same_as("SelfValue") {
+            .load_slot(.self_slot)
+        } else if node.kind.same_as("Access") {
+            if .kid(e, 0) == 0 {
+                .load_slot(.self_slot)
+            } else {
+                .addr(.kid(e, 0))
+            }
+            st: u64 = .note(e, CHK_NOTE_STRUCT)
+            offset: u64 = .c.field_offset(.c.fields_of(st, false), node.text)
+            if offset > 0 {
+                .o4()
+                .ob("add x0, x0, #")
+                .num(8 * offset)
+                .nl()
+            }
+        } else {
+            .expr(e)                        // a fresh struct: already an address
+        }
+    }
+
+    mut fn struct_lit(e: u64) {
+        st: u64 = .ty_of(e)
+        temp: u64 = .note(e, CHK_NOTE_TEMP)
+        inits: List<u64> = copy(.c.node_at(e).kids)
+        if .has(e, CHK_NOTE_SIG) {
+            // A struct with a `new`: run `new` on the value's address, with the arguments after it.
+            .region_x0(temp, .words(st))
+            .push()
+            mut n: u64 = 1
+            values: loop k: u64 in 0..(inits.len()) {
+                .expr(.kid(inits.get(k), 0))
+                .push()
+                n += 1
+            }
+            popping: loop j: u64 in 0..n {
+                .pop_n(n - 1 - j)
+            }
+            .o4()
+            .ob("bl ")
+            .ot(.symbol_of(.note(e, CHK_NOTE_SIG)))
+            .nl()
+            .region_x0(temp, .words(st))
+            return
+        }
+        variant: u64 = if .has(e, CHK_NOTE_VARIANT) { .note(e, CHK_NOTE_VARIANT) } else { 0 }
+        mut rows: List<u64> = .c.fields_of(st, false)
+        if variant != 0 {
+            rows = .c.fields_of(variant - 1, true)
+        }
+        setting: loop k: u64 in 0..(inits.len()) {
+            name: Text = .c.node_text(inits.get(k))
+            fty: u64 = .c.fields.get(rows.get(k)).ty
+            offset: u64 = .c.field_offset(rows, name) + (if variant != 0 { 1 } else { 0 })
+            .expr(.kid(inits.get(k), 0))
+            .region_addr(temp, .words(st), "x1")
+            if offset > 0 {
+                .o4()
+                .ob("add x1, x1, #")
+                .num(8 * offset)
+                .nl()
+            }
+            if .is_agg(fty) {
+                .copy_words(.words(fty))
+            } else {
+                .emit("str x0, [x1]")
+            }
+        }
+        if variant != 0 {
+            .variant_value(temp, st, variant)
+        }
+        .region_x0(temp, .words(st))
+    }
+
+    mut fn method_call(e: u64) {
+        if .has(e, CHK_NOTE_FLAGS) and .note(e, CHK_NOTE_FLAGS) == 2 {
+            .send(e)
+            return
+        }
+        node: Node = .c.node_at(e)
+        args: List<u64> = .c.kids_from(e, 1)
+        temp: u64 = if .has(e, CHK_NOTE_TEMP) { .note(e, CHK_NOTE_TEMP) } else { 0 }
+        .call_symbol(.symbol_of(.note(e, CHK_NOTE_SIG)), .kid(e, 0), .kid(e, 0) == 0, args, .ty_of(e), temp)
+    }
+
+    /// `raven_spawn_actor(fields, dispatcher, start, args, args_words)`.
+    mut fn gen_spawn(e: u64) {
+        node: Node = .c.node_at(e)
+        args: List<u64> = copy(node.kids)
+        args_words: u64 = if .has(e, CHK_NOTE_ARGS_WORDS) { .note(e, CHK_NOTE_ARGS_WORDS) } else { 0 }
+        args_slot: u64 = .note(e, CHK_NOTE_ARGS_SLOT)
+        mut at: u64 = 0
+        laying: loop k: u64 in 0..(args.len()) {
+            arg: u64 = args.get(k)
+            .expr(arg)
+            n: u64 = .words(.ty_of(arg))
+            .region_addr(args_slot, args_words - at, "x1")
+            if .is_agg(.ty_of(arg)) {
+                .copy_words(n)
+            } else {
+                .emit("str x0, [x1]")
+            }
+            at += n
+        }
+        act: u64 = .ty_of(e)
+        .o4()
+        .ob("mov x0, #")
+        .num(.c.types.get(act).words)
+        .nl()
+        .o4()
+        .ob("adr x1, ")
+        .ot(.c.types.get(act).name)
+        .ob("__Dispatch\n")
+        .o4()
+        .ob("adr x2, ")
+        .ot(.c.types.get(act).name)
+        .ob("__Start\n")
+        .region_addr(args_slot, args_words, "x3")
+        .o4()
+        .ob("mov x4, #")
+        .num(args_words)
+        .nl()
+        .emit("bl raven_spawn_actor")
+    }
+
+    /// `raven_send(target, handler number, payload, words)`; a `reliable` handler calls `raven_send_reliable`.
+    mut fn send(e: u64) {
+        args: List<u64> = .c.kids_from(e, 1)
+        payload: u64 = .note(e, CHK_NOTE_PAYLOAD)
+        payload_words: u64 = if .has(e, CHK_NOTE_PAYLOAD_WORDS) { .note(e, CHK_NOTE_PAYLOAD_WORDS) } else { 0 }
+        .expr(.kid(e, 0))
+        .push()
+        mut at: u64 = 0
+        laying: loop k: u64 in 0..(args.len()) {
+            arg: u64 = args.get(k)
+            .expr(arg)
+            n: u64 = .words(.ty_of(arg))
+            .region_addr(payload, payload_words - at, "x1")    // where word `at` goes
+            if .is_agg(.ty_of(arg)) {
+                .copy_words(n)
+            } else {
+                .emit("str x0, [x1]")
+            }
+            at += n
+        }
+        .pop("x0")
+        .o4()
+        .ob("mov x1, #")
+        .num(.note(e, CHK_NOTE_HANDLER_INDEX))
+        .nl()
+        .region_addr(payload, payload_words, "x2")
+        .o4()
+        .ob("mov x3, #")
+        .num(payload_words)
+        .nl()
+        sig: u64 = .note(e, CHK_NOTE_SIG)
+        if .c.sigs.get(sig).handler.same_as("reliable") {
+            temp: u64 = .note(e, CHK_NOTE_TEMP)
+            .region_addr(temp, .words(.ty_of(e)), "x8")
+            .emit("bl raven_send_reliable")
+            .region_x0(temp, .words(.ty_of(e)))
+        } else {
+            .emit("bl raven_send")
+        }
+    }
+
+    /// A plain function call.
+    mut fn call(symbol: Text, receiver: u64, has_receiver: bool, args: List<u64>, ret: u64, temp: u64) {
+        .call_symbol(symbol, receiver, false, args, ret, temp)
+    }
+
+    /// Calls a function or method. Struct arguments are passed by address. The receiver is a node, or (when
+    /// `implicit_self`) the method's own value.
+    mut fn call_symbol(symbol: Text, receiver: u64, implicit_self: bool, args: List<u64>, ret: u64, temp: u64) {
+        mut n: u64 = 0
+        if implicit_self {
+            .load_slot(.self_slot)
+            .push()
+            n = 1
+        } else if receiver != 0 {
+            .addr(receiver)
+            .push()
+            n = 1
+        }
+        pushing: loop k: u64 in 0..(args.len()) {
+            arg: u64 = args.get(k)
+            if .kind_is(arg, "MutArg") {
+                .addr(.kid(arg, 0))
+            } else {
+                .expr(arg)                  // a struct gives its address
+            }
+            .push()
+            n += 1
+        }
+        popping: loop j: u64 in 0..n {
+            .pop_n(n - 1 - j)
+        }
+        if .is_agg(ret) {
+            .region_addr(temp, .words(ret), "x8")
+        }
+        .o4()
+        .ob("bl ")
+        .ot(symbol)
+        .nl()
+        if .is_agg(ret) {
+            .region_x0(temp, .words(ret))
+        } else if ret != .c.unit {
+            .normalize(ret)
+        }
+    }
+
+    // ---- operators ---------------------------------------------------------------------------------
+
+    mut fn unary(e: u64) {
+        .expr(.kid(e, 0))
+        ty: u64 = .ty_of(e)
+        if .c.op_is(e, "-") {
+            if .bits(ty) == 64 {
+                .emit("negs x0, x0")
+                .panic_branch("b.vs", GEN_OVERFLOW, .line_of(e))
+            } else {
+                .emit("neg x0, x0")
+                .check_fits(ty, .line_of(e))
+            }
+        } else if .is_bool(ty) {
+            .emit("eor x0, x0, #1")
+        } else {
+            .emit("mvn x0, x0")
+            .normalize(ty)
+        }
+    }
+
+    mut fn binary(e: u64) {
+        line: u64 = .line_of(e)
+        ty: u64 = .ty_of(e)
+        if (.c.op_is(e, "and") or .c.op_is(e, "or")) and .is_bool(ty) {
+            // Logical, short-circuit: x0 is already the answer if the left side decides it.
+            end: Text = .new_label_b("logic")
+            .expr(.kid(e, 0))
+            .o4()
+            .ob(if .c.op_is(e, "and") { "cbz x0, " } else { "cbnz x0, " })
+            .ot(end)
+            .nl()
+            .expr(.kid(e, 1))
+            .ot(end)
+            .ob(":\n")
+            return
+        }
+        .expr(.kid(e, 0))
+        .push()
+        .expr(.kid(e, 1))
+        .emit("mov x1, x0")
+        .pop("x0")
+        operand: u64 = .ty_of(.kid(e, 0))
+        if .c.is_equality(e) or .c.op_is(e, "<") or .c.op_is(e, "<=") or .c.op_is(e, ">") or .c.op_is(e, ">=") {
+            .emit("cmp x0, x1")
+            .o4()
+            .ob("cset x0, ")
+            if .c.op_is(e, "==") {
+                .ob("eq")
+            } else if .c.op_is(e, "!=") {
+                .ob("ne")
+            } else {
+                s: bool = .signed(operand)
+                if .c.op_is(e, "<") {
+                    .ob(if s { "lt" } else { "lo" })
+                } else if .c.op_is(e, "<=") {
+                    .ob(if s { "le" } else { "ls" })
+                } else if .c.op_is(e, ">") {
+                    .ob(if s { "gt" } else { "hi" })
+                } else {
+                    .ob(if s { "ge" } else { "hs" })
+                }
+            }
+            .nl()
+            return
+        }
+        if .c.op_is(e, "+") {
+            .add_sub(if .bits(ty) == 64 { "adds" } else { "add" }, ty, line)
+        } else if .c.op_is(e, "-") {
+            if not .signed(ty) {
+                .emit("subs x0, x0, x1")
+                .panic_branch("b.lo", GEN_OVERFLOW, line)
+            } else {
+                .add_sub(if .bits(ty) == 64 { "subs" } else { "sub" }, ty, line)
+            }
+        } else if .c.op_is(e, "*") {
+            if .bits(ty) == 64 {
+                .emit(if .signed(ty) { "smulh x16, x0, x1" } else { "umulh x16, x0, x1" })
+                .emit("mul x0, x0, x1")
+                if .signed(ty) {
+                    .emit("cmp x16, x0, asr #63")
+                    .panic_branch("b.ne", GEN_OVERFLOW, line)
+                } else {
+                    .panic_branch("cbnz x16", GEN_OVERFLOW, line)
+                }
+            } else {
+                .emit("mul x0, x0, x1")     // exact: both fit in 32 bits
+                .check_fits(ty, line)
+            }
+        } else if .c.op_is(e, "/") or .c.op_is(e, "%") {
+            .panic_branch("cbz x1", GEN_DIV0, line)
+            div: Bytes = if .signed(ty) { "sdiv" } else { "udiv" }
+            if .c.op_is(e, "/") {
+                if .signed(ty) and .bits(ty) == 64 {
+                    // MIN / -1 overflows; the hardware wouldn't trap.
+                    ok: Text = .new_label_b("divok")
+                    .emit("cmn x1, #1")
+                    .o4()
+                    .ob("b.ne ")
+                    .ot(ok)
+                    .nl()
+                    .emit("mov x16, #0x8000000000000000")
+                    .emit("cmp x0, x16")
+                    .panic_branch("b.eq", GEN_OVERFLOW, line)
+                    .ot(ok)
+                    .ob(":\n")
+                }
+                .o4()
+                .ob(div)
+                .ob(" x0, x0, x1\n")
+                if .signed(ty) and .bits(ty) < 64 {
+                    .check_fits(ty, line)
+                }
+            } else {
+                .o4()
+                .ob(div)
+                .ob(" x16, x0, x1\n")
+                .emit("msub x0, x16, x1, x0")
+            }
+        } else if .c.op_is(e, "and") {
+            .emit("and x0, x0, x1")
+        } else if .c.op_is(e, "or") {
+            .emit("orr x0, x0, x1")
+        } else if .c.op_is(e, "xor") {
+            .emit("eor x0, x0, x1")
+        } else {
+            // shl, shr: negative amounts are huge when compared unsigned, so this catches them too.
+            .o4()
+            .ob("cmp x1, #")
+            .num(.bits(ty))
+            .nl()
+            .panic_branch("b.hs", GEN_SHIFT, line)
+            if .c.op_is(e, "shl") {
+                // Panic if set bits are lost: shifting back must give the original value.
+                .emit("mov x17, x0")
+                .emit("lsl x0, x0, x1")
+                .normalize(ty)
+                .emit(if .signed(ty) { "asr x16, x0, x1" } else { "lsr x16, x0, x1" })
+                .emit("cmp x16, x17")
+                .panic_branch("b.ne", GEN_SHIFTLOST, line)
+            } else {
+                .emit(if .signed(ty) { "asr x0, x0, x1" } else { "lsr x0, x0, x1" })
+            }
+        }
+    }
+
+    mut fn add_sub(insn: Bytes, ty: u64, line: u64) {
+        .o4()
+        .ob(insn)
+        .ob(" x0, x0, x1\n")
+        if .bits(ty) == 64 {
+            // adds: unsigned overflow sets carry; signed sets V.
+            .panic_branch(if .signed(ty) { "b.vs" } else { "b.cs" }, GEN_OVERFLOW, line)
+        } else {
+            .check_fits(ty, line)
+        }
+    }
+}
