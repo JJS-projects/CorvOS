@@ -58,7 +58,7 @@ def stage2(name="asmdump", compare_fledgling=True, say=lambda text: None):
     files = [(rel, run_tests.is_trusted(os.path.join(ROOT, rel), run_tests.TRUSTED_DIRS),
               open(os.path.join(ROOT, rel)).read()) for rel in names]
     stream = run_tests.make_stream(files)
-    timeout = float(os.environ.get("STAGE2_TIMEOUT", 3600))
+    timeout = float(os.environ.get("STAGE2_TIMEOUT", 900))
     os.makedirs(os.path.join(ROOT, "build", "stage2"), exist_ok=True)
 
     say(f"stage 1: build/compiler/{name}.img compiles {len(names)} files ({len(stream)} bytes)")
