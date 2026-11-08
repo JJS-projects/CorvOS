@@ -5,6 +5,7 @@
 // expect: 0
 // expect: 4
 // expect-panic: the region is full at region.rook:*
+// timeout: 120
 
 import devices: Mmio
 import print: print_u64

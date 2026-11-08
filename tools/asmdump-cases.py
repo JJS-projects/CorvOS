@@ -43,6 +43,8 @@ cases = {
  "actor_send": "enum Sent {\n    Delivered\n    MailboxFull\n    Gone\n}\nstruct Pair {\n    a: u64\n    b: u64\n}\ninterface Add {\n    reliable on add(n: u64)\n}\nactor Counter: Add {\n    mut count: u64\n\n    new(start: u64) {\n        .count = start\n    }\n\n    reliable on add(n: u64) {\n        .count += n\n    }\n\n    pub lossy on pair(p: iso Pair) {\n        .count += p.a\n    }\n}\nfn f() {\n    c: Counter = spawn Counter(10)\n    a: Add = narrow(c, Add)\n    discard a.add(1)\n    c.pair(Pair(a: 1, b: 2))\n}\n",
  "panic_and_text": "enum Sent {\n    Delivered\n}\nstruct Bytes {\n    address: u64\n    length: u64\n}\nHELLO: Bytes = \"hi\"\nfn f() {\n    panic(\"stop\")\n}\nfn g() -> Bytes {\n    return HELLO\n}\n",
  "two_files": [("lib.rook", False, "pub fn helper() -> u64 {\n    return 1\n}\n"), ("a.rook", False, "import lib: helper\nfn f() -> u64 {\n    return helper()\n}\n")],
+ "huge_frame": "struct Pt {\n    x: u64\n    y: u64\n}\nfn f() -> u64 {\n" + "".join(f"    a{i}: u64 = {i}\n" for i in range(520)) + "    p: Pt = Pt(x: 1, y: a519)\n    return p.y\n}\n",
+ "break_in_match_argument": "fn g(a: u64) -> u64 {\n    return a\n}\nfn f(n: u64) -> u64 {\n    mut s: u64 = 0\n    each: loop {\n        s = 1 + match n {\n            0 => break each\n            else => g(1)\n        }\n    }\n    return s\n}\n",
  "error_unknown_name": "fn f() -> u64 {\n    return missing\n}\n",
 }
 for name, src in cases.items():
