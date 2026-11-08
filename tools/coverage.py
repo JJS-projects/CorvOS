@@ -53,7 +53,7 @@ def compile_everything():
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
         del sys.modules[name]
     from fledgling import compile_program
-    from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, make_stream, tree
+    from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, dump_asm, make_stream, tree
     lib = run_tests.ROOK_LIB
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
@@ -105,6 +105,8 @@ def compile_everything():
             dump_bodies(stream, bodies=False)
             dump_bodies(stream, ownership=True, actors=True, bodies="all")
     dump_bodies("@@@ a.rook\nA: u8 = 256\n")
+    dump_asm("@@@ a.rook\nfn f() {\n}\n")
+    dump_asm("@@@ a.rook\nA: u8 = 256\n")
     dump_bodies("@@@ a.rook\nstruct Box<T> {\n    value: T\n    fn get() -> T {\n        return copy(.value)\n    }\n}\n"
                 "fn f() -> u64 {\n    b: Box<u64> = Box(value: 1)\n    return b.get()\n}\n")
     try:
