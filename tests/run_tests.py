@@ -22,6 +22,9 @@ Four kinds of test:
              kernel/arch/aarch64/vectors.s) has a line containing this text.
                  // machines: raspi3b
              Run only on the listed machines (for tests of the machine itself).
+                 // timeout: 60
+             Seconds the test may take (10 by default): for a test that does a lot of work, such as
+             filling the whole region.
                  // expect-failure: handler gave up at x.rook:15
              (add ` x40` for 40 identical lines) An actor's handler panicked (or ran over its budget) and Raven restarted the
              actor: the program carries on and returns. One line per failure, in order; the
@@ -107,7 +110,7 @@ if board_mode():
     MACHINES = ["board"]
 
 from fledgling import compile_program, CompileError, is_trusted  # noqa: E402
-from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, make_stream, tree  # noqa: E402
+from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, dump_asm, make_stream, tree  # noqa: E402
 
 # Error tests are compiled with Raven's Rook code and the test output functions
 # (as test programs are), and the directories trusted with `unsafe`.
@@ -451,7 +454,7 @@ class RookTest:
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
         fault, machines, typed, echo, counts = None, None, [], [], []
-        failures = []
+        failures, timeout = [], 10.0
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -471,6 +474,8 @@ class RookTest:
                 fault = text[len("expect-fault:"):].strip()
             elif text.startswith("machines:"):
                 machines = text[len("machines:"):].split()
+            elif text.startswith("timeout:"):
+                timeout = float(text[len("timeout:"):])
             elif text.startswith("expect-qemu-log:"):
                 qemu_log.append(text[len("expect-qemu-log:"):].strip())
             elif text.startswith("input:"):
@@ -484,7 +489,7 @@ class RookTest:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
                    qemu_log, fault, machines, input=typed, expect_echo=echo,
-                   line_counts=counts, expect_failures=failures)
+                   line_counts=counts, expect_failures=failures, timeout=timeout)
 
     def own_file(self):
         """The test's own source file name, as a panic line names it."""
@@ -621,10 +626,11 @@ class ErrorTest:
 # What Fledgling prints for the same input, for each hosted program that has a reference.
 HOSTED_REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "expanddump": dump_expanded,
                     "declsdump": dump_declarations,
-                    "bodiesdump": lambda stream: dump_bodies(stream, ownership=True, actors=True, bodies="all")}
+                    "bodiesdump": lambda stream: dump_bodies(stream, ownership=True, actors=True, bodies="all"),
+                    "asmdump": dump_asm}
 # Stages that work on a whole program are given a stream of files (`@@@ PATH` header lines, see
 # fledgling.dump.split_stream); in live.txt a line names the files of one stream, in order.
-STREAM_STAGES = {"expanddump", "declsdump", "bodiesdump"}
+STREAM_STAGES = {"expanddump", "declsdump", "bodiesdump", "asmdump"}
 
 HOSTED_BEGIN = "Hosted: begin"
 HOSTED_END = "Hosted: end"
@@ -643,7 +649,7 @@ class HostedTest:
     input_path: str
     expected_path: str
     timeout: float = 60.0   # a safety net, not a speed test: a busy machine runs many QEMUs at once
-                            # (a whole program from live.txt gets 240 s: CI timed out on four at 60 s)
+                            # (a program from live.txt gets 120 s, a whole program 600 s: a loaded machine ran many of them at once)
     live: bool = False      # no .out file: Fledgling's own output for the input is the expectation
     sources: tuple = ()     # live, for a stream stage: the repository files (paths from the root) it is made of
 
@@ -660,7 +666,7 @@ class HostedTest:
                 shown = f"{names[-1]} (+{len(names) - 1} files)" if len(names) > 1 else line
                 tests.append(cls(f"hosted/{program}/live:{shown}", f"{program} on {line}, against Fledgling",
                                  f"build/compiler/{program}.img", os.path.join(ROOT, names[-1] if names else line),
-                                 None, 240.0 if names else 60.0, True, names))
+                                 None, 600.0 if names else 120.0, True, names))
         return tests
 
     @classmethod
@@ -1426,11 +1432,26 @@ def check_dump_bodies():
     return None
 
 
+def check_timeout_header():
+    """A `// timeout: N` header gives a Rook test N seconds (10 without it)."""
+    import tempfile
+    for text, want in (("// A test.\n// expect: 1\n// timeout: 60\n", 60.0), ("// A test.\n// expect: 1\n", 10.0)):
+        with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
+            path = os.path.join(tmp, "t.rook")
+            open(path, "w").write(text + "fn test_main() {\n}\n")
+            got = RookTest.from_file(path).timeout
+            if got != want:
+                return f"the timeout should be {want}, not {got}"
+    return None
+
+
 HARNESS_TESTS = [
     HarnessTest("harness/utf8_split", "Serial output cut inside a character still decodes",
                 check_utf8_split),
     HarnessTest("harness/dump_declarations", "Fledgling's declarations dump has the documented format",
                 check_dump_declarations),
+    HarnessTest("harness/timeout_header", "A Rook test's timeout header sets its time limit",
+                check_timeout_header),
     HarnessTest("harness/dump_bodies", "Fledgling's bodies dump has the documented format and switches",
                 check_dump_bodies),
     HarnessTest("harness/dump_expanded", "Fledgling's expanded-program dump has the documented format",

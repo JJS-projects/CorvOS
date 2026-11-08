@@ -23,7 +23,7 @@ protocol. `compiler/numberer.rook` is the stage-0 program: it numbers the lines 
 
 ## Memory: `Region` and `Block` (step 5b, decision 153)
 
-A hosted program gets memory from one 128 MB region at physical 64 MB, far larger than the 64 KB
+A hosted program gets memory from one 256 MB region at physical 64 MB, far larger than the 64 KB
 actor arena. `make_region(peripherals)` makes the one `Region` (only from the whole peripherals,
 and only once). `region.block(bytes)` returns a zeroed `Block`; nothing is ever freed, because a
 job runs once and ends. A `Block` is read and written by byte (`get`, `set`) or by 64-bit word
@@ -246,6 +246,30 @@ node that has any), not fields of the nodes, so the parser's arena stays what th
   and the switches with a hand-worked example.
 - `make selfhost-check` runs `tools/selfhost-check.py bodiesdump` on every test program and compiler program.
 
+## The code generator, 5d-4 (decisions 168 and the `.ltorg` note)
+
+`compiler/lib/codegen.rook` is `Codegen`, a port of `bootstrap/fledgling/codegen.py` function by function (program
+layout, handler table, start stubs and dispatchers, functions with the stack guard of decision 164, statements,
+expressions, `match`, struct and enum values, calls, `spawn`, sends, arithmetic with its overflow checks).
+`compiler/asmdump.rook` is the hosted program: it reads a stream of files, runs the whole pipeline (parse, generics,
+declarations, constants, every body with ownership and actors on) and writes the assembly, **byte for byte** the text of
+`python3 -m fledgling FILE... [--trusted DIR] --dump-asm` (`dump_asm`, `bootstrap/fledgling/dump.py`: the text
+`compile_program` returns, or the one line `error FILE:LINE:COL: MESSAGE`).
+
+- The generator writes each line to the console as it makes it, in Fledgling's order, so only the tables are held.
+- It reads what the checker recorded (the notes): slots, temps, values, variants, the struct a field belongs to, the
+  patterns' bindings; 5d-4 added the kind of a variable (`CHK_NOTE_LKIND`) and the signature a call uses
+  (`CHK_NOTE_SIG`). They are not printed by `--dump-bodies`: the assembly is their proof.
+- Both generators now end a function with `.ltorg` (literals the function loaded go after its code): a program of over
+  a megabyte of code, such as the compiler, is otherwise out of reach of an `ldr x, =value` whose literal pool is at the
+  end of the section. This changes every program's assembly, in Fledgling and in Rook alike.
+- The region is 256 MB (decision 168): the compiler checking and compiling itself takes about 139 MB.
+- `make test` runs `tests/hosted/asmdump/`: small stand-alone programs written by `tools/asmdump-cases.py` (arithmetic
+  of every width, bitwise, shifts, casts, loops, `match`, structs and enums, methods, `new`, actors with sends and
+  `spawn`, constants and text, a frame over 4 KB, a `break` inside a pushed expression) with Fledgling's assembly beside each,
+  and four whole programs (Raven's files and a test) in `live.txt`.
+- `make selfhost-check` runs `tools/selfhost-check.py asmdump` on every test and compiler program.
+
 ## Stages
 
 | Step | What | Test |
@@ -253,7 +277,7 @@ node that has any), not fields of the nodes, so the parser's arena stays what th
 | 5a (this PR) | Hosted runner and test kind; `numberer` | `hosted/numberer/*` |
 | 5b (built) | Memory for a batch job: `Region` and `Block` in `raven/trusted/region.rook` (below) | `rook/region_*`, `error/region_*` |
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`; the first step is built, decision 154), then how a library type such as a growable list is made, a map, a text builder | Rook and error tests |
-| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), generics pass (**built, 5d-3a**), checker (accept/reject and message; declarations **built, 5d-3b**; constants **built, 5d-3c-0**, then bodies), code generator (assembly) | hosted tests comparing with Fledgling's output |
+| 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), generics pass (**built, 5d-3a**), checker (accept/reject and message; declarations **built, 5d-3b**; constants **built, 5d-3c-0**, then bodies), code generator (assembly; **built, 5d-4**) | hosted tests comparing with Fledgling's output |
 | 5e | Stage 2: the Rook compiler compiles itself; compile that result again; the two assembly files are identical. Retire Fledgling | the milestone's "done when" |
 
 ## Limits, said plainly

@@ -1,0 +1,11 @@
+@@@ a.rook
+fn f(n: u64) -> u64 {
+    mut s: u64 = 0
+    each: loop i: u64 in 0..n {
+        s += i
+    }
+    each2: loop j: i8 in -3..3 {
+        s += 1
+    }
+    return s
+}

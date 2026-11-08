@@ -1,0 +1,75 @@
+// Stage 5d-4 of the self-hosted compiler: the code generator, run hosted (docs/self-hosting.md). It reads a
+// stream of files from the UART (as bodiesdump does), parses them, expands the generics, checks the whole
+// program (every body, ownership on) and writes the assembly for it, in exactly the text of
+// `python3 -m fledgling FILES --dump-asm`; or the one line `error FILE:LINE:COL: MESSAGE`.
+
+import checker: Checker
+import codegen: Codegen
+import devices: Mmio
+import generics: Generics
+import pl011: Pl011
+import program: Program, SourceFile
+import region: List, Region, make_region
+import text: Text
+
+END_OF_INPUT: u8 = 4
+
+fn put_text(console: Pl011, t: Text) {
+    printing: loop i: u64 in 0..t.len() {
+        console.put(t.at(i))
+    }
+}
+
+fn put_error(console: Pl011, files: List<SourceFile>, file: u64, line: u64, col: u64, message: Text) {
+    console.write("error ")
+    put_text(console, files.get(file - 1).path)
+    console.put(':')
+    console.write_dec(line)
+    console.put(':')
+    console.write_dec(col)
+    console.write(": ")
+    put_text(console, message)
+    console.put('\n')
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    region: Region = make_region(peripherals)
+    console.write("Hosted: begin\n")
+    mut stream: Text = Text(region: region)
+    reading: loop {
+        if console.has_byte() {
+            b: u8 = console.take()
+            if b == END_OF_INPUT {
+                break reading
+            }
+            stream.push(b)
+        }
+    }
+    mut program: Program = Program(region: region, stream: stream)
+    program.load()
+    if program.failed {
+        put_error(console, program.files, program.error_file, program.error_line, program.error_col, program.error)
+    } else {
+        mut generics: Generics = Generics(region: region, nodes: program.parser.nodes, root: program.root)
+        generics.run()
+        if generics.failed {
+            put_error(console, program.files, generics.error_file, generics.error_line, generics.error_col,
+                      generics.error)
+        } else {
+            mut checker: Checker = Checker(region: region, nodes: generics.nodes, files: program.files,
+                                           root: generics.root, generics: generics.templates)
+            checker.run()
+            checker.constants()
+            checker.bodies(0)
+            if checker.failed {
+                put_error(console, program.files, checker.error_file, checker.error_line, checker.error_col,
+                          checker.error)
+            } else {
+                mut gen: Codegen = Codegen(region: region, checker: checker, out: console)
+                gen.program()
+            }
+        }
+    }
+    console.write("Hosted: end\n")
+}

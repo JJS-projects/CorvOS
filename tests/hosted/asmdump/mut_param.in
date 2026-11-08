@@ -1,0 +1,9 @@
+@@@ a.rook
+fn bump(n: mut u64) {
+    n += 1
+}
+fn f() -> u64 {
+    mut a: u64 = 1
+    bump(mut a)
+    return a
+}

@@ -3,10 +3,10 @@
 //
 // Worked out: 16 MB is 16777216 bytes. The last word is word 2097151 (bytes 16777208 to 16777215); the
 // byte before it has index 16777207.
-// After the block 134217728 - 16777216 = 117440512 bytes are left.
+// After the block 268435456 - 16777216 = 251658240 bytes are left.
 // expect: 77
 // expect: 99
-// expect: 117440512
+// expect: 251658240
 
 import devices: Mmio
 import print: print_u64

@@ -1,0 +1,4 @@
+@@@ a.rook
+fn f(a: i32, b: i64) -> i64 {
+    return b - (-b) + (-a) as i64
+}

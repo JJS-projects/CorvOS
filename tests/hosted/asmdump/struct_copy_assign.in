@@ -1,0 +1,11 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+    y: u64
+}
+fn f(a: Pt) -> u64 {
+    mut p: Pt = copy(a)
+    p.x = 4
+    p = Pt(x: 1, y: 2)
+    return p.y
+}

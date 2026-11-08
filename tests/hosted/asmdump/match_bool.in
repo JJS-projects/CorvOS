@@ -1,0 +1,7 @@
+@@@ a.rook
+fn f(a: bool) -> u8 {
+    return match a {
+        true => 1
+        false => 2
+    }
+}

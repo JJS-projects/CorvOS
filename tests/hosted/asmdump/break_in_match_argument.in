@@ -1,0 +1,14 @@
+@@@ a.rook
+fn g(a: u64) -> u64 {
+    return a
+}
+fn f(n: u64) -> u64 {
+    mut s: u64 = 0
+    each: loop {
+        s = 1 + match n {
+            0 => break each
+            else => g(1)
+        }
+    }
+    return s
+}

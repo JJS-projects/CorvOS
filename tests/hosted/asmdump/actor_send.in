@@ -1,0 +1,34 @@
+@@@ a.rook
+enum Sent {
+    Delivered
+    MailboxFull
+    Gone
+}
+struct Pair {
+    a: u64
+    b: u64
+}
+interface Add {
+    reliable on add(n: u64)
+}
+actor Counter: Add {
+    mut count: u64
+
+    new(start: u64) {
+        .count = start
+    }
+
+    reliable on add(n: u64) {
+        .count += n
+    }
+
+    pub lossy on pair(p: iso Pair) {
+        .count += p.a
+    }
+}
+fn f() {
+    c: Counter = spawn Counter(10)
+    a: Add = narrow(c, Add)
+    discard a.add(1)
+    c.pair(Pair(a: 1, b: 2))
+}

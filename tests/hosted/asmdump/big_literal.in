@@ -1,0 +1,7 @@
+@@@ a.rook
+fn f() -> u64 {
+    return 4294967296
+}
+fn g() -> i64 {
+    return -5
+}

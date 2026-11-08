@@ -1,0 +1,16 @@
+@@@ a.rook
+enum Shape {
+    Dot
+    Line(len: u64)
+    Rect(w: u64, h: u64)
+}
+fn area(s: Shape) -> u64 {
+    match s {
+        Dot => return 0
+        Line(len: l) => return l
+        Rect(w: w, h: h) => return w * h
+    }
+}
+fn f() -> u64 {
+    return area(Rect(w: 2, h: 3)) + area(Dot)
+}
