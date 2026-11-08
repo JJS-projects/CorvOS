@@ -78,6 +78,7 @@ import glob
 import os
 import re
 import selectors
+import threading
 import subprocess
 import sys
 import termios
@@ -204,7 +205,16 @@ def boot(image, finished, timeout, machine, log_path, feed=None):
             if SERIAL == "pty":
                 type_in = lambda data: os.write(port, data)
             else:
-                type_in = lambda data: (proc.stdin.write(data), proc.stdin.flush())
+                # (written from a thread: a program that stops reading, such as a miscompiled compiler given
+                # half a megabyte, would otherwise block this write for good and the timeout would never be seen)
+                def type_in(data):
+                    def write():
+                        try:
+                            proc.stdin.write(data)
+                            proc.stdin.flush()
+                        except (OSError, ValueError):
+                            pass    # QEMU was killed
+                    threading.Thread(target=write, daemon=True).start()
             typer = Typist(feed, type_in)
         output, timed_out = read_until(sel, finished, timeout, proc, typer)
         return output, timed_out, read_qemu_log(proc, log_path)
@@ -1256,6 +1266,37 @@ def check_batch_and_body_tools():
     return None
 
 
+def check_selfhost_stage2():
+    """Milestone 5e: the Rook compiler (build/compiler/asmdump.img) compiles its own source to assembly A,
+    A is built into an image, and that image compiles the same source to B; A equals Fledgling's assembly
+    and B equals A (tools/selfhost-stage2.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("selfhost_stage2", os.path.join(ROOT, "tools", "selfhost-stage2.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if board_mode():
+        return None
+    if not os.path.exists(os.path.join(ROOT, "build", "compiler", "asmdump.img")):
+        return missing_image("build/compiler/asmdump.img")
+    ok, message = module.stage2()
+    return None if ok else message
+
+
+def check_feed_does_not_block():
+    """A program that never reads its input (here a test that only prints) given half a megabyte must
+    not hang the harness: the input is typed from a thread, so the timeout is seen (a miscompiled
+    compiler stops reading and used to block the whole run for good)."""
+    image = os.path.join(ROOT, "build", "rook-tests", "actors_basic.img")
+    if board_mode() or not os.path.exists(image):
+        return None
+    start = time.monotonic()
+    boot(image, lambda lines: False, 5.0, MACHINES[0], os.path.join(LOG_DIR, "harness_feed.qemu"),
+         [(b"x" * 4_000_000, "")])
+    if time.monotonic() - start > 60:
+        return "the harness waited for a program that does not read its input"
+    return None
+
+
 def check_hosted_expectations():
     """A hosted test fails when the output differs, when the program never writes the
     `Hosted:` lines, and when it takes too long."""
@@ -1458,6 +1499,10 @@ HARNESS_TESTS = [
                 check_dump_expanded),
     HarnessTest("harness/dump_tree", "Fledgling's tree dump has the documented format", check_dump_tree),
     HarnessTest("harness/dump_tokens", "Fledgling's token dump has the documented format", check_dump_tokens),
+    HarnessTest("selfhost/stage2", "The Rook compiler compiles itself, and the image made from that assembly "
+                "compiles it to the same assembly", check_selfhost_stage2),
+    HarnessTest("harness/feed_does_not_block", "Typing input into a program that does not read it "
+                "does not hang the harness", check_feed_does_not_block),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "

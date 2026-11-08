@@ -270,6 +270,20 @@ declarations, constants, every body with ownership and actors on) and writes the
   and four whole programs (Raven's files and a test) in `live.txt`.
 - `make selfhost-check` runs `tools/selfhost-check.py asmdump` on every test and compiler program.
 
+## Self-compilation, 5e (decision 169)
+
+`tools/selfhost-stage2.py` (and the test `selfhost/stage2`, 73 s) runs the whole loop on `asmdump`:
+
+1. `build/compiler/asmdump.img`, built by Fledgling, compiles its own input (Raven's files, the test support files,
+   `compiler/lib/*.rook`, `compiler/asmdump.rook`: 25 files, 427 KB) to assembly **A**; A must equal `--dump-asm`.
+2. A is assembled and linked into `build/stage2/asmdump.img` (`make build/stage2/asmdump.img`: the same assembler,
+   linker and kernel objects as every compiler program).
+3. That image compiles the same input to assembly **B**; **A and B are identical** (153,290 lines).
+
+Memory, measured: 127.7 MB used before code generation, 11.5 MB for the generator, 129 MB of the 256 MB left. A run
+that hangs fails at `STAGE2_TIMEOUT` seconds (900 by default). Only the compiler program `asmdump` is run through the
+loop; the other six hosted programs are not.
+
 ## Stages
 
 | Step | What | Test |
@@ -278,7 +292,8 @@ declarations, constants, every body with ownership and actors on) and writes the
 | 5b (built) | Memory for a batch job: `Region` and `Block` in `raven/trusted/region.rook` (below) | `rook/region_*`, `error/region_*` |
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`; the first step is built, decision 154), then how a library type such as a growable list is made, a map, a text builder | Rook and error tests |
 | 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), generics pass (**built, 5d-3a**), checker (accept/reject and message; declarations **built, 5d-3b**; constants **built, 5d-3c-0**, then bodies), code generator (assembly; **built, 5d-4**) | hosted tests comparing with Fledgling's output |
-| 5e | Stage 2: the Rook compiler compiles itself; compile that result again; the two assembly files are identical. Retire Fledgling | the milestone's "done when" |
+| 5e (built) | The Rook compiler compiles itself; the result is built into an image that compiles it again; the two assembly files are identical (decision 169). Fledgling stays as the seed and the reference | `selfhost/stage2` |
+| 5f | Build with the stage-2 compiler instead of Fledgling (needs a decision on caching the QEMU runs) | not started |
 
 ## Limits, said plainly
 

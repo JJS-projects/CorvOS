@@ -86,6 +86,14 @@ COMPILER_LIB := $(wildcard compiler/lib/*.rook)
 $(eval $(call ROOK_IMAGE_RULES,compiler,compiler/%.rook,$(COMPILER_LIB)))
 COMPILER_IMGS := $(patsubst compiler/%.rook,$(BUILD)/compiler/%.img,$(wildcard compiler/*.rook))
 
+# Stage 2 of the self-hosted compiler (milestone 5e, tools/selfhost-stage2.py): the assembly the Rook compiler
+# wrote for itself (build/stage2/NAME.s) built into an image the way the compiler programs above are.
+$(BUILD)/stage2/%.o: $(BUILD)/stage2/%.s
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/stage2/%.elf: $(BUILD)/stage2/%.o $(ROOKTEST_KERNEL_OBJS) kernel/link.ld
+	$(LD) $(LDFLAGS) -o $@ $(ROOKTEST_KERNEL_OBJS) $<
+
 $(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS) Makefile
 	@mkdir -p $(dir $@)
 	$(FLEDGLING) $(RAVEN_TRUSTED) $(RAVEN_ROOK) -o $@
