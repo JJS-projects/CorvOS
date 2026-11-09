@@ -1,0 +1,11 @@
+// The first address after the 512 MB the MMU maps (0x20000000) is a translation fault, level 2, on a read.
+// ESR_EL1 worked out by hand: EC 0x25 (data abort, same EL) in bits 31:26 = 0x94000000, IL (bit 25) = 0x02000000,
+// WnR (bit 6) = 0 for a read, DFSC = 0x06 (translation fault, level 2, as the RAM is mapped in 2 MB blocks):
+// 0x94000000 + 0x02000000 + 0x06 = 0x96000006.
+// expect-fault: ESR_EL1:  0x0000000096000006
+
+fn test_main() {
+    unsafe {
+        discard load32(0x20000000)
+    }
+}

@@ -13,6 +13,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
   `docs/fault-tolerance.md`) are done. Drivers as actors and the DMA question remain, and
   milestone 5 (self-hosting) is in progress, steps 5a (hosted runner, `compiler/numberer.rook`) and 5b (`Region`/`Block`, decision 153) done; then 6 (domains). Milestone 5d (the compiler in Rook, `compiler/`, `compiler/lib/`) has the lexer, parser, generics pass, the checker's declarations and, from 5d-3c-0 its constants and from 5d-3c-1 the bodies of every function, method and actor with ownership (5d-3d); and the code generator (5d-4; `compiler/lib/codegen.rook`, `make selfhost-check` compares the assembly byte for byte); stage 5e (the compiler compiles itself twice with identical output, `selfhost/stage2`, decision 169) is built; 5f is built too (`make bootstrap`, `tools/rookc.py`, `make rook-kernel`, decision 170: the kernel and the compiler programs come from the Rook compiler, the test programs still from Fledgling) ([self-hosting.md](self-hosting.md), decision 165). Ownership 4c
   (`freeze`/pool) is deferred.
+- Milestone 6 (protection domains, multicore) has started: 6a is built (the MMU and caches on, one EL1 identity map, `kernel/arch/aarch64/mmu.s`, decision 171); 6b (a second domain at EL0), 6c (isolation tests) and 6d/6e (cores 1-3) follow.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
 - The latest decision number is in [decisions-index.md](decisions-index.md).

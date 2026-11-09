@@ -6,6 +6,6 @@
 actors: Interrupt, Irq, Irq.route, Sent, dropped_messages, lost_messages, make_irq, restart_count, run_forever, run_until_idle
 bytes: Bytes, Bytes.at, Bytes.len
 devices: Mmio, Mmio.is_root, Mmio.part, Mmio.read32, Mmio.write32
-hardware: counter_frequency, current_el, irq_init, quiet_build, read_counter, run_test_hooks
+hardware: counter_frequency, current_el, irq_init, mmu_state, quiet_build, read_counter, run_test_hooks
 print: print_bool, print_i64, print_u64, probe_irq_registers, probe_protected_registers
 region: Block, Block.get, Block.get64, Block.len, Block.set, Block.set64, List, List.clear, List.get, List.len, List.pop, List.push, List.set, Region, Region.block, Region.left, make_region

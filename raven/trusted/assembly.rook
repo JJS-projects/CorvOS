@@ -11,6 +11,10 @@ pub extern fn call_dispatch(dispatcher: u64, target: u64, handler: u64, payload:
 pub extern fn actor_failed()
 pub extern fn call_protected(dispatcher: u64, target: u64, handler: u64, payload: u64) -> u64
 
+/// Where the MMU map (kernel/arch/aarch64/mmu.s) changes rights: the address of the first read-only
+/// page of constants. For tests.
+pub extern fn image_rodata_start() -> u64
+
 /// Interrupts and the handler time budget (kernel/arch/aarch64/actors.s,
 /// kernel/panic.s, decisions 133 and 134). `timer_arm` interrupts after that many counter
 /// ticks and `timer_disarm` cancels it; `irq_enable_source` and `irq_take_pending` work

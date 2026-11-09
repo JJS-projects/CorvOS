@@ -1,0 +1,11 @@
+// The raspi3b machine has 1 GB of RAM, but Raven's MMU map (kernel/arch/aarch64/mmu.s) covers 512 MB, what
+// every supported board has: an address 768 MB in has no translation, so the CPU faults and Raven reports the
+// address. (Before milestone 6a this address worked on this machine.)
+// machines: raspi3b
+// expect-fault: FAR_EL1:  0x0000000030000000
+
+fn test_main() {
+    unsafe {
+        store32(0x30000000, 42)
+    }
+}

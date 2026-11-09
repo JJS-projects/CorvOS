@@ -1,6 +1,6 @@
 // Raven's kernel_main, in Rook.
 
-import hardware: current_el, irq_init, quiet_build, run_test_hooks
+import hardware: current_el, irq_init, mmu_state, quiet_build, run_test_hooks
 import devices: Mmio
 import led: Led
 import pl011: Pl011
@@ -42,6 +42,11 @@ pub fn kernel_main(entry_el: u64, peripherals: Mmio) {
     console.write("Raven: running at EL")
     console.write_dec(current_el())
     console.write("\n")
+    if mmu_state() == 0x1005 {          // M, C and I: mmu.s switched the MMU and both caches on
+        console.write("Raven: MMU and caches on\n")
+    } else {
+        console.write("Raven: MMU or caches OFF\n")
+    }
     irq_init()                          // the handler time budget needs the timer interrupt
     run_test_hooks(peripherals)
     console.write("Raven: boot complete, idling\n")

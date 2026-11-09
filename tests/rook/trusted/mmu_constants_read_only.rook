@@ -1,0 +1,11 @@
+// The kernel's constants are read-only: a write to the first page after the code is a permission fault
+// at level 3, like a write to the code itself (mmu_code_read_only; same ESR_EL1 worked out there: 0x9600004f).
+// expect-fault: ESR_EL1:  0x000000009600004f
+
+import assembly: image_rodata_start
+
+fn test_main() {
+    unsafe {
+        store32(image_rodata_start(), 42)
+    }
+}

@@ -1,0 +1,11 @@
+// The kernel's code is read-only: a write to its first instruction (0x80000, where _start is) is a permission
+// fault at level 3 (the image is mapped in 4 KB pages).
+// ESR_EL1 by hand: EC 0x25 = 0x94000000, IL = 0x02000000, WnR (bit 6) = 0x40 for a write,
+// DFSC = 0x0F (permission fault, level 3): 0x94000000 + 0x02000000 + 0x40 + 0x0F = 0x9600004F.
+// expect-fault: ESR_EL1:  0x000000009600004f
+
+fn test_main() {
+    unsafe {
+        store32(0x80000, 42)
+    }
+}
