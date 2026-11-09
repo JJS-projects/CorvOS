@@ -9,6 +9,15 @@ current_el:
     ubfx    x0, x0, #2, #2              // CurrentEL keeps the level in bits 3:2
     ret
 
+// u64 mmu_state(void): SCTLR_EL1 bits M (MMU, bit 0), C (data cache, bit 2) and I (instruction cache, bit 12):
+// 0x1005 when mmu.s has switched everything on.
+    .global mmu_state
+mmu_state:
+    mrs     x0, sctlr_el1
+    mov     x1, #0x1005                 // (not a bitmask immediate, so through a register)
+    and     x0, x0, x1
+    ret
+
 // u64 read_counter(void): the ARM generic timer's physical count. start.s lets
 // EL1 read it (CNTHCTL_EL2). It ticks counter_frequency() times a second.
     .global read_counter

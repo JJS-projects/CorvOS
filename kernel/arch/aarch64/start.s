@@ -9,6 +9,7 @@
 //   - only core 0 is running; cores 1-3 are parked
 //   - EL1, using SP_EL1, all interrupts masked
 //   - BSS zeroed, stack set up, exception vectors installed
+//   - the MMU and the caches on, an identity map (mmu.s)
 
     .section .text.boot, "ax"
     .global _start
@@ -74,6 +75,8 @@ at_el1:
 3:  ldr     x0, =vectors
     msr     vbar_el1, x0
     isb
+
+    bl      mmu_enable                  // identity map with rights per page, caches on (mmu.s); keeps x19
 
     mov     x0, x19                     // raven_start(entry_el)
     bl      raven_start

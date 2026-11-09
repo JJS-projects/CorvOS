@@ -1,0 +1,13 @@
+// RAM is never executable: jumping into it (0x1000000, 16 MB in, plain RAM) is an instruction abort from the
+// same EL, a permission fault at level 2.
+// ESR_EL1 by hand: EC 0x21 (instruction abort, same EL) = 0x84000000, IL = 0x02000000,
+// IFSC = 0x0E (permission fault, level 2): 0x84000000 + 0x02000000 + 0x0E = 0x8600000E.
+// expect-fault: ESR_EL1:  0x000000008600000e
+
+import assembly: call_dispatch
+
+fn test_main() {
+    unsafe {
+        call_dispatch(0x1000000, 0, 0, 0)
+    }
+}

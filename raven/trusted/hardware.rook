@@ -11,6 +11,9 @@ import devices: Mmio
 /// The exception level Raven is running at.
 pub extern fn current_el() -> u64
 
+/// The MMU and cache switches of SCTLR_EL1 (kernel/arch/aarch64/cpu.s): 0x1005 when all three are on.
+pub extern fn mmu_state() -> u64
+
 /// Runs the test build's extra steps, chosen when the kernel is assembled
 /// (kernel/test_hooks.s): calls a Rook test program's `test_main`, which is
 /// handed `peripherals`, or triggers a deliberate fault. Does nothing in the
