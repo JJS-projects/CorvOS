@@ -1,0 +1,11 @@
+pub separate actor Driver {
+    mut count: u64
+
+    new() {
+        .count = 0
+    }
+
+    lossy on add(n: u64) {
+        .count += n
+    }
+}

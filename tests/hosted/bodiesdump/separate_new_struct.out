@@ -1,0 +1,1 @@
+error a.rook:8:16: `new` of a `separate` actor takes numbers, bools, chars and actor references for now: Pt would have to be copied between domains

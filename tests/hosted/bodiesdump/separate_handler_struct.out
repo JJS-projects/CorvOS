@@ -1,0 +1,1 @@
+error a.rook:6:25: handler `put` of a `separate` actor takes numbers, bools, chars and actor references for now: Pt would have to be copied between domains

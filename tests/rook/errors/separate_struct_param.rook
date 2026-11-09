@@ -1,0 +1,16 @@
+// A separate actor's handler cannot take a struct yet
+// alone
+// error: 11:25: handler `put` of a `separate` actor takes numbers, bools, chars and actor references for now: Pt would have to be copied between domains
+
+struct Pt {
+    x: u64
+    y: u64
+}
+
+separate actor Dev {
+    lossy on put(p: iso Pt) {
+    }
+}
+
+fn test_main() {
+}

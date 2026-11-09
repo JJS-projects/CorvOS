@@ -123,8 +123,14 @@ class Parser:
             if self.at("pub"):
                 self.advance()
                 public = True
+            separate = False
+            if self.at("separate"):
+                word = self.advance()
+                if not self.at("actor"):
+                    raise CompileError("`separate` goes before `actor`: `separate actor Name { }`", word.pos)
+                separate = True
             if self.at("actor"):
-                prog.items.append(self.actor_decl(public))
+                prog.items.append(self.actor_decl(public, separate))
             elif self.at("interface"):
                 prog.items.append(self.interface_decl(public))
             elif self.at("struct"):
@@ -233,7 +239,7 @@ class Parser:
         self.end_statement()
         return S.FnDecl("new", params, None, body, start.pos, False, True, owner, None)
 
-    def actor_decl(self, public):
+    def actor_decl(self, public, separate=False):
         start = self.expect("actor")
         name = self.expect("ident", "actor name").text
         implements = []
@@ -286,7 +292,7 @@ class Parser:
                     f"expected a field, `new` or a handler, found {describe_tok(tok)}", tok.pos)
         self.open_blocks.pop()
         self.end_statement()
-        return S.ActorDecl(name, fields, new, handlers, start.pos, public, implements)
+        return S.ActorDecl(name, fields, new, handlers, start.pos, public, implements, separate)
 
     def interface_decl(self, public):
         """`interface Name { [lossy|reliable] on name(params) }`: handlers with no bodies."""

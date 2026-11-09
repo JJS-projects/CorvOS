@@ -1,0 +1,9 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+    y: u64
+}
+separate actor Dev {
+    lossy on put(p: iso Pt) {
+    }
+}

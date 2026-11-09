@@ -1,0 +1,8 @@
+1:1 separate separate
+1:10 actor actor
+1:16 ident A
+1:18 { {
+1:19 newline \n
+2:1 } }
+2:2 newline \n
+3:1 eof

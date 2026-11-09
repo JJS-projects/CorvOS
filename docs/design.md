@@ -336,16 +336,15 @@ How failure and ending look to other actors (decisions 117 to 120):
   each interrupt; how a ring wakes its reader (an inter-core interrupt or `sev`);
   how supervision works across cores. Each is decided when milestone 6 needs it.
 - **Same-domain fast path**: decide after measuring at milestone 3 (section 6.2).
-- **How Rook asks for a separate domain** (decision 116): decide at milestone 6, with
-  the question below. The leaning is `separate` on an actor that needs its own
-  domain, `spawn separate` at the spawn, and a compile error where they disagree.
+- **How Rook asks for a separate domain**: settled by decision 172 (milestone 6b-1):
+  `separate actor` on the declaration only.
 - **The form of the stop authority** that `spawn` gives its caller (decision 119), and
   whether stopping an actor stops the actors it spawned. Decide at milestone 6 or 7,
   when a program first needs an actor per request.
 - **Richer supervisor policies** (a restart window in time, restarting siblings together): a
   supervisor is written in Rook (decision 151); a library that helps needs generics or a
   way to name a child's type, and a clock the policy can read. Open.
-- **Visible cost of cross-domain sends** (principle 8): a send to an actor in
+- **Visible cost of cross-domain sends**: settled by decision 173 (`--report-copies`). The question was: a send to an actor in
   another domain copies the message, while an identical-looking send within a
   domain doesn't. Should the difference show in the code? A send to another core is a
   cross-domain send, so it has the same cost (section 6.3). Decide by milestone 6.

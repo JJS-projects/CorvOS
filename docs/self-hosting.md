@@ -264,6 +264,8 @@ declarations, constants, every body with ownership and actors on) and writes the
   a megabyte of code, such as the compiler, is otherwise out of reach of an `ldr x, =value` whose literal pool is at the
   end of the section. This changes every program's assembly, in Fledgling and in Rook alike.
 - The region is 256 MB (decision 168): the compiler checking and compiling itself takes about 139 MB.
+- A `separate actor` (decision 172) is refused by the generator until Raven runs domains: Fledgling's `Gen.program` raises, and
+  `asmdump` calls `Checker.refuse_separate` before it writes a line, so both give the same one-line error.
 - `make test` runs `tests/hosted/asmdump/`: small stand-alone programs written by `tools/asmdump-cases.py` (arithmetic
   of every width, bitwise, shifts, casts, loops, `match`, structs and enums, methods, `new`, actors with sends and
   `spawn`, constants and text, a frame over 4 KB, a `break` inside a pushed expression) with Fledgling's assembly beside each,

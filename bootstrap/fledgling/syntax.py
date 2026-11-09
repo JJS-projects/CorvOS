@@ -424,6 +424,7 @@ class ActorDecl:
     pos: Pos
     public: bool = False
     implements: list = field(default_factory=list)   # [(interface name, Pos)]
+    separate: bool = False      # `separate actor`: its own protection domain (decision 172)
 
     def __post_init__(self):
         self.file = None

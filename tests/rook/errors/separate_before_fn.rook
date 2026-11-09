@@ -1,0 +1,9 @@
+// separate goes before actor
+// alone
+// error: 5:1: `separate` goes before `actor`: `separate actor Name { }`
+
+separate fn f() {
+}
+
+fn test_main() {
+}

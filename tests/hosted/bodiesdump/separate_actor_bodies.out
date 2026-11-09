@@ -1,0 +1,43 @@
+Program
+  Actor 1:10 separate Driver : Driver
+    Implements
+    Fields
+      Field 2:9 mut count
+        Type 2:16 u64
+    Fn 4:5 mut new self_slot=0 nslots=1
+      Params
+      none
+      Block 4:11
+        Assign 5:16 =
+          Access 5:10 count : u64 struct=Driver
+            none
+          Int 5:18 0 : u64
+      File a.rook
+    Handlers
+      Fn 8:11 mut lossy add self_slot=0 number=0 nslots=2
+        Params
+          Param 8:18 n : u64 slot=1
+            Type 8:21 u64
+        none
+        Block 8:26
+          Assign 9:16 =
+            Access 9:10 count : u64 struct=Driver
+              none
+            Binary 9:16 + : u64
+              Access 9:10 count : u64 struct=Driver
+                none
+              Name 9:19 n : u64 slot=1
+        File a.rook
+    File a.rook
+  Fn 13:1 start nslots=3
+    Params
+    none
+    Block 13:12
+      Decl 14:5 d slot=1
+        Type 14:8 Driver
+        Spawn 14:17 Driver : Driver args_slot=0
+      ExprStmt 15:5
+        MethodCall 15:7 add : () payload=2 payload_words=1 handler_index=0 send
+          Name 15:5 d : Driver slot=1
+          Int 15:11 5 : u64
+    File a.rook
