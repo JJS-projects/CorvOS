@@ -1339,6 +1339,9 @@ def check_rookc():
                                "--image", image], capture_output=True, text=True)
         if done.returncode != 1 or not done.stderr.startswith("error ") or os.path.exists(out):
             return f"a compile error should print one error line and exit 1: {done.returncode} {done.stderr!r}"
+    for name in os.listdir(rookc.CACHE):
+        if open(os.path.join(rookc.CACHE, name)).read(8).startswith("error "):
+            return "a compile error was kept in the cache"
     return None
 
 
