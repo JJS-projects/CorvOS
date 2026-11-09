@@ -124,7 +124,7 @@ cannot reach the UART.
 *Plan and stages: [self-hosting.md](self-hosting.md). Steps 5a (the hosted runner and test kind), 5b (the region allocator), 5c (the library the compiler needs) and 5d-1 (the lexer) are built.*
 
 - Write the real compiler in Rook, in `compiler/`.
-- It compiles itself, twice with identical output (5e, built: `selfhost/stage2`). Fledgling stays as the seed and the reference (decision 169); building with the Rook compiler is 5f.
+- It compiles itself, twice with identical output (5e, built: `selfhost/stage2`). Fledgling stays as the seed and the reference (decision 169); 5f (built, decision 170) builds the kernel and the compiler programs with it; the test programs stay on Fledgling.
 
 **Done when:** the compiler rebuilds itself and the result is identical.
 

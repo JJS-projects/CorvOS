@@ -81,6 +81,7 @@ import selectors
 import threading
 import subprocess
 import sys
+import tempfile
 import termios
 import time
 import tty
@@ -396,6 +397,18 @@ BOOT_TESTS = [
         name="boot/hello",
         description="kernel boots to EL1, prints over the UART and idles",
         image="build/kernel8.img",
+        expect=[
+            "Raven: hello from CorvOS",
+            "Raven: firmware entered at EL",
+            "Raven: running at EL1",
+            "Raven: boot complete, idling",
+        ],
+        forbid=["unhandled exception", "panic"],
+    ),
+    BootTest(
+        name="boot/hello-rook-built",
+        description="the kernel built by the Rook compiler (make rook-kernel, decision 170) boots as the other does",
+        image="build/rook/kernel8.img",
         expect=[
             "Raven: hello from CorvOS",
             "Raven: firmware entered at EL",
@@ -1297,6 +1310,41 @@ def check_feed_does_not_block():
     return None
 
 
+def check_rookc():
+    """tools/rookc.py (decision 170): Raven and the test support files compile to exactly Fledgling's assembly,
+    the same input with the same compiler is answered from build/cache/, and an error is one line and exit 1."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rookc", os.path.join(ROOT, "tools", "rookc.py"))
+    rookc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rookc)
+    image = os.path.join(ROOT, "build", "stage2", "asmdump.img")
+    if board_mode():
+        return None
+    if not os.path.exists(image):
+        return missing_image(image)
+    files = [f for f in ROOK_LIB]
+    text, _ = rookc.compile_files(files, TRUSTED_DIRS, image)
+    again, cached = rookc.compile_files(files, TRUSTED_DIRS, image)
+    stream = make_stream([(f, is_trusted(f, TRUSTED_DIRS), open(f).read()) for f in files])
+    if text != dump_asm(stream):
+        return "rookc's assembly differs from Fledgling's"
+    if not cached or again != text:
+        return "the second compile of the same input was not answered from the cache"
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = os.path.join(tmp, "bad.rook")
+        with open(bad, "w") as f:
+            f.write("fn test_main(x: u64) {\n    y: u64 = z\n}\n")
+        out = os.path.join(tmp, "out.s")
+        done = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "rookc.py"), bad, "-o", out,
+                               "--image", image], capture_output=True, text=True)
+        if done.returncode != 1 or not done.stderr.startswith("error ") or os.path.exists(out):
+            return f"a compile error should print one error line and exit 1: {done.returncode} {done.stderr!r}"
+    for name in os.listdir(rookc.CACHE):
+        if open(os.path.join(rookc.CACHE, name)).read(8).startswith("error "):
+            return "a compile error was kept in the cache"
+    return None
+
+
 def check_hosted_expectations():
     """A hosted test fails when the output differs, when the program never writes the
     `Hosted:` lines, and when it takes too long."""
@@ -1503,6 +1551,8 @@ HARNESS_TESTS = [
                 "compiles it to the same assembly", check_selfhost_stage2),
     HarnessTest("harness/feed_does_not_block", "Typing input into a program that does not read it "
                 "does not hang the harness", check_feed_does_not_block),
+    HarnessTest("harness/rookc", "The Rook compiler as a command: Fledgling's assembly, a cache, one-line errors",
+                check_rookc),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "
@@ -1564,6 +1614,10 @@ def all_tests():
             tests.append(ErrorTest.from_file(path))
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "hosted", "*", "*.in"))):
         tests.append(HostedTest.from_file(path))
+    # the smallest compiler program, built by the Rook compiler (make rook-compilers), runs as the other one does
+    numberer = HostedTest.from_file(os.path.join(ROOT, "tests", "hosted", "numberer", "basic.in"))
+    tests.append(dataclasses.replace(numberer, name="hosted/numberer/rook-built",
+                                     image="build/rook/compiler/numberer.img"))
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "hosted", "*", "live.txt"))):
         tests.extend(HostedTest.live_files(os.path.basename(os.path.dirname(path)), path))
     return tests

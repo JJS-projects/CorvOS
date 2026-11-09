@@ -284,6 +284,23 @@ Memory, measured: 127.7 MB used before code generation, 11.5 MB for the generato
 that hangs fails at `STAGE2_TIMEOUT` seconds (900 by default). Only the compiler program `asmdump` is run through the
 loop; the other six hosted programs are not.
 
+## Building with the Rook compiler, 5f (decision 170)
+
+- `make bootstrap` builds `build/stage2/asmdump.img`: the Rook compiler, built from the assembly it wrote for itself
+  (step 1 of `tools/selfhost-stage2.py`; the loop's full check is the test `selfhost/stage2`). It is rebuilt when a
+  compiler, Raven or support file changes.
+- `tools/rookc.py FILE... [--trusted DIR] -o OUT.s` is that image as a command: the same arguments and the same
+  assembly as `python3 -m fledgling`. Each compile is a QEMU run (about 35 s for 25 files), so the answer is kept in
+  `build/cache/` under a hash of the files and the compiler image; an error is printed as one line, exit 1, and never
+  cached. `make clean` removes the cache.
+- `make rook-kernel` (`build/rook/kernel8.img`) and `make rook-compilers` (`build/rook/compiler/*.img`) build with it.
+  Measured: Raven's assembly and all seven compiler programs equal Fledgling's, byte for byte; `asmdump` built this way
+  is the stage-2 compiler's own assembly. A cold `make rook-compilers -j4` takes 4 minutes, a warm one seconds.
+- `make test` builds the Rook-built kernel and `numberer` (the other six are not built there) and runs them.
+- Still on Fledgling: the 141 test programs and the 429 error tests (a cold build of all of them through QEMU would add
+  about 20 minutes), `make selfhost-check` and every comparison. The next step would be a faster Rook compiler run
+  (one QEMU for many files) before moving those.
+
 ## Stages
 
 | Step | What | Test |
@@ -293,7 +310,7 @@ loop; the other six hosted programs are not.
 | 5c | Language growth the compiler needs, one owner question at a time: generics (`Option<T>`, `Result<T, E>`; the first step is built, decision 154), then how a library type such as a growable list is made, a map, a text builder | Rook and error tests |
 | 5d | Port, in this order, each checked against Fledgling on the same input: lexer (tokens; **built, 5d-1**), parser (tree dump; **built, 5d-2**), generics pass (**built, 5d-3a**), checker (accept/reject and message; declarations **built, 5d-3b**; constants **built, 5d-3c-0**, then bodies), code generator (assembly; **built, 5d-4**) | hosted tests comparing with Fledgling's output |
 | 5e (built) | The Rook compiler compiles itself; the result is built into an image that compiles it again; the two assembly files are identical (decision 169). Fledgling stays as the seed and the reference | `selfhost/stage2` |
-| 5f | Build with the stage-2 compiler instead of Fledgling (needs a decision on caching the QEMU runs) | not started |
+| 5f (built) | Raven's kernel and the compiler programs are built by the Rook compiler (`make bootstrap`, `tools/rookc.py`, `make rook-kernel`, `make rook-compilers`, decision 170); the test programs stay on Fledgling | `boot/hello-rook-built`, `hosted/numberer/rook-built`, `harness/rookc` |
 
 ## Limits, said plainly
 
