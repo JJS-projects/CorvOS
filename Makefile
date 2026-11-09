@@ -152,14 +152,14 @@ $(BUILD)/fault/kernel8.elf: $(FAULT_OBJS) kernel/link.ld
 run: $(KERNEL)
 	tools/run-qemu $(KERNEL)
 
-test: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
+test: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS) $(ROOK_KERNEL) $(BUILD)/rook/compiler/numberer.img
 	$(PYTHON) tests/run_tests.py
 
 # A faster loop: only the tests named in T (names or prefixes), default every Rook
 # program and error test; skips the boot and harness tests (about 20 s of one-at-a-time
 # work). `make quick T=rook/restart` while working, `make test` before a push.
 T ?= rook/ error/
-quick: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS)
+quick: $(KERNEL) $(FAULT_KERNEL) $(ROOK_TEST_IMGS) $(COMPILER_IMGS) $(ROOK_KERNEL) $(BUILD)/rook/compiler/numberer.img
 	$(PYTHON) tests/run_tests.py $(T)
 
 # Differential testing: random integer arithmetic, checked against a model
