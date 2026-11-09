@@ -53,7 +53,7 @@ def compile_everything():
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
         del sys.modules[name]
     from fledgling import compile_program
-    from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, dump_asm, make_stream, tree
+    from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, dump_asm, make_stream, report_copies, tree
     lib = run_tests.ROOK_LIB
     for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
                        + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
@@ -109,6 +109,9 @@ def compile_everything():
     dump_asm("@@@ a.rook\nA: u8 = 256\n")
     dump_bodies("@@@ a.rook\nstruct Box<T> {\n    value: T\n    fn get() -> T {\n        return copy(.value)\n    }\n}\n"
                 "fn f() -> u64 {\n    b: Box<u64> = Box(value: 1)\n    return b.get()\n}\n")
+    report_copies("@@@ a.rook\nseparate actor Dev {\n    lossy on ping() {\n    }\n}\n"
+                  "fn f(d: Dev) {\n    d.ping()\n}\n")
+    report_copies("@@@ a.rook\nA: u8 = 256\n")
     try:
         tree(object())          # a node the dump has no form for is a bug in the dump, not silence
     except AssertionError:
