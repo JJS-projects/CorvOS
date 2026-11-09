@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stage 5e: the Rook compiler compiles itself, twice, with identical output (docs/self-hosting.md).
 
-    tools/selfhost-stage2.py [--program NAME] [--skip-fledgling]
+    tools/selfhost-stage2.py [--program NAME] [--skip-fledgling] [--assembly-only]
 
 The input is the compiler program NAME (default asmdump) as the tests compile it: Raven's files, the test
 support files, compiler/lib/*.rook and compiler/NAME.rook.
@@ -10,7 +10,7 @@ support files, compiler/lib/*.rook and compiler/NAME.rook.
   3. That image compiles the same input: assembly B.
   A and B must be identical. Unless --skip-fledgling, A is also compared with `python3 -m fledgling --dump-asm`
   (stage 5d-4's proof, repeated on this input). Exits 1 on any difference. Slow (minutes per QEMU run); not in
-  `make test`.
+  `make test`. --assembly-only stops after step 1 (what `make bootstrap` uses, then builds the image).
 """
 import glob
 import os
@@ -52,7 +52,7 @@ def first_difference(a, b):
     return None
 
 
-def stage2(name="asmdump", compare_fledgling=True, say=lambda text: None):
+def stage2(name="asmdump", compare_fledgling=True, say=lambda text: None, assembly_only=False):
     """Run the three steps for compiler/NAME.rook; returns (ok, one line saying what happened)."""
     names = program_files(name)
     files = [(rel, run_tests.is_trusted(os.path.join(ROOT, rel), run_tests.TRUSTED_DIRS),
@@ -75,6 +75,8 @@ def stage2(name="asmdump", compare_fledgling=True, say=lambda text: None):
             return False, f"A differs from Fledgling's assembly at {d}"
         say("  A equals Fledgling's assembly")
 
+    if assembly_only:
+        return True, f"assembly A: {len(a)} lines"
     made = subprocess.run(["make", "-s", f"build/stage2/{name}.img"], cwd=ROOT, capture_output=True, text=True)
     if made.returncode:
         return False, "the stage-2 image does not build: " + made.stderr.strip()[-300:]
@@ -91,7 +93,8 @@ def stage2(name="asmdump", compare_fledgling=True, say=lambda text: None):
 
 def main(argv):
     name = argv[argv.index("--program") + 1] if "--program" in argv else "asmdump"
-    ok, message = stage2(name, "--skip-fledgling" not in argv, lambda text: print(text, flush=True))
+    ok, message = stage2(name, "--skip-fledgling" not in argv, lambda text: print(text, flush=True),
+                         "--assembly-only" in argv)
     print(message)
     return 0 if ok else 1
 

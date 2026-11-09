@@ -44,7 +44,7 @@ ROOK_TEST_TRUSTED := $(RAVEN_TRUSTED) --trusted tests/rook/support/trusted \
 ROOK_TESTS     := $(wildcard tests/rook/*.rook tests/rook/trusted/*.rook)
 ROOK_TEST_IMGS := $(ROOK_TESTS:tests/rook/%.rook=$(BUILD)/rook-tests/%.img)
 
-.PHONY: all run test quick difftest selfhost-check coverage disasm sdcard clean help
+.PHONY: all run test quick difftest selfhost-check coverage disasm sdcard clean help bootstrap rook-kernel rook-compilers
 # Keep generated assembly, so it can be read when reviewing or debugging.
 .SECONDARY:
 
@@ -93,6 +93,43 @@ $(BUILD)/stage2/%.o: $(BUILD)/stage2/%.s
 
 $(BUILD)/stage2/%.elf: $(BUILD)/stage2/%.o $(ROOKTEST_KERNEL_OBJS) kernel/link.ld
 	$(LD) $(LDFLAGS) -o $@ $(ROOKTEST_KERNEL_OBJS) $<
+
+# Milestone 5f (decision 170): the same programs built by the Rook compiler instead of Fledgling.
+# `make bootstrap` makes the stage-2 compiler image: Fledgling builds the compiler (above), the compiler
+# writes its own assembly, and that assembly is the image (tools/selfhost-stage2.py checks that this
+# compiler gives the same assembly again). tools/rookc.py runs it in QEMU; results are cached in build/cache/.
+ROOKC := $(PYTHON) tools/rookc.py
+STAGE2_IMG := $(BUILD)/stage2/asmdump.img
+$(BUILD)/stage2/asmdump.s: $(COMPILER_LIB) compiler/asmdump.rook $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $(BUILD)/compiler/asmdump.img tools/selfhost-stage2.py
+	$(PYTHON) tools/selfhost-stage2.py --assembly-only --skip-fledgling
+
+bootstrap: $(STAGE2_IMG)
+
+$(BUILD)/rook/raven.s: $(RAVEN_ROOK) $(STAGE2_IMG) tools/rookc.py
+	@mkdir -p $(dir $@)
+	$(ROOKC) $(RAVEN_TRUSTED) $(RAVEN_ROOK) -o $@
+
+$(BUILD)/rook/raven.o: $(BUILD)/rook/raven.s
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/rook/kernel8.elf: $(SRCS:%.s=$(BUILD)/normal/%.o) $(BUILD)/rook/raven.o kernel/link.ld
+	$(LD) $(LDFLAGS) -o $@ $(SRCS:%.s=$(BUILD)/normal/%.o) $(BUILD)/rook/raven.o
+
+ROOK_KERNEL := $(BUILD)/rook/kernel8.img
+rook-kernel: $(ROOK_KERNEL)
+
+$(BUILD)/rook/compiler/%.s: compiler/%.rook $(COMPILER_LIB) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $(STAGE2_IMG) tools/rookc.py
+	@mkdir -p $(dir $@)
+	$(ROOKC) $(ROOK_TEST_TRUSTED) $(RAVEN_ROOK) $(ROOK_TEST_SUPPORT) $(COMPILER_LIB) $< -o $@
+
+$(BUILD)/rook/compiler/%.o: $(BUILD)/rook/compiler/%.s
+	$(AS) $(ASFLAGS) -o $@ $<
+
+$(BUILD)/rook/compiler/%.elf: $(BUILD)/rook/compiler/%.o $(ROOKTEST_KERNEL_OBJS) kernel/link.ld
+	$(LD) $(LDFLAGS) -o $@ $(ROOKTEST_KERNEL_OBJS) $<
+
+ROOK_COMPILER_IMGS := $(patsubst compiler/%.rook,$(BUILD)/rook/compiler/%.img,$(wildcard compiler/*.rook))
+rook-compilers: $(ROOK_COMPILER_IMGS)
 
 $(BUILD)/raven/raven.s: $(RAVEN_ROOK) $(FLEDGLING_SRCS) Makefile
 	@mkdir -p $(dir $@)
@@ -158,6 +195,8 @@ clean:
 help:
 	@echo "make          build build/kernel8.img"
 	@echo "make run      boot it in QEMU (quit with Ctrl-A then X)"
+	@echo "make bootstrap     build the stage-2 compiler (the Rook compiler built from its own assembly)"
+	@echo "make rook-kernel   build build/rook/kernel8.img with the Rook compiler (also: rook-compilers)"
 	@echo "make test     build everything and run the full test suite"
 	@echo "              (python3 tests/run_tests.py NAME... runs only some tests)"
 	@echo "make quick  only some tests (T=\"rook/restart\"; default every Rook and error test)"
