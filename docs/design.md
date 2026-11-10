@@ -162,8 +162,9 @@ read-only into every domain, because they are shared and hold no secrets. An exc
 registers on one page every domain maps for EL1 only, switches to Raven's table and returns to Raven's Rook code as
 the result of a call (`domain_enter` / `domain_resume`) with a reason: the handler returned, it asked for something
 with `svc`, it faulted, or its time budget ran out. All policy (what an `svc` means, whether a fault restarts the
-domain) is Rook; the assembly only moves registers and tables (`kernel/arch/aarch64/domain.s`). Running a compiled
-`separate` actor in it is 6b-2b.
+domain) is Rook; the assembly only moves registers and tables (`kernel/arch/aarch64/domain.s`). A compiled
+`separate` actor runs in it (6b-2b, decision 175): the calls it makes into Raven land on a page of `svc` stubs that
+stands in for Raven's own page of jumps, and Raven checks every address and target a request names before it acts.
 
 ## 6. Raven, the kernel
 
