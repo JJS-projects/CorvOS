@@ -13,7 +13,7 @@ dt_program:
 
     .balign 8
 programs:
-    .quad dt_return, dt_add, dt_two_calls, dt_write, dt_spin, dt_stack, dt_privileged, dt_jump, dt_overflow, dt_own_pool, dt_registers
+    .quad dt_return, dt_add, dt_two_calls, dt_write, dt_spin, dt_stack, dt_privileged, dt_jump, dt_overflow, dt_own_pool, dt_registers, dt_dirty
 
 // 0: returns at once (the stub the domain was given ends the handler)
 dt_return:
@@ -79,4 +79,11 @@ dt_registers:
     svc     #7
     mov     x0, x29
     svc     #7
+    ret
+
+// 11: leaves values in registers a later run must not see (x5, x20, x29), and returns
+dt_dirty:
+    mov     x5, #55
+    mov     x20, #66
+    mov     x29, #77
     ret
