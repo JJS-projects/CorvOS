@@ -1,0 +1,15 @@
+// A domain that never ends is stopped by the handler time budget timer (decision 133), and Raven gets the call
+// back with 2 (TIMEOUT). Worked out: dt_spin is `b .`; the timer is armed for 500000 ticks (about 8 ms).
+// expect: 2
+// expect: 0
+
+import assembly: domain_enter, dt_program, timer_arm
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        timer_arm(500000)
+        print_u64(domain_enter(1, dt_program(4), 0, 0, 0))
+        print_u64(domain_enter(1, dt_program(0), 0, 0, 0))
+    }
+}

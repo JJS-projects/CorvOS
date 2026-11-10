@@ -1,0 +1,17 @@
+// The kernel's code is read-only for a domain too, though it can execute it.
+// Worked out: the store to the first byte of dt_return (code, mapped read-only at EL0) is a data abort from a lower
+// EL (class 36), permission fault at level 3: low 7 bits of ESR_EL1 = WnR (0x40) + DFSC 0xF = 0x4F = 79.
+// expect: 1
+// expect: 36
+// expect: 79
+
+import assembly: domain_enter, domain_fault_esr, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(3), dt_program(0), 99, 0))
+        print_u64(domain_fault_esr() shr 26)
+        print_u64(domain_fault_esr() and 0x7f)
+    }
+}

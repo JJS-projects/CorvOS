@@ -153,6 +153,18 @@ aligned.
 The trusted computing base is therefore: the compiler, Raven, and the files
 under `raven/trusted/`, which are the only ones allowed `unsafe` and `extern fn`.
 
+### 5.1 How a domain runs (milestone 6b-2a, decision 174)
+
+Domain 0 is Raven and every plain actor, at EL1 on the identity map. A `separate` actor (decision 172) gets a
+domain of its own: its code runs at **EL0** with its own page tables and ASID, a private 2 MB pool (an unmapped guard
+page, then the stack, then data) and nothing else of Raven's memory. The kernel's code and constants are mapped
+read-only into every domain, because they are shared and hold no secrets. An exception from EL0 saves the
+registers on one page every domain maps for EL1 only, switches to Raven's table and returns to Raven's Rook code as
+the result of a call (`domain_enter` / `domain_resume`) with a reason: the handler returned, it asked for something
+with `svc`, it faulted, or its time budget ran out. All policy (what an `svc` means, whether a fault restarts the
+domain) is Rook; the assembly only moves registers and tables (`kernel/arch/aarch64/domain.s`). Running a compiled
+`separate` actor in it is 6b-2b.
+
 ## 6. Raven, the kernel
 
 - A microkernel, **written in Rook**, using `unsafe` where it must. Its Rook code

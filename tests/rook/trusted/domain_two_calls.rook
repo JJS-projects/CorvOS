@@ -1,0 +1,23 @@
+// Raven's answer to a request arrives in the domain's x0.
+// Worked out: dt_two_calls does `svc #1` (CALL, number 1), is resumed with 40, adds 10 and does `svc #2` with
+// x0 = 50 (CALL, number 2), is resumed with 0 and returns (DONE 0).
+// expect: 3
+// expect: 1
+// expect: 3
+// expect: 2
+// expect: 50
+// expect: 0
+
+import assembly: domain_call_number, domain_enter, domain_resume, domain_saved_x, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(2), 0, 0, 0))
+        print_u64(domain_call_number())
+        print_u64(domain_resume(40))
+        print_u64(domain_call_number())
+        print_u64(domain_saved_x(0))
+        print_u64(domain_resume(0))
+    }
+}

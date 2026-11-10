@@ -1,0 +1,22 @@
+// A domain can write its own pool, and Raven sees what it wrote (the copy of a message is made this way).
+// Worked out: the address is 0x30000 into domain 1's pool; dt_own_pool stores 1234 there, reads it back and asks
+// Raven for it with `svc #7`: CALL (3), number 7, x0 = 1234; resumed it returns (0); Raven reads 1234 itself.
+// expect: 3
+// expect: 7
+// expect: 1234
+// expect: 0
+// expect: 1234
+
+import assembly: domain_call_number, domain_enter, domain_pool_base, domain_resume, domain_saved_x, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        address: u64 = domain_pool_base(1) + 0x30000
+        print_u64(domain_enter(1, dt_program(9), address, 1234, 0))
+        print_u64(domain_call_number())
+        print_u64(domain_saved_x(0))
+        print_u64(domain_resume(0))
+        print_u64(load64(address))
+    }
+}

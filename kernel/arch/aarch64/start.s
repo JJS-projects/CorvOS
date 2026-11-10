@@ -77,6 +77,7 @@ at_el1:
     isb
 
     bl      mmu_enable                  // identity map with rights per page, caches on (mmu.s); keeps x19
+    bl      domains_init                // the tables of the protection domains (domain.s); keeps x19
 
     mov     x0, x19                     // raven_start(entry_el)
     bl      raven_start
