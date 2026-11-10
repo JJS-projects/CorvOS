@@ -1,0 +1,16 @@
+// A domain's data is never executed. Worked out: dt_jump does `br x0` with x0 in domain 1's data (0x20000 into
+// its pool): instruction abort from a lower EL, class 0x20 = 32; IFSC 0xF (permission fault, level 3) = 15.
+// expect: 1
+// expect: 32
+// expect: 15
+
+import assembly: domain_enter, domain_fault_esr, domain_pool_base, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(7), domain_pool_base(1) + 0x20000, 0, 0))
+        print_u64(domain_fault_esr() shr 26)
+        print_u64(domain_fault_esr() and 0x3f)
+    }
+}

@@ -1,0 +1,28 @@
+// Raven's registers, and an earlier run's, do not leak into a domain: every register but the arguments starts at
+// zero. Worked out: dt_dirty first leaves 55, 66 and 77 in x5, x20 and x29 (and returns, 0); then dt_registers tells
+// Raven x5, x20 and x29 in three requests (CALL 3 each): 0, 0 and 0 show they were cleared (Raven's own x29 is
+// its frame pointer, which is not 0 either). The last resume returns (0).
+// expect: 0
+// expect: 3
+// expect: 0
+// expect: 3
+// expect: 0
+// expect: 3
+// expect: 0
+// expect: 0
+
+import assembly: domain_enter, domain_resume, domain_saved_x, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(11), 0, 0, 0))
+        print_u64(domain_enter(1, dt_program(10), 0, 0, 0))
+        print_u64(domain_saved_x(0))
+        print_u64(domain_resume(0))
+        print_u64(domain_saved_x(0))
+        print_u64(domain_resume(0))
+        print_u64(domain_saved_x(0))
+        print_u64(domain_resume(0))
+    }
+}

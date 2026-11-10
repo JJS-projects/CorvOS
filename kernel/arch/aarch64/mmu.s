@@ -17,14 +17,17 @@
     .section .text
 
 // Descriptor bits: [1:0] 11 table or page, 01 block; [4:2] memory type index into MAIR (0 Device, 1 Normal);
-// [7] AP[2] = read-only; [9:8] shareability (11 inner, 10 outer); [10] access flag (must be set, else the
-// first access faults); [53] PXN and [54] UXN: not executable at EL1 and at EL0.
+// [7:6] AP: 00 EL1 read/write, 10 EL1 read-only (01 and 11 add EL0 access, used by domain.s); [9:8] shareability
+// (11 inner, 10 outer); [10] access flag (must be set, else the first access faults); [11] nG: not global, so the
+// translation belongs to the table's address-space ID (ASID 0 here; domain.s gives each domain its own, and a
+// global entry would clash with a domain's entry for the same address); [53] PXN and [54] UXN: not executable
+// at EL1 and at EL0.
     .equ NX,            0x0060000000000000      // PXN | UXN
-    .equ DESC_PAGE_RW,  0x0060000000000707      // page, Normal, inner shareable, AF, read/write, never executed
-    .equ DESC_PAGE_RO,  0x0060000000000787      // the same, read-only
-    .equ DESC_PAGE_RX,  0x0040000000000787      // read-only, executable at EL1 (UXN set, PXN clear)
-    .equ DESC_BLOCK_RW, 0x0060000000000705      // 2 MB block, Normal, read/write, never executed
-    .equ DESC_DEVICE,   0x0060000000000601      // block, Device-nGnRE, outer shareable, AF, never executed
+    .equ DESC_PAGE_RW,  0x0060000000000F07      // page, Normal, inner shareable, AF, nG, read/write, never executed
+    .equ DESC_PAGE_RO,  0x0060000000000F87      // the same, read-only
+    .equ DESC_PAGE_RX,  0x0040000000000F87      // read-only, executable at EL1 (UXN set, PXN clear)
+    .equ DESC_BLOCK_RW, 0x0060000000000F05      // 2 MB block, Normal, read/write, never executed
+    .equ DESC_DEVICE,   0x0060000000000E01      // block, Device-nGnRE, outer shareable, AF, nG, never executed
     .equ DESC_TABLE,    0x3                     // points to the next level's table
 
     .equ MAIR_VALUE,    0xFF04                  // attribute 0: 0x04 Device-nGnRE; attribute 1: 0xFF Normal, write-back
@@ -128,5 +131,6 @@ image_rodata_start:
 
     .section .bss
     .balign 4096                        // a table is 4 KB and 4 KB aligned
+    .global page_tables                 // domain.s keeps its address: the table Raven runs on
 page_tables:
     .space  4 * 4096

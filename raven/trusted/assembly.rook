@@ -15,6 +15,24 @@ pub extern fn call_protected(dispatcher: u64, target: u64, handler: u64, payload
 /// page of constants. For tests.
 pub extern fn image_rodata_start() -> u64
 
+/// Protection domains (kernel/arch/aarch64/domain.s, decision 174). `domain_enter` runs `entry` at EL0 in
+/// domain `d` (1 to 3) with a0 to a2 in x0 to x2, and returns why it stopped: 0 the handler returned, 1 it
+/// faulted, 2 the time budget ran out, 3 it asked for something with `svc` (see `domain_call_number` and
+/// `domain_saved_x`; `domain_resume` continues it with an answer). The fault calls say what happened.
+pub extern fn domain_enter(d: u64, entry: u64, a0: u64, a1: u64, a2: u64) -> u64
+pub extern fn domain_resume(result: u64) -> u64
+pub extern fn domain_call_number() -> u64
+pub extern fn domain_saved_x(n: u64) -> u64
+pub extern fn domain_fault_esr() -> u64
+pub extern fn domain_fault_far() -> u64
+pub extern fn domain_fault_elr() -> u64
+pub extern fn domain_pool_base(d: u64) -> u64
+pub extern fn domain_tramp_address() -> u64
+pub extern fn domain_wipe(d: u64)
+
+/// Programs for the tests of domains (kernel/test/domain_test.s; only in the Rook test kernel).
+pub extern fn dt_program(n: u64) -> u64
+
 /// Interrupts and the handler time budget (kernel/arch/aarch64/actors.s,
 /// kernel/panic.s, decisions 133 and 134). `timer_arm` interrupts after that many counter
 /// ticks and `timer_disarm` cancels it; `irq_enable_source` and `irq_take_pending` work

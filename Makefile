@@ -28,7 +28,7 @@ RAVEN_OBJ     := $(BUILD)/raven/raven.o
 #   rooktest test build that runs a compiled Rook program's test_main()
 NORMAL_OBJS := $(SRCS:%.s=$(BUILD)/normal/%.o) $(RAVEN_OBJ)
 FAULT_OBJS  := $(SRCS:%.s=$(BUILD)/fault/%.o) $(RAVEN_OBJ)
-ROOKTEST_KERNEL_OBJS := $(SRCS:%.s=$(BUILD)/rooktest/%.o) $(BUILD)/rooktest/kernel/test/print.o
+ROOKTEST_KERNEL_OBJS := $(SRCS:%.s=$(BUILD)/rooktest/%.o) $(BUILD)/rooktest/kernel/test/print.o $(BUILD)/rooktest/kernel/test/domain_test.o
 
 KERNEL       := $(BUILD)/kernel8.img
 FAULT_KERNEL := $(BUILD)/fault/kernel8.img

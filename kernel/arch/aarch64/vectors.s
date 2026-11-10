@@ -11,8 +11,12 @@ vectors:
     .irp kind, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
     .balign 0x80                        // each entry is 32 instructions
     .if \kind == 5
-    b       irq_entry                   // IRQ at EL1 using SP_EL1: the only one in use;
+    b       irq_entry                   // IRQ at EL1 using SP_EL1: the one Raven itself takes;
                                         // it must not disturb x0, so no `mov` first
+    .elseif \kind == 8
+    b       domain_sync                 // from a domain at EL0 (domain.s): nothing may be touched before it saves
+    .elseif \kind == 9
+    b       domain_irq
     .else
     mov     x0, #\kind
     b       exception_report
@@ -56,6 +60,7 @@ irq_entry:
     b       exception_report
 
 // x0 = vector index (0-15). Never returns.
+    .global exception_report
 exception_report:
     msr     cntp_ctl_el0, xzr           // a halted core must not take the budget timer
     mov     x19, x0

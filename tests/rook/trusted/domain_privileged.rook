@@ -1,0 +1,15 @@
+// EL0 cannot read system registers. Worked out: `mrs x0, sctlr_el1` at EL0 is UNDEFINED (a register of a higher
+// exception level; class 0x18 is for accesses that are trapped on purpose, which nothing here sets up), so the
+// exception class is 0, "unknown reason"; the call comes back with 1 (FAULT).
+// expect: 1
+// expect: 0
+
+import assembly: domain_enter, domain_fault_esr, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(6), 0, 0, 0))
+        print_u64(domain_fault_esr() shr 26)
+    }
+}

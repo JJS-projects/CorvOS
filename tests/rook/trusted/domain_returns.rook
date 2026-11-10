@@ -1,0 +1,12 @@
+// A domain's handler that returns ends with `svc #0`, which Raven sees as the call coming back with 0 (DONE).
+// Worked out: dt_program(0) is `ret`, which returns to the stub domain_enter put in x30.
+// expect: 0
+
+import assembly: domain_enter, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(0), 0, 0, 0))
+    }
+}

@@ -1,0 +1,25 @@
+// A domain that overruns its stack runs into the unmapped guard page (page 0 of its pool) and faults.
+// Worked out: the stack starts 64 KB in and dt_overflow pushes 16 bytes at a time until the next push would land
+// in the first 4 KB, which has no mapping: a data abort, class 0x24 = 36, WnR + DFSC 7 (level 3) = 0x47 = 71,
+// and FAR_EL1 is inside [pool, pool + 4096).
+// expect: 1
+// expect: 36
+// expect: 71
+// expect: 1
+
+import assembly: domain_enter, domain_fault_esr, domain_fault_far, domain_pool_base, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(8), 1, 2, 0))
+        print_u64(domain_fault_esr() shr 26)
+        print_u64(domain_fault_esr() and 0x7f)
+        far: u64 = domain_fault_far()
+        if far >= domain_pool_base(1) and far < domain_pool_base(1) + 4096 {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+}

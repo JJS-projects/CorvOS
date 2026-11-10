@@ -1,0 +1,20 @@
+// A domain cannot write another domain's pool, and the other pool is left as it was.
+// Worked out: domain 1's table has no entry for domain 2's 2 MB (L2 index 161), so the store is a translation fault
+// at level 2: low 7 bits of ESR_EL1 = WnR (0x40) + DFSC 6 = 0x46 = 70; class 0x24 = 36. Domain 2's word stays 0.
+// expect: 1
+// expect: 36
+// expect: 70
+// expect: 0
+
+import assembly: domain_enter, domain_fault_esr, domain_pool_base, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        address: u64 = domain_pool_base(2) + 0x20000
+        print_u64(domain_enter(1, dt_program(3), address, 99, 0))
+        print_u64(domain_fault_esr() shr 26)
+        print_u64(domain_fault_esr() and 0x7f)
+        print_u64(load64(address))
+    }
+}

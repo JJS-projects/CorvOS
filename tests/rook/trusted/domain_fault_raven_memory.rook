@@ -1,0 +1,26 @@
+// A domain writing to Raven's memory (the actor arena) faults, Raven gets the call back and can start another run.
+// Worked out: the arena is in the kernel's data, which a domain's table does not map, so the store is a data abort
+// from a lower EL at level 3 of the walk. ESR_EL1: class (bits 31:26) 0x24 = 36; the low 7 bits are WnR (0x40,
+// a write) + DFSC 7 (translation fault, level 3) = 0x47 = 71. FAR_EL1 is the address. Then a plain run returns 0.
+// expect: 1
+// expect: 36
+// expect: 71
+// expect: 1
+// expect: 0
+
+import assembly: actor_arena_base, domain_enter, domain_fault_esr, domain_fault_far, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(3), actor_arena_base(), 99, 0))
+        print_u64(domain_fault_esr() shr 26)
+        print_u64(domain_fault_esr() and 0x7f)
+        if domain_fault_far() == actor_arena_base() {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+        print_u64(domain_enter(1, dt_program(0), 0, 0, 0))
+    }
+}

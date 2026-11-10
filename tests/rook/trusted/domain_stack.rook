@@ -1,0 +1,18 @@
+// A domain has a stack of its own (the second domain here, so that a second address-space ID is used too).
+// Worked out: dt_stack pushes x0 = 4 and x1 = 5, pops them into x2 and x3 and asks for x2 + x3 = 9 with `svc #7`.
+// expect: 3
+// expect: 7
+// expect: 9
+// expect: 0
+
+import assembly: domain_call_number, domain_enter, domain_resume, domain_saved_x, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(2, dt_program(5), 4, 5, 0))
+        print_u64(domain_call_number())
+        print_u64(domain_saved_x(0))
+        print_u64(domain_resume(0))
+    }
+}
