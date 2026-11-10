@@ -1,0 +1,40 @@
+// A `separate` actor that never finishes a handler runs out of its time budget (decision 133) and is restarted.
+// Worked out: spin() loops for ever; the budget timer ends the run: "domain 1 ran for over 100 ms". The actor is
+// restarted (total 7 again from `new`) and reports 7.
+// expect-failure: domain 1 ran for over 100 ms
+// expect: 7
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on spin() {
+        looping: loop true {
+        }
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(7)
+    counter.spin()
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

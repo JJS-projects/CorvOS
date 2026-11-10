@@ -1,0 +1,39 @@
+// A `separate` actor cannot `spawn` yet: the request is refused and fails the domain (decision 175).
+// Worked out: make() spawns a Printer; Raven answers a domain's `spawn` with "made a request it may not"; the actor
+// is restarted and reports its start value, 3.
+// expect-failure: domain 1 made a request it may not
+// expect: 3
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on make() {
+        discard spawn Printer()
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(3)
+    counter.make()
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

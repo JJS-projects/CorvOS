@@ -15,3 +15,8 @@ separate actor Driver {
         .count += n
     }
 }
+
+fn start() {
+    p: Plain = spawn Plain()
+    d: Driver = spawn Driver()
+}
