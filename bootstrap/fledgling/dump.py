@@ -149,7 +149,7 @@ def _tree(n):
         return ("Variant", n.pos, n.name, [NONE if n.fields is None else _group("Fields", n.fields)])
     if isinstance(n, S.ActorDecl):
         implements = ("Implements", None, "", [("Interface", pos, name, []) for name, pos in n.implements])
-        return ("Actor", n.pos, _words("pub" if n.public else "", n.name),
+        return ("Actor", n.pos, _words("pub" if n.public else "", "separate" if n.separate else "", n.name),
                 [implements, _group("Fields", n.fields), _opt(n.new), _group("Handlers", n.handlers)])
     if isinstance(n, S.InterfaceDecl):
         return ("Interface", n.pos, _words("pub" if n.public else "", n.name), [_group("Handlers", n.handlers)])
@@ -412,6 +412,26 @@ def dump_bodies(stream, ownership=False, actors=False, bodies=True):
     return "\n".join(out) + ("\n" if out else "") + body
 
 
+# ---- the copies a program makes between domains (decision 173) ---------------------------------------
+
+def report_copies(stream):
+    """One line per send to a `separate` actor: `FILE:LINE:COL send HANDLER to ACTOR (separate): copies N
+    bytes`, N being the handler number and the message's words, 8 bytes each. Nothing if the program has none.
+    An error is one line, `error FILE:LINE:COL: MESSAGE`."""
+    program = S.Program()
+    try:
+        for path, trusted, source in split_stream(stream):
+            for item in parse(lex(source, path)).items:
+                item.file, item.trusted = path, trusted
+                program.items.append(item)
+        expand(program)
+        checker = check(program)
+    except CompileError as err:
+        return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
+    return "".join(f"{pos.file}:{pos.line}:{pos.col} send {handler} to {actor} (separate): copies "
+                   f"{8 * (1 + words)} bytes\n" for pos, actor, handler, words in checker.copies)
+
+
 # ---- the assembly of a program -----------------------------------------------------------------
 
 def dump_asm(stream):
@@ -426,6 +446,6 @@ def dump_asm(stream):
                 program.items.append(item)
         expand(program)
         check(program)
+        return generate(program)
     except CompileError as err:
         return f"error {err.pos.file}:{err.pos.line}:{err.pos.col}: {err.message}\n"
-    return generate(program)

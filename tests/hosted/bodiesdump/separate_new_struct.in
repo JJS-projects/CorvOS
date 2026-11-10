@@ -1,0 +1,12 @@
+@@@ a.rook
+struct Pt {
+    x: u64
+    y: u64
+}
+separate actor Dev {
+    mut p: u64
+
+    new(q: val Pt) {
+        .p = 0
+    }
+}

@@ -1,0 +1,7 @@
+generics 
+generic-variants 
+handler-numbers add=0
+actor Driver words=1
+  field count u64 mut
+  new ()
+  handler add lossy (u64) number=0

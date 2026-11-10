@@ -351,8 +351,17 @@ pub struct Parser {
                 discard .advance()
                 public = true
             }
+            mut apart: bool = false
+            if .at("separate") {
+                word: Token = .advance()
+                if not .at("actor") {
+                    .fail_tok(word, "`separate` goes before `actor`: `separate actor Name { }`")
+                    break items
+                }
+                apart = true
+            }
             if .at("actor") {
-                .add(program, .actor_decl(public))
+                .add(program, .actor_decl(public, apart))
             } else if .at("interface") {
                 .add(program, .interface_decl(public))
             } else if .at("struct") {
@@ -502,10 +511,10 @@ pub struct Parser {
         }
     }
 
-    mut fn actor_decl(public: bool) -> u64 {
+    mut fn actor_decl(public: bool, apart: bool) -> u64 {
         start: Token = .expect("actor", "")
         name: Token = .expect("ident", "actor name")
-        n: u64 = .mk_at("Actor", start, .pub_name(public, name.text))
+        n: u64 = .mk_at("Actor", start, .words(if public { "pub" } else { "" }, if apart { "separate" } else { "" }, .empty(), name.text))
         implements: u64 = .group("Implements")
         fields: u64 = .group("Fields")
         handlers: u64 = .group("Handlers")

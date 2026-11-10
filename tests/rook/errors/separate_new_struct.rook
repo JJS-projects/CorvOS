@@ -1,0 +1,19 @@
+// A separate actor's new cannot take a struct yet
+// alone
+// error: 13:16: `new` of a `separate` actor takes numbers, bools, chars and actor references for now: Pt would have to be copied between domains
+
+struct Pt {
+    x: u64
+    y: u64
+}
+
+separate actor Dev {
+    mut n: u64
+
+    new(q: val Pt) {
+        .n = 0
+    }
+}
+
+fn test_main() {
+}

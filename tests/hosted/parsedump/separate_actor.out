@@ -1,0 +1,25 @@
+Program
+  Actor 1:10 separate Driver
+    Implements
+    Fields
+      Field 2:9 mut count
+        Type 2:16 u64
+    Fn 4:5 mut new
+      Params
+      none
+      Block 4:11
+        Assign 5:16 =
+          Access 5:10 count
+            none
+          Int 5:18 0
+    Handlers
+      Fn 8:11 mut lossy add
+        Params
+          Param 8:18 n
+            Type 8:21 u64
+        none
+        Block 8:26
+          Assign 9:16 +=
+            Access 9:10 count
+              none
+            Name 9:19 n

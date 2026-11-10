@@ -385,6 +385,12 @@ fn classify(b: u8) -> u8 {
 - `new(...)` runs once when the actor is created. It must set every field; fields
   without `mut` can be set only there, and only once.
 - `spawn Uart(args)` creates an actor, runs its `new`, and returns a reference.
+- `separate actor Name { }` (decision 172) is an actor in a protection domain of its own: every `spawn`
+  of it makes a domain, its messages are copied, and it restarts as a unit. The handlers and `new` of such an
+  actor take numbers, bools, chars and actor references for now (a struct or enum, `iso` or `val`, is an
+  error: copying data between address spaces is not built). A send to it is written like any other;
+  `python3 -m fledgling FILES --report-copies` lists the sends that copy, with the size (decision 173).
+  **Not built yet**: the code generator refuses a `separate` actor until Raven runs domains (milestone 6b-2).
 - Inside an actor, its own fields are written `.field`; `self` is a reference to
   the actor itself, for handing out (`counter.read(narrow(self, Reply<u64>))`).
 - An actor processes one message at a time, so its fields never need locks.
@@ -479,9 +485,9 @@ plain data by itself is the first thing to reconsider (decision 114).
 section 11.17) and `stop`, `Gone` and `stopped` (7c, section 11.18) are built.*
 
 - **Domains.** Until milestone 6 every `spawn` puts the new actor in the spawner's
-  domain, and Rook has no word for domains. Raven still gives untrusted code and DMA
-  drivers a domain of their own. How to ask for a separate one is decided at
-  milestone 6.
+  domain. A separate one is asked for on the actor: `separate actor` (decision 172, 6b-1:
+  the front end; the domains themselves are 6b-2). Raven still gives untrusted code and DMA
+  drivers a domain of their own.
 - **A reference survives a restart.** It names the actor's place, not one instance.
   When a failed actor's domain restarts, references others hold reach the new
   instance, which starts from `new` with an empty mailbox. While it restarts, its

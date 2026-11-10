@@ -1347,6 +1347,23 @@ def check_rookc():
     return None
 
 
+def check_report_copies():
+    """`--report-copies` (decision 173) lists each send to a `separate` actor with the size of its message
+    (8 bytes for the handler number and 8 for each word), and nothing for a send inside a domain."""
+    from fledgling.dump import report_copies
+    source = ("separate actor Dev {\n    lossy on ping() {\n    }\n\n    lossy on add(a: u64, b: u64) {\n    }\n}\n\n"
+              "actor Near {\n    lossy on ping() {\n    }\n}\n\n"
+              "fn start(d: Dev, n: Near) {\n    d.ping()\n    d.add(1, 2)\n    n.ping()\n}\n")
+    got = report_copies(make_stream([("a.rook", False, source)]))
+    want = ("a.rook:15:7 send ping to Dev (separate): copies 8 bytes\n"
+            "a.rook:16:7 send add to Dev (separate): copies 24 bytes\n")
+    if got != want:
+        return f"report_copies gave {got!r}, wanted {want!r}"
+    if report_copies(make_stream([("a.rook", False, "fn f() {\n}\n")])) != "":
+        return "a program without separate actors should report nothing"
+    return None
+
+
 def check_hosted_expectations():
     """A hosted test fails when the output differs, when the program never writes the
     `Hosted:` lines, and when it takes too long."""
@@ -1396,6 +1413,8 @@ def check_dump_tree():
         return "a parse error should be one `error LINE:COL: MESSAGE` line"
     if dump_tree("x\ty\n") != "error 1:2: tabs aren't allowed; indent with spaces\n":
         return "a lexer error should be the same one line"
+    if not dump_tree("pub separate actor A {\n}\n").startswith("Program\n  Actor 1:14 pub separate A\n"):
+        return "a `separate` actor should say so in its words, after `pub` ('actor' is at column 14)"
     try:
         tree(object())
     except AssertionError:
@@ -1555,6 +1574,8 @@ HARNESS_TESTS = [
                 "does not hang the harness", check_feed_does_not_block),
     HarnessTest("harness/rookc", "The Rook compiler as a command: Fledgling's assembly, a cache, one-line errors",
                 check_rookc),
+    HarnessTest("harness/report_copies", "--report-copies lists the sends that cross a domain, with their size",
+                check_report_copies),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "

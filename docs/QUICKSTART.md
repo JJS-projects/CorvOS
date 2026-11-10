@@ -13,7 +13,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
   `docs/fault-tolerance.md`) are done. Drivers as actors and the DMA question remain, and
   milestone 5 (self-hosting) is in progress, steps 5a (hosted runner, `compiler/numberer.rook`) and 5b (`Region`/`Block`, decision 153) done; then 6 (domains). Milestone 5d (the compiler in Rook, `compiler/`, `compiler/lib/`) has the lexer, parser, generics pass, the checker's declarations and, from 5d-3c-0 its constants and from 5d-3c-1 the bodies of every function, method and actor with ownership (5d-3d); and the code generator (5d-4; `compiler/lib/codegen.rook`, `make selfhost-check` compares the assembly byte for byte); stage 5e (the compiler compiles itself twice with identical output, `selfhost/stage2`, decision 169) is built; 5f is built too (`make bootstrap`, `tools/rookc.py`, `make rook-kernel`, decision 170: the kernel and the compiler programs come from the Rook compiler, the test programs still from Fledgling) ([self-hosting.md](self-hosting.md), decision 165). Ownership 4c
   (`freeze`/pool) is deferred.
-- Milestone 6 (protection domains, multicore) has started: 6a is built (the MMU and caches on, one EL1 identity map, `kernel/arch/aarch64/mmu.s`, decision 171); 6b (a second domain at EL0), 6c (isolation tests) and 6d/6e (cores 1-3) follow.
+- Milestone 6 (protection domains, multicore) has started: 6a is built (the MMU and caches on, one EL1 identity map, `kernel/arch/aarch64/mmu.s`, decision 171); 6b-1 (`separate actor`, the front end, decisions 172 and 173) is built, 6b-2 (a second domain at EL0) and 6c (isolation tests) and 6d/6e (cores 1-3) follow.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
 - The latest decision number is in [decisions-index.md](decisions-index.md).
@@ -30,6 +30,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `make bootstrap` / `make rook-kernel` / `make rook-compilers` | The stage-2 compiler image; Raven's kernel and the compiler programs built by it (`tools/rookc.py`, cache in `build/cache/`) |
 | `make selfhost-check` | Each self-hosted compiler stage against Fledgling on every Rook file (slow; not in `make test`) |
 | `python3 -m fledgling FILES [--trusted DIR] --dump-tokens\|--dump-tree\|--dump-expanded\|--dump-declarations\|--dump-bodies [--no-bodies] [--all-bodies] [--ownership] [--actors]\|--dump-asm` | The text each self-hosted stage must print for the same input |
+| `python3 -m fledgling FILES --report-copies` | Every send to a `separate` actor (it copies its message), with the size (decision 173) |
 | `make difftest` | Random arithmetic against a Python model |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |
 | `tools/new-error-test.py NAME "desc" < prog.rook` | Make an error test: writes a failing placeholder and shows the real error; read it, then `--accept NAME` fills the `// error:` line |

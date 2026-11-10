@@ -112,7 +112,7 @@ pub struct Lexer {
         .cursor = 0
         .fill("fn extern pub mut if else loop in break continue return true false as wrap discard", KIND_KEYWORD)
         .fill("and or xor not shl shr struct copy enum match unsafe actor on spawn self lossy reliable", KIND_KEYWORD)
-        .fill("interface narrow consume import module", KIND_KEYWORD)
+        .fill("interface narrow consume import module separate", KIND_KEYWORD)
         .fill("as wrap and or xor not shl shr", KIND_CONTINUES)         // keywords too: their flags add up
         .fill("+ - * / % < > = == != <= >= += -= *= /= %= -> => .. ( [ , : .", KIND_CONTINUES)
     }

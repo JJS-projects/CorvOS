@@ -128,6 +128,7 @@ class Checker:
         self.ownership = ownership   # False: moves, locks and loop states are not tracked
         self.bodies = bodies         # "all", "none", or the one file whose bodies are checked
         self.actor_bodies = actor_bodies   # False: an actor's `new` and handlers are not checked
+        self.copies = []         # sends that cross a domain: (pos, actor, handler, words) for --report-copies
         self.imports = {}        # file -> {name: the file it is imported from}
         self.fns = {}
         self.consts = {}         # name -> (type, value)
@@ -453,6 +454,10 @@ class Checker:
             if p.type.iso and not is_aggregate(ty):
                 raise CompileError(
                     f"`iso` is for structs and enums; {ty} is already a plain value", p.type.pos)
+            if getattr(actor.decl, "separate", False) and is_aggregate(ty):
+                raise CompileError(
+                    f"{what} of a `separate` actor takes numbers, bools, chars and actor references for now: "
+                    f"{ty} would have to be copied between domains", p.type.pos)
             if what == "`new`" and (p.type.val or p.type.iso):
                 params.append((ty, False))          # data handed to the new actor
                 continue
@@ -1494,6 +1499,8 @@ class Checker:
                 f"`{e.name}` is private to {os.path.basename(actor.decl.file)}; "
                 f"mark the handler `pub` to send it from another file", e.pos)
         e.sig, e.send = sig, True
+        if getattr(actor.decl, "separate", False):
+            self.copies.append((e.pos, actor.name, e.name, len(sig.params)))
         e.handler_index = sig.decl.number
         self.check_args(f"`{actor.name}.{e.name}`", sig.params, e.args, e.pos, sig=sig)
         e.payload_words = sum(words(ty) for ty, _ in sig.params)
