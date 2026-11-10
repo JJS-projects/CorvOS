@@ -119,9 +119,9 @@ groundwork; the demo is `tests/rook/capability_demo.rook` and `capability_revoke
 **Done when:** the demo runs, with a written argument for why the untrusted actor
 cannot reach the UART.
 
-## 5. Self-hosting
+## 5. Self-hosting — done
 
-*Plan and stages: [self-hosting.md](self-hosting.md). Steps 5a (the hosted runner and test kind), 5b (the region allocator), 5c (the library the compiler needs) and 5d-1 (the lexer) are built.*
+*Plan and stages: [self-hosting.md](self-hosting.md). Steps 5a (the hosted runner and test kind), 5b (the region allocator), 5c (the library the compiler needs), 5d (the compiler in Rook: lexer, parser, generics pass, checker, code generator), 5e (it compiles itself twice with identical output) and 5f (the kernel and the compiler programs are built by it) are built. Left over, not scheduled: building the test programs with the Rook compiler too (it needs a faster compiler run first) and retiring Fledgling.*
 
 - Write the real compiler in Rook, in `compiler/`.
 - It compiles itself, twice with identical output (5e, built: `selfhost/stage2`). Fledgling stays as the seed and the reference (decision 169); 5f (built, decision 170) builds the kernel and the compiler programs with it; the test programs stay on Fledgling.
@@ -129,6 +129,8 @@ cannot reach the UART.
 **Done when:** the compiler rebuilds itself and the result is identical.
 
 ## 6. Protection domains and multicore
+
+*Built so far: 6a (the MMU and caches on, decision 171), 6b-1 (`separate actor` in both compilers, decisions 172 and 173) and 6b-2a (domains run code at EL0, decision 174). Next: 6b-2b (a compiled `separate` actor runs in a domain), 6b-2c (a failing domain restarts as a unit), 6c (isolation tests), 6d (cores 1 to 3), 6e (the two-core demo).*
 
 - MMU set up per domain; cross-domain messages are copied.
 - Raven runs on all four cores, one copy per core (decision 111); each domain is
