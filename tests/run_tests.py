@@ -1413,6 +1413,8 @@ def check_dump_tree():
         return "a parse error should be one `error LINE:COL: MESSAGE` line"
     if dump_tree("x\ty\n") != "error 1:2: tabs aren't allowed; indent with spaces\n":
         return "a lexer error should be the same one line"
+    if not dump_tree("pub separate actor A {\n}\n").startswith("Program\n  Actor 1:14 pub separate A\n"):
+        return "a `separate` actor should say so in its words, after `pub` ('actor' is at column 14)"
     try:
         tree(object())
     except AssertionError:
