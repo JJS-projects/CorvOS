@@ -11,8 +11,13 @@
 //   the image's constants       read-only at EL0, never executed
 //   domain_tramp (4 KB)         EL1 only: the exception stack, the saved registers and where Raven's context is
 //   the domain's pool           read/write at EL0, never executed: page 0 is NOT mapped (a guard below the
-//                               stack), pages 1-15 are the stack (it starts at 64 KB and grows down), the rest
-//                               is the domain's data
+//                               stack), pages 1-15 are the stack (it starts at 64 KB and grows down), page 16 is
+//                               the control page (EL1 only: the actor's header and mailbox, which Raven never lets
+//                               a domain touch), the rest is the domain's data (the actor's fields from 68 KB,
+//                               the message being handled in the last page)
+//   the runtime's entry points  the page of stubs (rtstubs.s) is replaced, in a domain's table, by a page of the
+//                               same layout whose entries are `svc #n`: the same call lands in Raven's code for
+//                               a plain actor and in a request to Raven for an actor in a domain
 //   nothing else: Raven's data, the actor arena, the peripherals, and every other pool fault.
 //
 // An exception from EL0 arrives with SP_EL1 on domain_tramp, saves all of EL0's registers there, switches to
@@ -26,6 +31,7 @@
     .equ POOL_L2_FIRST, 160                 // POOL_BASE >> 21: the L2 index of domain 1's pool
     .equ STACK_TOP,     0x10000             // the stack starts 64 KB into the pool
     .equ KERNEL_START,  0x80000
+    .equ CONTROL_PAGE,  16                  // the page of a pool that only EL1 reaches (0x10000)
 
     // Descriptors (see mmu.s for the bits). nG is set in all of them; AP is bits 7:6.
     .equ NX,            0x0060000000000000
@@ -45,6 +51,7 @@
     .equ T_KSP,         96
     .equ T_KTTBR,       104
     .equ T_CURTTBR,     112
+    .equ T_ACTORS,      128                 // NDOMAINS words: the actor living in each domain (0: the domain is free)
     .equ T_FRAME,       224
     .equ T_TOP,         512
     .equ FRAME_SIZE,    288
@@ -63,6 +70,9 @@ domains_init:
     ldr     x8, =__rodata_end
     ldr     x7, =domain_tramp
     lsr     x7, x7, #12                 // the page number of domain_tramp
+    ldr     x10, =rt_stubs
+    lsr     x10, x10, #12               // the page number of the runtime's entry points ...
+    ldr     x11, =rt_gate               // ... and the page that stands in for it in a domain
     ldr     x6, =image_l3
     mov     x0, #0                      // page index over 0 - 4 MB
 1:  lsl     x1, x0, #12
@@ -78,9 +88,13 @@ domains_init:
     ldr     x2, =D_CONST
 3:  orr     x2, x2, x1
 4:  cmp     x0, x7
-    b.ne    5f
+    b.ne    6f
     ldr     x2, =D_TRAMP
     orr     x2, x2, x1
+6:  cmp     x0, x10
+    b.ne    5f
+    ldr     x2, =D_CODE
+    orr     x2, x2, x11                 // the stubs' address, answered by the gate page
 5:  str     x2, [x6, x0, lsl #3]
     add     x0, x0, #1
     cmp     x0, #1024
@@ -109,7 +123,11 @@ domains_init:
     mov     x12, #1                     // pages 1 - 511; page 0 stays unmapped
 11: lsl     x13, x12, #12
     add     x13, x13, x9
-    orr     x13, x13, x11
+    ldr     x14, =D_POOL
+    cmp     x12, #CONTROL_PAGE
+    b.ne    12f
+    ldr     x14, =D_TRAMP               // the control page: EL1 only
+12: orr     x13, x13, x14
     str     x13, [x3, x12, lsl #3]
     add     x12, x12, #1
     cmp     x12, #512
@@ -121,6 +139,22 @@ domains_init:
     ldr     x0, =page_tables            // Raven's own TTBR0 (ASID 0), kept where the exception entry can find it
     ldr     x1, =domain_tramp
     str     x0, [x1, #T_KTTBR]
+    ret
+
+// u64 domain_actor(d) / void domain_set_actor(d, actor): the actor that lives in domain d (0: free). Raven's
+// record of which domains are in use; it is kept here, out of the domains' reach.
+    .global domain_actor
+domain_actor:
+    ldr     x1, =domain_tramp
+    add     x1, x1, #(T_ACTORS - 8)
+    ldr     x0, [x1, x0, lsl #3]
+    ret
+
+    .global domain_set_actor
+domain_set_actor:
+    ldr     x2, =domain_tramp
+    add     x2, x2, #(T_ACTORS - 8)
+    str     x1, [x2, x0, lsl #3]
     ret
 
 // u64 domain_pool_base(d): the physical address of domain d's pool (identity mapped for Raven)
@@ -340,6 +374,11 @@ domain_saved_x:
     ldr     x1, =domain_tramp
     add     x1, x1, #T_FRAME
     ldr     x0, [x1, x0, lsl #3]
+    ret
+
+    .global image_rodata_end         // u64: the end of the kernel's constants (they begin at image_rodata_start)
+image_rodata_end:
+    ldr     x0, =__rodata_end
     ret
 
     .global domain_fault_esr         // u64: ESR_EL1 at the stop

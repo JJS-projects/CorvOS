@@ -2897,23 +2897,9 @@ pub struct Checker {
 
     // ---- function bodies (5d-3c-1) ---------------------------------------------------------------
 
-    /// Fledgling's code generator refuses a `separate` actor until Raven runs domains (milestone 6b): so does
-    /// the program that writes the assembly, before it writes a line. Sets the error like any other.
-    pub mut fn refuse_separate() {
-        if .failed {
-            return
-        }
-        items: List<u64> = copy(.nodes.get(.root).kids)
-        scanning: loop k: u64 in 0..(items.len()) {
-            item: u64 = items.get(k)
-            if .kind_is(item, "Actor") and .has_word(.nodes.get(item).text, "separate") {
-                .fail_node(item)
-                .say("`separate actor ")
-                .say_text(.name_of(item))
-                .say("` needs a protection domain of its own, which Raven does not run yet (milestone 6b): remove `separate` for now")
-                return
-            }
-        }
+    /// Is the actor type `act` declared `separate actor` (decision 172)? Its `spawn` makes a domain.
+    pub fn is_separate(act: u64) -> bool {
+        return .has_word(.nodes.get(.types.get(act).decl).text, "separate")
     }
 
     /// Checks the bodies the switches ask for, in Fledgling's order: functions, then the `new` and methods of

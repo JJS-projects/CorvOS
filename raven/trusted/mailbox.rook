@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -37,6 +37,8 @@ ACTOR_H_LAST_CHILD: u64 = 72
 ACTOR_H_PENDING: u64 = 80           // during a restart: children not yet matched by a `spawn`
 ACTOR_H_FLAGS: u64 = 88             // see ACTOR_F_*
 ACTOR_H_ARGS: u64 = 96              // address of the kept `new` arguments
+ACTOR_H_DOMAIN: u64 = 104           // the protection domain it lives in (low 8 bits, 0: Raven's own); for an actor in
+                                    // the arena the bytes it takes, shifted left 8 (the walk that finds actors)
 ACTOR_F_IN_NEW: u64 = 1             // it was spawned by its spawner's `new`: kept across restarts
 ACTOR_F_ENDED: u64 = 2              // it has ended: sends to it are refused
 
@@ -70,6 +72,21 @@ ACTOR_BUDGET_MS: u64 = 100
 BUDGET_DEFAULT_HZ: u64 = 19200000   // the timer's rate if the firmware didn't set it (hardware.md 12)
 HANDLER_RECORD_BYTES: u64 = 40      // one record of Fledgling's handler table
 
+// Protection domains (decision 175; kernel/arch/aarch64/domain.s has the layout of a pool).
+DOMAINS: u64 = 3
+DOMAIN_FIELDS: u64 = 0x11000        // where an actor in a domain keeps its fields: its reference points here ...
+DOMAIN_INBOX: u64 = 0x1FF000        // ... and the message it is handling is copied here
+DOMAIN_POOL_BYTES: u64 = 0x200000
+DOMAIN_STACK_FIRST: u64 = 0x1000    // the stack: [0x1000, 0x10000); then the control page; then the data
+DOMAIN_STACK_END: u64 = 0x10000
+REASON_DONE: u64 = 0                // why domain_enter returned (domain.s)
+REASON_CALL: u64 = 3
+REASON_BAD: u64 = 4                 // Raven's own: a request a domain may not make
+REASON_REPORTED: u64 = 5            // Raven's own: it panicked and Raven has said so
+SVC_SEND: u64 = 1                   // the calls (rtstubs.s)
+SVC_SEND_RELIABLE: u64 = 2
+SVC_PANIC: u64 = 8
+
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
 /// arguments (copied from `args`, and kept so the actor can be restarted), then runs its
 /// start stub, which runs `new`. Returns its reference. `dispatcher` is the address of the
@@ -78,8 +95,21 @@ HANDLER_RECORD_BYTES: u64 = 40      // one record of Fledgling's handler table
 /// If the actor spawning is being restarted and this spawn is in its `new`, the actor it
 /// spawned in the same position before is restarted in the same place instead of a new
 /// one being made (decision 148), so references to it stay valid.
-pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
-                         rt_args_words: u64) -> u64 {
+pub fn spawn_actor_impl(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
+                        rt_args_words: u64) -> u64 {
+    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, false)
+}
+
+/// The same for an actor that lives in a protection domain of its own (`separate actor`, decision 172): the
+/// next free domain is given to it, its fields are in the domain's pool and its header and mailbox in the
+/// pool's control page, which only Raven reaches. Its `new` runs in the domain.
+pub fn spawn_separate_impl(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
+                           rt_args_words: u64) -> u64 {
+    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, true)
+}
+
+fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
+                rt_args_words: u64, rt_separate: bool) -> u64 {
     rt_base: u64 = actor_arena_base()
     unsafe {
         rt_parent: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
@@ -101,6 +131,18 @@ pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u
                 }
             }
         }
+        if rt_actor == 0 and rt_separate {
+            rt_domain: u64 = free_domain()
+            if (fields + rt_args_words) * 8 > DOMAIN_INBOX - DOMAIN_FIELDS {
+                panic("a separate actor's fields do not fit its domain")
+            }
+            domain_wipe(rt_domain)
+            rt_actor = domain_pool_base(rt_domain) + DOMAIN_FIELDS
+            store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DISPATCHER, dispatcher)
+            store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS, rt_actor + fields * 8)
+            store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN, rt_domain)
+            domain_set_actor(rt_domain, rt_actor)
+        }
         if rt_actor == 0 {
             mut rt_next: u64 = load64(rt_base + ACTOR_S_NEXT)
             if rt_next == 0 {
@@ -114,6 +156,7 @@ pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u
             rt_actor = rt_next + ACTOR_BEFORE_FIELDS
             store64(rt_next + ACTOR_H_DISPATCHER, dispatcher)
             store64(rt_next + ACTOR_H_ARGS, rt_actor + fields * 8)
+            store64(rt_next + ACTOR_H_DOMAIN, rt_size shl 8)
         }
         rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
         store64(rt_header + ACTOR_H_START, rt_entry)
@@ -138,7 +181,11 @@ pub fn raven_spawn_actor(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u
         if rt_entry != 0 {
             store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_actor)
             store64(rt_base + ACTOR_S_IN_NEW, 1)
-            call_dispatch(rt_entry, rt_actor, 0, rt_kept)
+            if domain_of(rt_actor) == 0 {
+                call_dispatch(rt_entry, rt_actor, 0, rt_kept)
+            } else if run_in_domain(domain_of(rt_actor), rt_entry, rt_actor, 0, rt_kept) != 0 {
+                actor_failed()                  // its `new` failed: like a panic in a plain one
+            }
             store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_parent)
             store64(rt_base + ACTOR_S_IN_NEW, rt_was_in_new)
         }
@@ -261,7 +308,7 @@ fn restart_actor(rt_who: u64) {
             store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_who)
             store64(rt_base + ACTOR_S_IN_NEW, 1)
             timer_arm(budget_ticks())
-            rt_failed: u64 = call_protected(rt_start, rt_who, 0, load64(rt_header + ACTOR_H_ARGS))
+            rt_failed: u64 = invoke(rt_start, rt_who, 0, load64(rt_header + ACTOR_H_ARGS))
             timer_disarm()
             store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
             store64(rt_base + ACTOR_S_IN_NEW, 0)
@@ -279,7 +326,7 @@ fn restart_actor(rt_who: u64) {
 /// `watcher` is sent its handler number `number` (`restarted`) each time `watched` restarts.
 /// Watching twice is the same as once. A watch ends when the watcher restarts or ends,
 /// so its `new` sets it up again. The table is small (14); one more panics.
-pub fn raven_watch(watched: u64, watcher: u64, number: u64, stopped_plus_one: u64) {
+pub fn watch_impl(watched: u64, watcher: u64, number: u64, stopped_plus_one: u64) {
     rt_base: u64 = actor_arena_base()
     unsafe {
         store64(rt_base + ACTOR_S_RESTARTED, number)
@@ -368,7 +415,7 @@ fn notify_stopped(rt_who: u64) {
 
 /// `stop()`: the running handler's actor ends. The handler is abandoned where it stands,
 /// like a failure, but nothing is reported and the actor is not restarted (decision 150).
-pub fn raven_stop_self() {
+pub fn stop_self_impl() {
     rt_base: u64 = actor_arena_base()
     unsafe {
         store64(rt_base + ACTOR_S_STOPPING, 1)
@@ -380,12 +427,12 @@ pub fn raven_stop_self() {
 /// any actor, such as `test_main`, is the spawner of what it spawns); from anyone else it is a
 /// failure like any bug (decision 147). Stopping an actor that has ended does nothing; stopping
 /// oneself is `stop()`.
-pub fn raven_stop(target: u64) {
+pub fn stop_impl(target: u64) {
     rt_base: u64 = actor_arena_base()
     unsafe {
         rt_caller: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
         if target == rt_caller {
-            raven_stop_self()
+            stop_self_impl()
         }
         if load64(target - ACTOR_BEFORE_FIELDS + ACTOR_H_PARENT) != rt_caller {
             panic("only the actor that spawned an actor can stop it")
@@ -397,7 +444,9 @@ pub fn raven_stop(target: u64) {
 /// Sends a message to `target`: puts it in the mailbox, or drops it and
 /// counts the drop if the mailbox is full. Used by every send of a `lossy`
 /// handler. `payload` is the address of `words` words (at most 8) to copy into it.
-pub fn raven_send(target: u64, handler: u64, payload: u64, words: u64) {
+pub extern fn raven_send(target: u64, handler: u64, payload: u64, words: u64)
+
+pub fn send_impl(target: u64, handler: u64, payload: u64, words: u64) {
     if not rt_enqueue(target, handler, payload, words) {
         unsafe {
             rt_base: u64 = actor_arena_base()
@@ -409,7 +458,7 @@ pub fn raven_send(target: u64, handler: u64, payload: u64, words: u64) {
 /// Sends a message to a `reliable` handler: the same, except that a full
 /// mailbox is not a drop. The sender is told and decides what the message is
 /// worth (decision 126).
-pub fn raven_send_reliable(target: u64, handler: u64, payload: u64, words: u64) -> Sent {
+pub fn send_reliable_impl(target: u64, handler: u64, payload: u64, words: u64) -> Sent {
     if rt_enqueue(target, handler, payload, words) {
         return Delivered
     }
@@ -552,7 +601,7 @@ pub fn run_one_turn() {
         store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_actor)
         store64(rt_base + ACTOR_S_IN_NEW, 0)
         timer_arm(budget_ticks())
-        rt_failed: u64 = call_protected(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
+        rt_failed: u64 = invoke(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
         timer_disarm()
         store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
         if rt_failed != 0 {
@@ -564,6 +613,224 @@ pub fn run_one_turn() {
             }
         }
     }
+}
+
+// ---- protection domains (decision 175) --------------------------------------------------------
+// An actor in a domain runs at EL0 (domain.s). Raven never trusts what it finds in a domain's memory: every
+// address a request names is checked to be inside the pool, in the part the domain may use, before Raven
+// reads or writes it, and a target must be an actor Raven made.
+
+/// The protection domain an actor lives in (0: Raven's own).
+fn domain_of(dm_actor: u64) -> u64 {
+    unsafe {
+        return load64(dm_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN) and 0xff
+    }
+}
+
+/// The first domain with no actor, 1 to 3. A domain is never given back (an ended actor stays as a
+/// tombstone, like those in the arena), so a program can have three `separate` actors for now.
+fn free_domain() -> u64 {
+    mut dm_found: u64 = 0
+    searching: loop dm_k: u64 in 1..(DOMAINS + 1) {
+        if dm_found == 0 and domain_actor(dm_k) == 0 {
+            dm_found = dm_k
+        }
+    }
+    if dm_found == 0 {
+        panic("out of protection domains")
+    }
+    return dm_found
+}
+
+/// Runs a handler (or an actor's start stub) of `dm_actor`: protected in Raven's domain, in its own domain at
+/// EL0 otherwise. 0 if it finished, 1 if it failed (and Raven has said so).
+fn invoke(dm_dispatcher: u64, dm_actor: u64, dm_handler: u64, dm_payload: u64) -> u64 {
+    dm_domain: u64 = domain_of(dm_actor)
+    if dm_domain == 0 {
+        unsafe {
+            return call_protected(dm_dispatcher, dm_actor, dm_handler, dm_payload)
+        }
+    }
+    return run_in_domain(dm_domain, dm_dispatcher, dm_actor, dm_handler, dm_payload)
+}
+
+/// Runs the dispatcher of an actor in domain `dm_d` at EL0 on a message, and does what the domain asks
+/// until it finishes or fails. A message is copied into the domain's last page first (the copy that
+/// makes a send to another domain safe); a payload that is already in the pool (the arguments of `new`) is not.
+fn run_in_domain(dm_d: u64, dm_dispatcher: u64, dm_actor: u64, dm_handler: u64, dm_payload: u64) -> u64 {
+    dm_pool: u64 = domain_pool_base(dm_d)
+    mut dm_at: u64 = dm_payload
+    unsafe {
+        if dm_payload < dm_pool or dm_payload >= dm_pool + DOMAIN_POOL_BYTES {
+            dm_at = dm_pool + DOMAIN_INBOX
+            copying: loop dm_w: u64 in 0..ACTOR_MESSAGE_WORDS {
+                store64(dm_at + dm_w * 8, load64(dm_payload + dm_w * 8))
+            }
+        }
+        mut dm_reason: u64 = domain_enter(dm_d, dm_dispatcher, dm_actor, dm_handler, dm_at)
+        servicing: loop dm_reason == REASON_CALL {
+            dm_reason = service_call(dm_pool)
+        }
+        if dm_reason == REASON_DONE {
+            return 0
+        }
+        report_failure(dm_d, dm_reason)
+    }
+    return 1
+}
+
+/// Says why a domain failed, in the shape of a panic so tests can expect it (domain 0 is Raven's own).
+fn report_failure(dm_d: u64, dm_reason: u64) {
+    if dm_reason == REASON_REPORTED {
+        return                                  // it panicked, and the panic was printed already
+    }
+    unsafe {
+        if dm_reason == 2 {
+            if dm_d == 1 {
+                domain_report("domain 1 ran for over 100 ms")
+            } else if dm_d == 2 {
+                domain_report("domain 2 ran for over 100 ms")
+            } else {
+                domain_report("domain 3 ran for over 100 ms")
+            }
+        } else if dm_reason == REASON_BAD {
+            if dm_d == 1 {
+                domain_report("domain 1 made a request it may not")
+            } else if dm_d == 2 {
+                domain_report("domain 2 made a request it may not")
+            } else {
+                domain_report("domain 3 made a request it may not")
+            }
+        } else {
+            if dm_d == 1 {
+                domain_report("domain 1 faulted")
+            } else if dm_d == 2 {
+                domain_report("domain 2 faulted")
+            } else {
+                domain_report("domain 3 faulted")
+            }
+        }
+    }
+}
+
+/// Does what the domain's last `svc` asked, and continues it: returns the next reason to stop. Anything a
+/// domain may not ask for (a bad address, a target that is not an actor, `spawn`, `watch`, `stop`: not yet
+/// built for a domain) is REASON_BAD, which fails the domain.
+fn service_call(dm_pool: u64) -> u64 {
+    dm_number: u64 = domain_call_number()
+    unsafe {
+        if dm_number == SVC_SEND or dm_number == SVC_SEND_RELIABLE {
+            dm_target: u64 = domain_saved_x(0)
+            dm_handler: u64 = domain_saved_x(1)
+            dm_payload: u64 = domain_saved_x(2)
+            dm_words: u64 = domain_saved_x(3)
+            if dm_words > ACTOR_MESSAGE_WORDS {
+                return REASON_BAD
+            }
+            if dm_words > 0 and not pool_readable(dm_pool, dm_payload, dm_words * 8) {
+                return REASON_BAD
+            }
+            if not valid_actor(dm_target) or not valid_handler(dm_target, dm_handler) {
+                return REASON_BAD
+            }
+            if dm_number == SVC_SEND {
+                send_impl(dm_target, dm_handler, dm_payload, dm_words)
+                return domain_resume(0)
+            }
+            dm_result: u64 = domain_saved_x(8)          // where a struct result goes
+            if not pool_readable(dm_pool, dm_result, 8) {
+                return REASON_BAD
+            }
+            mut dm_tag: u64 = 0
+            match send_reliable_impl(dm_target, dm_handler, dm_payload, dm_words) {
+                Delivered => dm_tag = 0
+                MailboxFull => dm_tag = 1
+                Gone => dm_tag = 2
+            }
+            store64(dm_result, dm_tag)
+            return domain_resume(0)
+        }
+        if dm_number == SVC_PANIC {
+            dm_message: u64 = domain_saved_x(0)
+            dm_message_length: u64 = domain_saved_x(1)
+            dm_file: u64 = domain_saved_x(2)
+            dm_file_length: u64 = domain_saved_x(3)
+            if not constant_ok(dm_message, dm_message_length) or not constant_ok(dm_file, dm_file_length) {
+                return REASON_BAD
+            }
+            domain_report_panic(dm_message, dm_message_length, dm_file, dm_file_length, domain_saved_x(4))
+            return REASON_REPORTED
+        }
+    }
+    return REASON_BAD
+}
+
+/// May the domain with pool `dm_pool` have Raven read or write `dm_bytes` at `dm_address`? Only its stack
+/// and its data: not the guard, not the control page (the actor's header and mailbox), nothing outside.
+fn pool_readable(dm_pool: u64, dm_address: u64, dm_bytes: u64) -> bool {
+    if dm_address < dm_pool {
+        return false
+    }
+    dm_start: u64 = dm_address - dm_pool
+    if dm_start >= DOMAIN_POOL_BYTES or dm_bytes > DOMAIN_POOL_BYTES - dm_start {
+        return false
+    }
+    dm_end: u64 = dm_start + dm_bytes
+    if dm_start >= DOMAIN_STACK_FIRST and dm_end <= DOMAIN_STACK_END {
+        return true
+    }
+    return dm_start >= DOMAIN_FIELDS and dm_end <= DOMAIN_POOL_BYTES
+}
+
+/// Is [dm_address, dm_address + dm_length) inside the kernel's constants (a message or a file name the
+/// compiler wrote)? Those are readable by every domain and hold no secrets.
+fn constant_ok(dm_address: u64, dm_length: u64) -> bool {
+    unsafe {
+        dm_end: u64 = image_rodata_end()
+        return dm_length <= 4096 and dm_address >= image_rodata_start() and dm_address <= dm_end and dm_length <= dm_end - dm_address
+    }
+}
+
+/// Is `dm_target` an actor Raven made (in a domain, or in the arena)? A domain can only get a reference by
+/// being given one, but Raven does not take its word for it.
+fn valid_actor(dm_target: u64) -> bool {
+    dm_base: u64 = actor_arena_base()
+    unsafe {
+        looking: loop dm_k: u64 in 1..(DOMAINS + 1) {
+            if domain_actor(dm_k) == dm_target {
+                return true
+            }
+        }
+        dm_next: u64 = load64(dm_base + ACTOR_S_NEXT)
+        mut dm_at: u64 = dm_base + ACTOR_FIRST_ACTOR
+        walking: loop dm_at < dm_next {
+            if dm_at + ACTOR_BEFORE_FIELDS == dm_target {
+                return true
+            }
+            dm_size: u64 = load64(dm_at + ACTOR_H_DOMAIN) shr 8
+            if dm_size == 0 {
+                return false
+            }
+            dm_at = dm_at + dm_size
+        }
+    }
+    return false
+}
+
+/// Does the actor `dm_target` have a handler with number `dm_handler`? (Fledgling's table lists every one.)
+fn valid_handler(dm_target: u64, dm_handler: u64) -> bool {
+    unsafe {
+        dm_dispatcher: u64 = load64(dm_target - ACTOR_BEFORE_FIELDS + ACTOR_H_DISPATCHER)
+        mut dm_record: u64 = handler_table_start()
+        dm_last: u64 = handler_table_end()
+        searching: loop dm_record < dm_last {
+            if load64(dm_record) == dm_dispatcher and load64(dm_record + 8) == dm_handler {
+                return true
+            }
+            dm_record = dm_record + HANDLER_RECORD_BYTES
+        }
+    }
+    return false
 }
 
 /// The handler budget in ticks of the generic timer.

@@ -1574,7 +1574,7 @@ pub struct Codegen {
         .ob("mov x4, #")
         .num(args_words)
         .nl()
-        .emit("bl raven_spawn_actor")
+        .emit(if .c.is_separate(act) { "bl raven_spawn_separate" } else { "bl raven_spawn_actor" })
     }
 
     /// `raven_send(target, handler number, payload, words)`; a `reliable` handler calls `raven_send_reliable`.

@@ -3,6 +3,8 @@
 // code from a number, so this is an internal module: application code can't import it
 // (decision 142). The harmless ones are in `hardware`.
 
+import bytes: Bytes
+
 /// Support for Raven's actors (kernel/arch/aarch64/actors.s): the memory they
 /// live in, and the jump into an actor's dispatcher with a message's words.
 pub extern fn actor_arena_base() -> u64
@@ -27,6 +29,11 @@ pub extern fn domain_fault_esr() -> u64
 pub extern fn domain_fault_far() -> u64
 pub extern fn domain_fault_elr() -> u64
 pub extern fn domain_pool_base(d: u64) -> u64
+pub extern fn domain_actor(d: u64) -> u64
+pub extern fn domain_set_actor(d: u64, who: u64)
+pub extern fn image_rodata_end() -> u64
+pub extern fn domain_report(message: Bytes)
+pub extern fn domain_report_panic(message: u64, message_length: u64, file: u64, file_length: u64, line: u64)
 pub extern fn domain_tramp_address() -> u64
 pub extern fn domain_wipe(d: u64)
 

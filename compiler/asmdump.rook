@@ -62,7 +62,6 @@ fn test_main(peripherals: Mmio) {
             checker.run()
             checker.constants()
             checker.bodies(0)
-            checker.refuse_separate()
             if checker.failed {
                 put_error(console, program.files, checker.error_file, checker.error_line, checker.error_col,
                           checker.error)
