@@ -51,6 +51,7 @@
     .equ T_KSP,         96
     .equ T_KTTBR,       104
     .equ T_CURTTBR,     112
+    .equ T_DAIF,        168                 // Raven's interrupt mask at domain_enter / domain_resume, put back on return
     .equ T_RUNNING,     152                 // 1 from domain_budget_begin to domain_budget_end: a domain handler's budget is running
     .equ T_TIMED_OUT,   160                 // the timer fired at EL1 meanwhile (vectors.s): stop the domain, do not continue it
     .equ T_ACTORS,      128                 // NDOMAINS words: the actor living in each domain (0: the domain is free)
@@ -215,6 +216,8 @@ domain_wipe_data:
     stp     x29, x30, [x9, #80]
     mov     x10, sp
     str     x10, [x9, #T_KSP]
+    mrs     x10, daif                   // an exception from EL0 masks interrupts: Raven gets its own mask back
+    str     x10, [x9, #T_DAIF]
     .endm
 
 // void domain_budget_begin(void) / domain_budget_end(void): around timer_arm ... timer_disarm for a handler that runs
@@ -334,6 +337,8 @@ leave_domain:
     ldp     x29, x30, [x9, #80]
     ldr     x10, [x9, #T_KSP]
     mov     sp, x10
+    ldr     x10, [x9, #T_DAIF]
+    msr     daif, x10
     ret
 
 // The first thing an exception from EL0 does: SP_EL1 is on domain_tramp, so save EL0's registers there, then
