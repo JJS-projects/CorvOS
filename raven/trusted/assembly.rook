@@ -23,6 +23,7 @@ pub extern fn image_rodata_start() -> u64
 /// `domain_saved_x`; `domain_resume` continues it with an answer). The fault calls say what happened.
 pub extern fn domain_enter(d: u64, entry: u64, a0: u64, a1: u64, a2: u64) -> u64
 pub extern fn domain_resume(result: u64) -> u64
+pub extern fn domain_timed_out() -> u64
 pub extern fn domain_budget_begin()
 pub extern fn domain_budget_end()
 pub extern fn domain_call_number() -> u64

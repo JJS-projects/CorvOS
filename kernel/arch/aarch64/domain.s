@@ -236,6 +236,14 @@ domain_budget_end:
     str     xzr, [x0, #T_TIMED_OUT]
     ret
 
+// u64 domain_timed_out(void): 1 once the budget timer has fired at EL1 during a domain handler's budget (for tests,
+// which wait for it).
+    .global domain_timed_out
+domain_timed_out:
+    ldr     x0, =domain_tramp
+    ldr     x0, [x0, #T_TIMED_OUT]
+    ret
+
 // u64 domain_enter(d, entry, a0, a1, a2): starts domain d at `entry` at EL0 with x0-x2 = a0-a2, every other
 // register zero, and x30 pointing at a stub that ends the handler with `svc #0`: so the entry may be a function
 // that returns. Returns why the domain stopped (REASON_*).
