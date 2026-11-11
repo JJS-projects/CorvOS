@@ -1,0 +1,52 @@
+// After a domain handler has run, the budget of a plain actor's handler is still a protected call's (decision 177).
+// The domain's budget is on only while its handler runs: if it were left on, the timer firing in a plain handler would be
+// noted and ignored, and the handler would never be stopped.
+// Worked out: the counter handles add(1) in its domain (nothing printed); then Spinner.spin() loops for ever and its
+// budget runs out: "Spinner.spin ran for over 100 ms" at the line of the handler; Spinner is restarted and the counter
+// reports its total, 4 + 1 = 5.
+// expect-failure: Spinner.spin ran for over 100 ms at separate_then_plain_overrun.rook:20
+// expect: 5
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Spinner {
+    lossy on spin() {
+        looping: loop true {
+        }
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on add(n: u64) {
+        .total += n
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    spinner: Spinner = spawn Spinner()
+    counter: Counter = spawn Counter(4)
+    counter.add(1)
+    run_until_idle()
+    spinner.spin()
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

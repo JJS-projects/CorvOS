@@ -1,0 +1,54 @@
+// A `separate` actor cannot read another domain's memory, and the other domain is not disturbed (milestone 6c).
+// Worked out: the first actor spawned in a domain is in domain 1, the second in domain 2. `a` plants 4242 in its data,
+// 256 KB past its fields (so at pool 1 + 0x11000 + 0x40000); `b` is asked to read that address: domain 2's page
+// table has no entry for domain 1's pool, so it faults ("domain 2 faulted") and is restarted. `a` still has the
+// secret (a prints 4242) and Raven, which sees all memory, reads the same 4242.
+// expect-failure: domain 2 faulted
+// expect: 4242
+// expect: 4242
+
+import actors: run_until_idle
+import assembly: domain_pool_base
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Holder {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+
+    lossy on plant(value: u64) {
+        unsafe {
+            store64(actor_address(self) + 0x40000, value)
+        }
+    }
+
+    lossy on peek(address: u64, to: Printer) {
+        unsafe {
+            to.show(load64(address))
+        }
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    a: Holder = spawn Holder()
+    b: Holder = spawn Holder()
+    secret: u64 = domain_pool_base(1) + 0x11000 + 0x40000
+    a.plant(4242)
+    run_until_idle()
+    b.peek(secret, printer)
+    run_until_idle()
+    a.peek(secret, printer)
+    run_until_idle()
+    unsafe {
+        print_u64(load64(secret))
+    }
+}

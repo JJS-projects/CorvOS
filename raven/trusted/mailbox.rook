@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -328,9 +328,13 @@ fn restart_actor(rt_who: u64) {
         if rt_start != 0 {
             store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_who)
             store64(rt_base + ACTOR_S_IN_NEW, 1)
+            if domain_of(rt_who) != 0 {
+                domain_budget_begin()
+            }
             timer_arm(budget_ticks())
             rt_failed: u64 = invoke(rt_start, rt_who, 0, load64(rt_header + ACTOR_H_ARGS))
             timer_disarm()
+            domain_budget_end()
             store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
             store64(rt_base + ACTOR_S_IN_NEW, 0)
             if rt_failed != 0 {
@@ -621,9 +625,13 @@ pub fn run_one_turn() {
         store64(rt_base + ACTOR_S_CURRENT_HANDLER, rt_handler)
         store64(rt_base + ACTOR_S_CURRENT_ACTOR, rt_actor)
         store64(rt_base + ACTOR_S_IN_NEW, 0)
+        if domain_of(rt_actor) != 0 {
+            domain_budget_begin()
+        }
         timer_arm(budget_ticks())
         rt_failed: u64 = invoke(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
         timer_disarm()
+        domain_budget_end()
         store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
         if rt_failed != 0 {
             if load64(rt_base + ACTOR_S_STOPPING) != 0 {

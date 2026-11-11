@@ -33,7 +33,15 @@ irq_entry:
     tbz     x1, #2, 1f                  // ISTATUS (bit 2): the timer condition is met
     msr     cntp_ctl_el0, xzr           // disarm, so it can't fire again while we report
     isb
-    bl      raven_budget_overrun        // Rook (raven/trusted/actors.rook)
+    ldr     x2, =domain_tramp           // The budget of a handler in a protection domain ran out while Raven
+    ldr     x3, [x2, #152]              // was doing something for it (or before it began): there is no
+    cbz     x3, 4f                      // protected call to abandon, so note it (T_TIMED_OUT in domain.s) and go
+    mov     x3, #1                      // on; the domain is not continued (domain_resume) but stopped with
+    str     x3, [x2, #160]              // REASON_TIMEOUT, once Raven's own work is done
+    ldp     x2, x3, [sp], #16
+    ldp     x0, x1, [sp], #16
+    eret
+4:  bl      raven_budget_overrun        // Rook (raven/trusted/actors.rook)
 
 // Not the timer: a peripheral interrupt (the UART, for now). It must not touch the
 // mailboxes, because it can land in the middle of Raven changing them. It only

@@ -51,6 +51,9 @@
     .equ T_KSP,         96
     .equ T_KTTBR,       104
     .equ T_CURTTBR,     112
+    .equ T_DAIF,        168                 // Raven's interrupt mask at domain_enter / domain_resume, put back on return
+    .equ T_RUNNING,     152                 // 1 from domain_budget_begin to domain_budget_end: a domain handler's budget is running
+    .equ T_TIMED_OUT,   160                 // the timer fired at EL1 meanwhile (vectors.s): stop the domain, do not continue it
     .equ T_ACTORS,      128                 // NDOMAINS words: the actor living in each domain (0: the domain is free)
     .equ T_FRAME,       224
     .equ T_TOP,         512
@@ -213,7 +216,36 @@ domain_wipe_data:
     stp     x29, x30, [x9, #80]
     mov     x10, sp
     str     x10, [x9, #T_KSP]
+    mrs     x10, daif                   // an exception from EL0 masks interrupts: Raven gets its own mask back
+    str     x10, [x9, #T_DAIF]
     .endm
+
+// void domain_budget_begin(void) / domain_budget_end(void): around timer_arm ... timer_disarm for a handler that runs
+// in a domain. While it is on, a budget timer that fires at EL1 (Raven is serving the domain, or has not entered it
+// yet) is noted, not treated as the overrun of a protected call (vectors.s); the next domain_enter or domain_resume
+// then stops the domain with REASON_TIMEOUT instead of running it.
+    .global domain_budget_begin
+domain_budget_begin:
+    ldr     x0, =domain_tramp
+    mov     x1, #1
+    str     x1, [x0, #T_RUNNING]
+    str     xzr, [x0, #T_TIMED_OUT]
+    ret
+
+    .global domain_budget_end
+domain_budget_end:
+    ldr     x0, =domain_tramp
+    str     xzr, [x0, #T_RUNNING]
+    str     xzr, [x0, #T_TIMED_OUT]
+    ret
+
+// u64 domain_timed_out(void): 1 once the budget timer has fired at EL1 during a domain handler's budget (for tests,
+// which wait for it).
+    .global domain_timed_out
+domain_timed_out:
+    ldr     x0, =domain_tramp
+    ldr     x0, [x0, #T_TIMED_OUT]
+    ret
 
 // u64 domain_enter(d, entry, a0, a1, a2): starts domain d at `entry` at EL0 with x0-x2 = a0-a2, every other
 // register zero, and x30 pointing at a stub that ends the handler with `svc #0`: so the entry may be a function
@@ -221,6 +253,8 @@ domain_wipe_data:
     .global domain_enter
 domain_enter:
     save_kernel
+    ldr     x10, [x9, #T_TIMED_OUT]
+    cbnz    x10, timed_out_before
     sub     x11, x0, #1
     ldr     x12, =domain_l1
     add     x12, x12, x11, lsl #12
@@ -247,8 +281,16 @@ domain_enter:
     .global domain_resume
 domain_resume:
     save_kernel
+    ldr     x10, [x9, #T_TIMED_OUT]
+    cbnz    x10, timed_out_before
     str     x0, [x9, #(T_FRAME + 0)]
     b       resume_current
+
+// The budget ran out while Raven was at work: the domain is stopped without running (again).
+timed_out_before:
+    str     xzr, [x9, #T_TIMED_OUT]
+    mov     x0, #REASON_TIMEOUT
+    b       leave_domain
 
 // Puts the running domain's table and registers back and returns to EL0. SP_EL1 ends on the top of the tramp
 // page, where the next exception from EL0 will start.
@@ -295,6 +337,8 @@ leave_domain:
     ldp     x29, x30, [x9, #80]
     ldr     x10, [x9, #T_KSP]
     mov     sp, x10
+    ldr     x10, [x9, #T_DAIF]
+    msr     daif, x10
     ret
 
 // The first thing an exception from EL0 does: SP_EL1 is on domain_tramp, so save EL0's registers there, then

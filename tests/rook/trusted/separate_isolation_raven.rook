@@ -1,0 +1,52 @@
+// A `separate` actor cannot read Raven's memory or reach a device (milestone 6c).
+// Worked out: spy() reads the first word of the actor arena (Raven's tables); a domain's page table has no entry for
+// it, so the load faults. touch() writes to the UART's data register (0x3F201000), which no domain's table maps, so
+// that faults too. Each failure restarts the actor; the third request, peek of the actor's own field, still works
+// and prints 21 (the start value kept for `new`).
+// expect-failure: domain 1 faulted x2
+// expect: 21
+
+import actors: run_until_idle
+import assembly: actor_arena_base
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Spy {
+    mut value: u64
+
+    new(start: u64) {
+        .value = start
+    }
+
+    lossy on spy(to: Printer) {
+        unsafe {
+            to.show(load64(actor_arena_base()))
+        }
+    }
+
+    lossy on touch() {
+        unsafe {
+            store32(0x3F201000, 65)
+        }
+    }
+
+    lossy on own(to: Printer) {
+        to.show(.value)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    spy: Spy = spawn Spy(21)
+    spy.spy(printer)
+    run_until_idle()
+    spy.touch()
+    run_until_idle()
+    spy.own(printer)
+    run_until_idle()
+}
