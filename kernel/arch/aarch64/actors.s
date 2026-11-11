@@ -170,6 +170,14 @@ actor_arena_base:
     ldr     x0, [x0, #176]
     ret
 
+// u64 raven_arena_address(void): the address of core 0's actor arena, as a constant (no system register is read, so
+// a domain can call it too: tests use it as an address a domain must not reach). actor_arena_base is this core's.
+    .global raven_arena_address
+raven_arena_address:
+    adrp    x0, actor_arena
+    add     x0, x0, :lo12:actor_arena
+    ret
+
     .global actor_arena_limit
 actor_arena_limit:
     mrs     x0, tpidr_el1

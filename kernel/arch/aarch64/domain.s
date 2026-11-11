@@ -322,6 +322,9 @@ timed_out_before:
 // Puts the running domain's table and registers back and returns to EL0. SP_EL1 ends on the top of the tramp
 // page, where the next exception from EL0 will start.
 resume_current:
+    msr     daifset, #0xf               // No exception may land from here to the eret: it would overwrite ELR_EL1 and
+                                        // SPSR_EL1 (the eret would go back into this code) and push onto the frame.
+                                        // A timer that fires meanwhile waits, and is taken at EL0 after the eret.
     mrs     x9, tpidr_el1
     ldr     x10, [x9, #T_CURTTBR]
     msr     ttbr0_el1, x10

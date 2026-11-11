@@ -9,6 +9,7 @@ import bytes: Bytes
 /// live in, and the jump into an actor's dispatcher with a message's words.
 pub extern fn actor_arena_base() -> u64
 pub extern fn actor_arena_limit() -> u64
+pub extern fn raven_arena_address() -> u64
 pub extern fn call_dispatch(dispatcher: u64, target: u64, handler: u64, payload: u64)
 pub extern fn actor_failed()
 pub extern fn call_protected(dispatcher: u64, target: u64, handler: u64, payload: u64) -> u64
