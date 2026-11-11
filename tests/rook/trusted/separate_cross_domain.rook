@@ -1,0 +1,76 @@
+// Two `separate` actors talk across the boundary, and a failure of one leaves the other alone (milestone 6c).
+// Worked out: pong is spawned first (domain 1), ping second (domain 2), holding pong's reference. ping.go(5) and
+// ping.go(6) each send hit(n) to pong, whose total is then 11; report prints 11. pong.crash() panics: pong's domain
+// restarts with total 0. ping.go(1) makes pong's total 1 (report prints 1), and ping's own count of sends, 3, was
+// not touched by the failure (ping.report prints 3).
+// expect: 11
+// expect-failure: pong crash at separate_cross_domain.rook:36
+// expect: 1
+// expect: 3
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Pong {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on hit(n: u64) {
+        .total += n
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.total)
+    }
+
+    pub lossy on crash() {
+        panic("pong crash")
+    }
+}
+
+separate actor Ping {
+    pong: Pong
+    mut sent: u64
+
+    new(pong: Pong) {
+        .pong = pong
+        .sent = 0
+    }
+
+    lossy on go(n: u64) {
+        .sent += 1
+        .pong.hit(n)
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.sent)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    pong: Pong = spawn Pong()
+    ping: Ping = spawn Ping(pong)
+    ping.go(5)
+    ping.go(6)
+    run_until_idle()
+    pong.report(printer)
+    run_until_idle()
+    pong.crash()
+    run_until_idle()
+    ping.go(1)
+    run_until_idle()
+    pong.report(printer)
+    run_until_idle()
+    ping.report(printer)
+    run_until_idle()
+}

@@ -165,7 +165,7 @@ with `svc`, it faulted, or its time budget ran out. All policy (what an `svc` me
 domain) is Rook; the assembly only moves registers and tables (`kernel/arch/aarch64/domain.s`). A compiled
 `separate` actor runs in it (6b-2b, decision 175): the calls it makes into Raven land on a page of `svc` stubs that
 stands in for Raven's own page of jumps, and Raven checks every address and target a request names before it acts. A domain that fails is restarted as a unit with
-its memory wiped (decision 176).
+its memory wiped (decision 176). [isolation.md](isolation.md) lists what a domain cannot do and the test behind each claim.
 
 ## 6. Raven, the kernel
 
