@@ -1,0 +1,45 @@
+// A `separate` actor makes a `reliable` send and gets `Sent` back through its stack.
+// Worked out: the counter starts at 40 and is told to report to the printer, which prints 40; the answer to the
+// send is Delivered (the printer's mailbox has room), so the counter then sends add(2) to itself, makes 42 and
+// reports again: 42.
+// expect: 40
+// expect: 42
+
+import actors: run_until_idle, Sent
+import print: print_u64
+
+actor Printer {
+    reliable on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on add(n: u64) {
+        .total += n
+    }
+
+    lossy on report(to: Printer) {
+        sent: Sent = to.show(.total)
+        match sent {
+            Delivered => self.add(2)
+            MailboxFull => print_u64(0)
+            Gone => print_u64(0)
+        }
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(40)
+    counter.report(printer)
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

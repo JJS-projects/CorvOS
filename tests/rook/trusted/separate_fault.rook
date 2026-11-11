@@ -1,0 +1,50 @@
+// A `separate` actor that touches Raven's memory faults, and is restarted like any actor that fails.
+// Worked out: the counter starts at 100; poke() stores into the actor arena (Raven's memory, which a domain does not
+// map): a data abort, so domain 1 faulted. Raven restarts the actor: its `new` runs again (total 100) and its mailbox
+// is emptied (add(1) and the first report, sent behind poke(), are lost). After run_until_idle a new report prints 100.
+// expect-failure: domain 1 faulted
+// expect: 100
+
+import actors: run_until_idle
+import assembly: actor_arena_base
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on add(n: u64) {
+        .total += n
+    }
+
+    lossy on poke() {
+        unsafe {
+            store64(actor_arena_base(), 1)
+        }
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(100)
+    counter.add(5)
+    counter.poke()
+    counter.add(1)
+    counter.report(printer)
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

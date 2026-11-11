@@ -1,1 +1,0 @@
-error a.rook:6:10: `separate actor Driver` needs a protection domain of its own, which Raven does not run yet (milestone 6b): remove `separate` for now

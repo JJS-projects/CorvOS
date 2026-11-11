@@ -21,8 +21,9 @@ cases = {
     ("bodiesdump", "separate_actor_bodies"): SPAWNED,
     ("bodiesdump", "separate_handler_struct"): POINT + "separate actor Dev {\n    lossy on put(p: iso Pt) {\n    }\n}\n",
     ("bodiesdump", "separate_new_struct"): POINT + "separate actor Dev {\n    mut p: u64\n\n    new(q: val Pt) {\n        .p = 0\n    }\n}\n",
-    ("asmdump", "separate_refused"): SPAWNED,
-    ("asmdump", "separate_second_of_two"): "actor Plain {\n    lossy on ping() {\n    }\n}\n\n" + ACTOR,
+    ("asmdump", "separate_spawned"): SPAWNED,
+    ("asmdump", "separate_beside_plain"): ("actor Plain {\n    lossy on ping() {\n    }\n}\n\n" + ACTOR +
+                                          "\nfn start() {\n    p: Plain = spawn Plain()\n    d: Driver = spawn Driver()\n}\n"),
 }
 REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "declsdump": dump_declarations,
              "bodiesdump": lambda s: dump_bodies(s, ownership=True, actors=True, bodies="all"), "asmdump": dump_asm}

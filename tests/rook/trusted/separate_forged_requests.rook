@@ -1,0 +1,94 @@
+// Raven does not take a domain's word for anything (decision 175): every request is checked, and a bad one fails the
+// domain. This actor, in trusted code, makes the calls a compiled program never would.
+// Worked out: forge_target sends to an address that is no actor; forge_fake makes a header of its own in its data,
+// with a real actor's dispatcher in it (so the handler number passes), and sends to that; forge_handler sends to a
+// real actor with a handler number it does not have; forge_payload names a payload outside the domain's memory;
+// forge_words says nine words (the most is eight) with a payload that is fine; forge_panic is a panic whose message
+// is not in the kernel's constants. Each fails the domain, which is restarted: six failures. The counter then still
+// works (total 8 from `new`). (1264 is the size of an actor's header and mailbox, ACTOR_BEFORE_FIELDS in mailbox.rook.)
+// expect-failure: domain 1 made a request it may not x6
+// expect: 8
+
+import actors: run_until_idle
+import assembly: actor_arena_base
+import mailbox: raven_send
+import print: print_u64
+
+extern fn rook_panic(message: u64, message_length: u64, file: u64, file_length: u64, line: u64)
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on forge_target() {
+        unsafe {
+            raven_send(actor_arena_base() + 4096, 0, 0, 0)
+        }
+    }
+
+    lossy on forge_fake(dispatcher: u64, to: Printer) {
+        unsafe {
+            fake: u64 = actor_address(self) + 0x4000
+            store64(fake - 1264, dispatcher)
+            raven_send(fake, handler_number("show"), 0, 0)
+        }
+    }
+
+    lossy on forge_handler(to: Printer) {
+        unsafe {
+            raven_send(actor_address(to), 99999, 0, 0)
+        }
+    }
+
+    lossy on forge_payload(to: Printer) {
+        unsafe {
+            raven_send(actor_address(to), handler_number("show"), actor_arena_base(), 1)
+        }
+    }
+
+    lossy on forge_words(to: Printer) {
+        unsafe {
+            raven_send(actor_address(to), handler_number("show"), actor_address(self), 9)
+        }
+    }
+
+    lossy on forge_panic() {
+        unsafe {
+            rook_panic(actor_arena_base(), 5, actor_arena_base(), 5, 1)
+        }
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(8)
+    counter.forge_target()
+    run_until_idle()
+    unsafe {
+        counter.forge_fake(load64(actor_address(printer) - 1264), printer)
+    }
+    run_until_idle()
+    counter.forge_handler(printer)
+    run_until_idle()
+    counter.forge_payload(printer)
+    run_until_idle()
+    counter.forge_words(printer)
+    run_until_idle()
+    counter.forge_panic()
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

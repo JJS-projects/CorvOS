@@ -1,0 +1,41 @@
+// A `separate` actor runs in a protection domain of its own (decisions 172 and 175): its `new`, its handlers and
+// its fields are in a domain at EL0, the sends to it are copied into it, and what it sends comes out through Raven.
+// Worked out: Counter starts at 100 (its `new` runs in the domain), gets add(5) and add(7), then report(printer),
+// which sends show(112) to the printer: 100 + 5 + 7 = 112. (An unused plain actor is spawned first, so that the
+// printer is not the first actor in the arena: Raven has to walk past one to find it when the counter sends to it.)
+// expect: 112
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on add(n: u64) {
+        .total += n
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    first: Printer = spawn Printer()
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(100)
+    counter.add(5)
+    counter.add(7)
+    counter.report(printer)
+    run_until_idle()
+}

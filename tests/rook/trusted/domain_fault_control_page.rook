@@ -1,0 +1,18 @@
+// A domain cannot touch the control page of its pool (page 16: where the actor's header and mailbox are kept; only
+// Raven reaches it), though it is mapped in the domain's table, so the fault is a permission fault.
+// Worked out: a store to 0x10000 into the pool: data abort from a lower EL (class 0x24 = 36), permission fault at
+// level 3: low 7 bits of ESR_EL1 = WnR (0x40) + DFSC 0xF = 0x4F = 79.
+// expect: 1
+// expect: 36
+// expect: 79
+
+import assembly: domain_enter, domain_fault_esr, domain_pool_base, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(domain_enter(1, dt_program(3), domain_pool_base(1) + 0x10000, 99, 0))
+        print_u64(domain_fault_esr() shr 26)
+        print_u64(domain_fault_esr() and 0x7f)
+    }
+}

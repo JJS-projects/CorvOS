@@ -1,0 +1,39 @@
+// A panic in a `separate` actor is reported like any panic (message, file and line), and the actor is restarted.
+// Worked out: divide() divides by a variable that is 0 at run time; the message is "division by zero" (the same
+// text a plain actor's panic gives), at the line of the division.
+// expect-failure: division by zero at separate_panics.rook:24
+// expect: 9
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on divide(by: u64) {
+        .total = .total / by
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(9)
+    counter.divide(0)
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}
