@@ -1,0 +1,63 @@
+// A domain that restarts starts from nothing: what it left in its memory beyond its fields is gone too.
+// Worked out: plant() stores 777 in the domain's data, 256 KB past the actor's fields (a place the fields never
+// reach); the first check prints it (777). poke() faults (the arena is not in the domain), the domain restarts
+// with its memory wiped, and the second check prints 0. The start value, 4, was kept for `new` and survives
+// the wipe: the last check prints it.
+// expect: 777
+// expect-failure: domain 1 faulted
+// expect: 0
+// expect: 4
+
+import actors: run_until_idle
+import assembly: actor_arena_base
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on plant() {
+        unsafe {
+            store64(actor_address(self) + 0x40000, 777)
+        }
+    }
+
+    lossy on check(to: Printer) {
+        unsafe {
+            to.show(load64(actor_address(self) + 0x40000))
+        }
+    }
+
+    lossy on poke() {
+        unsafe {
+            store64(actor_arena_base(), 1)
+        }
+    }
+
+    lossy on total_to(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter(4)
+    counter.plant()
+    counter.check(printer)
+    run_until_idle()
+    counter.poke()
+    run_until_idle()
+    counter.check(printer)
+    run_until_idle()
+    counter.total_to(printer)
+    run_until_idle()
+}

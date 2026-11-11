@@ -36,6 +36,7 @@ pub extern fn domain_report(message: Bytes)
 pub extern fn domain_report_panic(message: u64, message_length: u64, file: u64, file_length: u64, line: u64)
 pub extern fn domain_tramp_address() -> u64
 pub extern fn domain_wipe(d: u64)
+pub extern fn domain_wipe_data(d: u64)
 
 /// Programs for the tests of domains (kernel/test/domain_test.s; only in the Rook test kernel).
 pub extern fn dt_program(n: u64) -> u64

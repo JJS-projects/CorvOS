@@ -1,0 +1,139 @@
+// Supervision across a domain boundary (milestone 6b-2c, decision 176): the supervisor demo of
+// supervisor_demo.rook with the console in a protection domain of its own. A plain guard spawns a `separate`
+// console and a plain client that keeps a setting in it; the console crashes, its domain is restarted as a
+// unit, and `watch` and `stop` work as they do for any actor. The console cannot print (the UART is not in
+// its domain), so `show` sends the setting to a printer.
+//
+// Worked out (each step ends with run_until_idle), as in supervisor_demo:
+//  1. The client's `new` sets the console to 7. `show` prints 7.
+//  2. The console crashes (first expect-failure, and its domain restarts with setting 0); the client is told and
+//     sets 7 again (the guard counts 1). `show` prints 7.
+//  3. It crashes again (restarts = 2, within the limit of 2). `show` prints 7.
+//  4. It crashes a third time (restarts = 3): the guard prints 50 and stops the console; the client is told
+//     `stopped` and prints 99. A send to the console answers Gone: `check` prints 3.
+// expect-failure: console crash at separate_supervised.rook:52 x3
+// expect: 7
+// expect: 7
+// expect: 7
+// expect: 50
+// expect: 99
+// expect: 3
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Console {
+    mut setting: u64
+
+    new() {
+        .setting = 0
+    }
+
+    pub lossy on set(value: u64) {
+        .setting = value
+    }
+
+    pub lossy on show(to: Printer) {
+        to.show(.setting)
+    }
+
+    pub lossy on crash() {
+        panic("console crash")
+    }
+
+    pub reliable on ping() { }
+}
+
+actor Settings: Lifecycle {
+    console: Console
+    wanted: u64
+
+    new(console: Console, wanted: u64) {
+        .console = console
+        .wanted = wanted
+        .console.set(wanted)
+        watch(console, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        .console.set(.wanted)
+    }
+
+    lossy on stopped() {
+        print_u64(99)
+    }
+}
+
+actor Guard: Lifecycle {
+    console: Console
+    settings: Settings
+    printer: Printer
+    limit: u64
+    mut restarts: u64
+
+    new(limit: u64, printer: Printer) {
+        .limit = limit
+        .printer = printer
+        .restarts = 0
+        .console = spawn Console()
+        .settings = spawn Settings(.console, 7)
+        watch(.console, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        .restarts += 1
+        if .restarts > .limit {
+            print_u64(50)
+            stop(.console)
+        }
+    }
+
+    lossy on stopped() { }
+
+    pub lossy on crash() {
+        .console.crash()
+    }
+
+    pub lossy on show() {
+        .console.show(.printer)
+    }
+
+    pub lossy on check() {
+        match .console.ping() {
+            Delivered => print_u64(1)
+            MailboxFull => print_u64(2)
+            Gone => print_u64(3)
+        }
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    guard: Guard = spawn Guard(2, printer)
+    run_until_idle()
+    guard.show()
+    run_until_idle()
+    guard.crash()
+    run_until_idle()
+    guard.show()
+    run_until_idle()
+    guard.crash()
+    run_until_idle()
+    guard.show()
+    run_until_idle()
+    guard.crash()
+    run_until_idle()
+    guard.check()
+    run_until_idle()
+}

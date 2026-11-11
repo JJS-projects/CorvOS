@@ -17,7 +17,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
   decision 169), and the kernel and the compiler programs are built by it (5f: `make bootstrap`,
   `tools/rookc.py`, `make rook-kernel`, decision 170). The test programs are still built by Fledgling, which
   stays as the seed and the reference. Ownership 4c (`freeze`/pool) is deferred.
-- Milestone 6 (protection domains, multicore) has started: 6a is built (the MMU and caches on, one EL1 identity map, `kernel/arch/aarch64/mmu.s`, decision 171); 6b-1 (`separate actor`, the front end, decisions 172 and 173) is built, 6b-2a (EL0 machinery: `kernel/arch/aarch64/domain.s`, decision 174; the `domain_*` tests) is built; 6b-2b (a compiled `separate` actor runs in a domain of its own, decision 175; the `separate_*` tests) is built; 6b-2c (a failing domain restarts as a unit) and 6c (isolation tests) and 6d/6e (cores 1-3) follow.
+- Milestone 6 (protection domains, multicore) has started: 6a is built (the MMU and caches on, one EL1 identity map, `kernel/arch/aarch64/mmu.s`, decision 171); 6b-1 (`separate actor`, the front end, decisions 172 and 173) is built, 6b-2a (EL0 machinery: `kernel/arch/aarch64/domain.s`, decision 174; the `domain_*` tests) is built; 6b-2b (a compiled `separate` actor runs in a domain of its own, decision 175; the `separate_*` tests) is built; 6b-2c (a failing domain restarts as a unit, its memory wiped, decision 176; `separate_supervised`) is built; 6c (isolation tests) and 6d/6e (cores 1-3) follow.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
 - The latest decision number is in [decisions-index.md](decisions-index.md).
