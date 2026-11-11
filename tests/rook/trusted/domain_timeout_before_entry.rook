@@ -1,0 +1,20 @@
+// A budget that runs out before the domain is entered stops it without running it (the timer fires at EL1, where there is
+// no protected call to abandon): it came back as a panic of Raven's, and flaked on a loaded machine.
+// Worked out: the budget is on and the timer is armed for 1 tick, so it fires at once, at EL1, before domain_enter; the
+// program (dt_return, which would return 0) is not run: the call comes back with 2 (TIMEOUT). A later plain run,
+// with the budget off, returns 0.
+// expect: 2
+// expect: 0
+
+import assembly: domain_budget_begin, domain_budget_end, domain_enter, dt_program, timer_arm
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        domain_budget_begin()
+        timer_arm(1)
+        print_u64(domain_enter(1, dt_program(0), 0, 0, 0))
+        domain_budget_end()
+        print_u64(domain_enter(1, dt_program(0), 0, 0, 0))
+    }
+}

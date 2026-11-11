@@ -3,13 +3,15 @@
 // expect: 2
 // expect: 0
 
-import assembly: domain_enter, dt_program, timer_arm
+import assembly: domain_budget_begin, domain_budget_end, domain_enter, dt_program, timer_arm
 import print: print_u64
 
 fn test_main() {
     unsafe {
+        domain_budget_begin()
         timer_arm(500000)
         print_u64(domain_enter(1, dt_program(4), 0, 0, 0))
+        domain_budget_end()
         print_u64(domain_enter(1, dt_program(0), 0, 0, 0))
     }
 }

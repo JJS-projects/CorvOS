@@ -1,0 +1,49 @@
+// A `separate` actor that is busy in calls into Raven when its budget runs out is stopped like any other (decision 177).
+// Most of this handler's time is spent in Raven, serving its sends, so the budget timer fires at EL1 (Raven's code),
+// where a protected call would be abandoned: for a domain the run is noted and the domain stopped at its next resume.
+// It used to halt the core.
+// Worked out: spin() sends to the sink for ever; the budget (100 ms) ends it: "domain 1 ran for over 100 ms"; the actor is
+// restarted (total 5 from `new`) and reports 5.
+// expect-failure: domain 1 ran for over 100 ms
+// expect: 5
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Sink {
+    lossy on drop(n: u64) { }
+}
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new(start: u64) {
+        .total = start
+    }
+
+    lossy on spin(to: Sink) {
+        looping: loop true {
+            to.drop(1)
+        }
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    sink: Sink = spawn Sink()
+    counter: Counter = spawn Counter(5)
+    counter.spin(sink)
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

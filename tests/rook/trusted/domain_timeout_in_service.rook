@@ -1,0 +1,18 @@
+// A budget that runs out while Raven is serving a request of the domain stops the domain at the next resume.
+// Worked out: dt_add asks Raven for 5 + 6 + 7 with `svc #7` (CALL, 3); then, with the budget on, the timer is armed for
+// 1 tick and fires at EL1 while Raven is busy; domain_resume does not continue the domain but returns 2 (TIMEOUT).
+// expect: 3
+// expect: 2
+
+import assembly: domain_budget_begin, domain_budget_end, domain_enter, domain_resume, dt_program, timer_arm
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        domain_budget_begin()
+        print_u64(domain_enter(1, dt_program(1), 5, 6, 7))
+        timer_arm(1)
+        print_u64(domain_resume(0))
+        domain_budget_end()
+    }
+}

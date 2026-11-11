@@ -15,7 +15,7 @@ test fails if it breaks. Everything here ran on QEMU only; the last section says
 | change the kernel's code or constants | they are mapped read-only | `domain_fault_code_write`, `mmu_code_read_only`, `mmu_constants_read_only` |
 | run its own data as code | the pool is never executable (execute-never bit, and WXN) | `domain_no_exec_data` (both removed together), `mmu_ram_not_executable` |
 | use a privileged instruction | it runs at EL0 | `domain_privileged` |
-| keep the CPU | the handler budget timer ends the run (100 ms) | `domain_timeout`, `separate_spins` |
+| keep the CPU | the handler budget timer ends the run (100 ms), also when it runs out while Raven serves a request (decision 177) | `domain_timeout`, `separate_spins`, `domain_timeout_before_entry`, `domain_timeout_in_service`, `separate_spins_in_calls` |
 | run off the end of its stack unnoticed | a page below the stack is not mapped | `domain_stack_overflow` |
 | ask Raven for something it should not | every address, target and handler number in a request is checked | `separate_forged_requests` |
 | leave anything behind after a failure | a restart wipes its stack and data | `separate_restart_wipes`, `domain_wipe_data` |
