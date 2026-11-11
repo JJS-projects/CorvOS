@@ -6,8 +6,9 @@ module public
 // can address an actor from a number are in `mailbox`, which only Raven's own code can
 // import (decision 142).
 
-import assembly: actor_arena_base, idle_until_interrupt, irq_enable_source
+import assembly: actor_arena_base, core_online_mark, idle_until_interrupt, irq_enable_source
 import devices: Mmio
+import hardware: irq_init
 import mailbox: ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, run_one_turn
 
 /// What a send to a `reliable` handler tells the sender (decisions 126 and 150).
@@ -63,6 +64,17 @@ pub fn run_forever() {
             idle_until_interrupt()
         }
     }
+}
+
+/// Where cores 1 to 3 start in Rook (called by the boot code, start.s): the core says it is up, lets its own
+/// timer interrupt it, and runs its own Raven: its own arena, run queue and mailboxes (decision 111). Nothing runs
+/// on it until a message is sent to an actor of its own (milestone 6d-2).
+fn raven_secondary(core: u64) {
+    unsafe {
+        core_online_mark()
+    }
+    irq_init()
+    run_forever()
 }
 
 /// What an interrupt becomes: a message to the handler `fired` of the actor that

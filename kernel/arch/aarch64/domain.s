@@ -27,7 +27,7 @@
 // (the time budget timer fired).
 
     .equ NDOMAINS,      3
-    .equ POOL_BASE,     0x14000000          // physical; domain d's pool is at POOL_BASE + (d - 1) * 2 MB, above the 256 MB region
+    .equ POOL_BASE,     0x14000000          // physical; core c's domain d has its pool at POOL_BASE + (3 * c + d - 1) * 2 MB, above the 256 MB region
     .equ POOL_L2_FIRST, 160                 // POOL_BASE >> 21: the L2 index of domain 1's pool
     .equ STACK_TOP,     0x10000             // the stack starts 64 KB into the pool
     .equ KERNEL_START,  0x80000
@@ -54,6 +54,10 @@
     .equ T_DAIF,        168                 // Raven's interrupt mask at domain_enter / domain_resume, put back on return
     .equ T_RUNNING,     152                 // 1 from domain_budget_begin to domain_budget_end: a domain handler's budget is running
     .equ T_TIMED_OUT,   160                 // the timer fired at EL1 meanwhile (vectors.s): stop the domain, do not continue it
+    .equ T_ARENA,       176                 // this core's actor arena (Raven's tables and actors)
+    .equ T_L1,          184                 // this core's array of domain tables (3 L1, 3 L2, 3 pool L3)
+    .equ T_POOL0,       192                 // the physical address of this core's domain 1 pool
+    .equ NCORES,        4
     .equ T_ACTORS,      128                 // NDOMAINS words: the actor living in each domain (0: the domain is free)
     .equ T_FRAME,       224
     .equ T_TOP,         512
@@ -66,17 +70,21 @@
 
     .section .text
 
-// void domains_init(void): builds the tables of every domain. Once, at boot, with the BSS zeroed. Uses x0-x9.
+// void domains_init(void): builds the tables of every domain of every core, and each core's block (domain_tramp
+// page: where it finds its arena, its tables and its pools). Once, at boot, by core 0, with the BSS zeroed. Keeps x19.
     .global domains_init
 domains_init:
-    ldr     x9, =__text_end
+    mov     x15, #0                     // x15 = core
+20: ldr     x9, =__text_end
     ldr     x8, =__rodata_end
     ldr     x7, =domain_tramp
-    lsr     x7, x7, #12                 // the page number of domain_tramp
+    add     x7, x7, x15, lsl #12        // this core's tramp page ...
+    lsr     x7, x7, #12                 // ... as a page number
     ldr     x10, =rt_stubs
     lsr     x10, x10, #12               // the page number of the runtime's entry points ...
     ldr     x11, =rt_gate               // ... and the page that stands in for it in a domain
     ldr     x6, =image_l3
+    add     x6, x6, x15, lsl #13        // this core's image tables (8 KB each: the tramp page differs)
     mov     x0, #0                      // page index over 0 - 4 MB
 1:  lsl     x1, x0, #12
     mov     x2, #0                      // default: not mapped (below the image, data and bss)
@@ -105,8 +113,12 @@ domains_init:
 
     // each domain: L1 -> L2 -> (image L3 for 0 - 2 MB and 2 - 4 MB, its own L3 for its pool)
     ldr     x5, =domain_l1
+    mov     x0, #(9 << 12)
+    madd    x5, x15, x0, x5             // this core's array of tables
     mov     x4, #1                      // x4 = domain number
 10: sub     x0, x4, #1
+    mov     x16, #NDOMAINS
+    madd    x16, x15, x16, x0           // 3 * core + d - 1: the number of the pool
     add     x1, x5, x0, lsl #12         // L1 of this domain
     add     x2, x1, #(NDOMAINS << 12)   // L2 (the tables of the same kind are together: L1s, L2s, L3s)
     add     x3, x2, #(NDOMAINS << 12)   // the pool's L3
@@ -119,10 +131,9 @@ domains_init:
     str     x9, [x2, #8]
     orr     x9, x3, #D_TABLE
     add     x10, x2, #(POOL_L2_FIRST * 8)
-    str     x9, [x10, x0, lsl #3]       // L2[POOL_L2_FIRST + d - 1] -> the pool's L3
+    str     x9, [x10, x16, lsl #3]      // L2[POOL_L2_FIRST + pool number] -> the pool's L3
     mov     x9, #POOL_BASE
-    add     x9, x9, x0, lsl #21         // the pool's physical address
-    ldr     x11, =D_POOL
+    add     x9, x9, x16, lsl #21        // the pool's physical address
     mov     x12, #1                     // pages 1 - 511; page 0 stays unmapped
 11: lsl     x13, x12, #12
     add     x13, x13, x9
@@ -139,23 +150,36 @@ domains_init:
     cmp     x4, #NDOMAINS
     b.ls    10b
 
+    // this core's block
+    ldr     x14, =domain_tramp
+    add     x14, x14, x15, lsl #12
+    str     x5, [x14, #T_L1]
     ldr     x0, =page_tables            // Raven's own TTBR0 (ASID 0), kept where the exception entry can find it
-    ldr     x1, =domain_tramp
-    str     x0, [x1, #T_KTTBR]
+    str     x0, [x14, #T_KTTBR]
+    mov     x0, #POOL_BASE
+    mov     x1, #(NDOMAINS << 21)
+    madd    x0, x15, x1, x0
+    str     x0, [x14, #T_POOL0]
+    ldr     x0, =actor_arena
+    add     x0, x0, x15, lsl #16        // 64 KB of arena a core
+    str     x0, [x14, #T_ARENA]
+    add     x15, x15, #1
+    cmp     x15, #NCORES
+    b.lo    20b
     ret
 
 // u64 domain_actor(d) / void domain_set_actor(d, actor): the actor that lives in domain d (0: free). Raven's
 // record of which domains are in use; it is kept here, out of the domains' reach.
     .global domain_actor
 domain_actor:
-    ldr     x1, =domain_tramp
+    mrs     x1, tpidr_el1
     add     x1, x1, #(T_ACTORS - 8)
     ldr     x0, [x1, x0, lsl #3]
     ret
 
     .global domain_set_actor
 domain_set_actor:
-    ldr     x2, =domain_tramp
+    mrs     x2, tpidr_el1
     add     x2, x2, #(T_ACTORS - 8)
     str     x1, [x2, x0, lsl #3]
     ret
@@ -164,7 +188,8 @@ domain_set_actor:
     .global domain_pool_base
 domain_pool_base:
     sub     x0, x0, #1
-    mov     x1, #POOL_BASE
+    mrs     x1, tpidr_el1
+    ldr     x1, [x1, #T_POOL0]          // this core's pools
     add     x0, x1, x0, lsl #21
     ret
 
@@ -172,7 +197,8 @@ domain_pool_base:
     .global domain_wipe
 domain_wipe:
     sub     x0, x0, #1
-    mov     x1, #POOL_BASE
+    mrs     x1, tpidr_el1
+    ldr     x1, [x1, #T_POOL0]
     add     x1, x1, x0, lsl #21
     mov     x2, #0x200000
     add     x2, x1, x2
@@ -187,7 +213,8 @@ domain_wipe:
     .global domain_wipe_data
 domain_wipe_data:
     sub     x0, x0, #1
-    mov     x1, #POOL_BASE
+    mrs     x1, tpidr_el1
+    ldr     x1, [x1, #T_POOL0]
     add     x1, x1, x0, lsl #21
     add     x2, x1, #STACK_TOP          // the stack: [pool + 4 KB, pool + 64 KB)
     add     x1, x1, #0x1000
@@ -207,7 +234,7 @@ domain_wipe_data:
 // Saves Raven's callee-saved registers and sp where an exception from EL0 will find them: after this, a
 // return to our caller is made by leave_domain. Leaves x9 = domain_tramp.
     .macro save_kernel
-    ldr     x9, =domain_tramp
+    mrs     x9, tpidr_el1
     stp     x19, x20, [x9, #0]
     stp     x21, x22, [x9, #16]
     stp     x23, x24, [x9, #32]
@@ -226,7 +253,7 @@ domain_wipe_data:
 // then stops the domain with REASON_TIMEOUT instead of running it.
     .global domain_budget_begin
 domain_budget_begin:
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     mov     x1, #1
     str     x1, [x0, #T_RUNNING]
     str     xzr, [x0, #T_TIMED_OUT]
@@ -234,7 +261,7 @@ domain_budget_begin:
 
     .global domain_budget_end
 domain_budget_end:
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     str     xzr, [x0, #T_RUNNING]
     str     xzr, [x0, #T_TIMED_OUT]
     ret
@@ -243,7 +270,7 @@ domain_budget_end:
 // which wait for it).
     .global domain_timed_out
 domain_timed_out:
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     ldr     x0, [x0, #T_TIMED_OUT]
     ret
 
@@ -256,7 +283,7 @@ domain_enter:
     ldr     x10, [x9, #T_TIMED_OUT]
     cbnz    x10, timed_out_before
     sub     x11, x0, #1
-    ldr     x12, =domain_l1
+    ldr     x12, [x9, #T_L1]
     add     x12, x12, x11, lsl #12
     orr     x12, x12, x0, lsl #48       // TTBR0: the L1 table, the domain number as the ASID
     str     x12, [x9, #T_CURTTBR]
@@ -269,7 +296,7 @@ domain_enter:
     str     x4, [x12, #16]              // x2
     ldr     x13, =domain_return_stub
     str     x13, [x12, #240]            // x30
-    mov     x13, #POOL_BASE
+    ldr     x13, [x9, #T_POOL0]
     add     x13, x13, x11, lsl #21
     add     x13, x13, #STACK_TOP
     str     x13, [x12, #F_SP]
@@ -295,7 +322,7 @@ timed_out_before:
 // Puts the running domain's table and registers back and returns to EL0. SP_EL1 ends on the top of the tramp
 // page, where the next exception from EL0 will start.
 resume_current:
-    ldr     x9, =domain_tramp
+    mrs     x9, tpidr_el1
     ldr     x10, [x9, #T_CURTTBR]
     msr     ttbr0_el1, x10
     isb
@@ -328,7 +355,7 @@ resume_current:
 // Back to Raven: restores its registers and returns, with x0 = the reason, to whoever called domain_enter or
 // domain_resume. Raven's table is already in use.
 leave_domain:
-    ldr     x9, =domain_tramp
+    mrs     x9, tpidr_el1
     ldp     x19, x20, [x9, #0]
     ldp     x21, x22, [x9, #16]
     ldp     x23, x24, [x9, #32]
@@ -369,7 +396,7 @@ leave_domain:
     mrs     x0, esr_el1
     mrs     x1, far_el1
     stp     x0, x1, [sp, #F_ESR]
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     ldr     x1, [x0, #T_KTTBR]
     msr     ttbr0_el1, x1
     isb
@@ -409,8 +436,8 @@ domain_irq:
     cbz     w1, 2f
     ldr     x2, =0x3F00B220             // disable IRQs 2: switch off what fired
     str     w1, [x2]
-    adrp    x2, actor_arena
-    add     x2, x2, :lo12:actor_arena
+    mrs     x2, tpidr_el1
+    ldr     x2, [x2, #T_ARENA]
     ldr     x3, [x2, #48]
     orr     x3, x3, x1
     str     x3, [x2, #48]
@@ -426,19 +453,19 @@ domain_return_stub:
 // What the last stop was, for Raven. The registers are those saved at the stop.
     .global domain_tramp_address     // u64: where Raven keeps a stopped domain's registers (EL1 only)
 domain_tramp_address:
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     ret
 
     .global domain_call_number
 domain_call_number:                     // u64: the svc number of a REASON_CALL
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     ldr     x0, [x0, #(T_FRAME + F_ESR)]
     and     x0, x0, #0xffff
     ret
 
     .global domain_saved_x           // u64 domain_saved_x(n): EL0's register xn at the stop (n 0-30)
 domain_saved_x:
-    ldr     x1, =domain_tramp
+    mrs     x1, tpidr_el1
     add     x1, x1, #T_FRAME
     ldr     x0, [x1, x0, lsl #3]
     ret
@@ -450,28 +477,28 @@ image_rodata_end:
 
     .global domain_fault_esr         // u64: ESR_EL1 at the stop
 domain_fault_esr:
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     ldr     x0, [x0, #(T_FRAME + F_ESR)]
     ret
 
     .global domain_fault_far         // u64: FAR_EL1 at the stop (the address of a data or instruction abort)
 domain_fault_far:
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     ldr     x0, [x0, #(T_FRAME + F_FAR)]
     ret
 
     .global domain_fault_elr         // u64: where EL0 was (ELR_EL1)
 domain_fault_elr:
-    ldr     x0, =domain_tramp
+    mrs     x0, tpidr_el1
     ldr     x0, [x0, #(T_FRAME + F_ELR)]
     ret
 
     .section .bss
     .balign 4096
     .global domain_tramp
-domain_tramp:                           // see the layout above; EL1 only, in every domain's table
-    .space  4096
-domain_l1:                              // NDOMAINS L1 tables, then NDOMAINS L2 tables, then NDOMAINS pool L3 tables
-    .space  3 * 3 * 4096
-image_l3:                               // the image as a domain sees it: 2 tables cover 0 - 4 MB
-    .space  2 * 4096
+domain_tramp:                           // a page for each core (see the layout above); EL1 only, in every domain's table
+    .space  NCORES * 4096
+domain_l1:                              // for each core: NDOMAINS L1 tables, NDOMAINS L2 tables, NDOMAINS pool L3 tables
+    .space  NCORES * 9 * 4096
+image_l3:                               // for each core, the image as a domain sees it: 2 tables cover 0 - 4 MB
+    .space  NCORES * 2 * 4096

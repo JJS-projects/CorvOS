@@ -28,8 +28,8 @@ call_dispatch:
 call_protected:
     stp     x29, x30, [sp, #-16]!
     mov     x29, sp
-    adrp    x9, actor_arena
-    add     x9, x9, :lo12:actor_arena
+    mrs     x9, tpidr_el1               // this core's actor arena (T_ARENA in domain.s)
+    ldr     x9, [x9, #176]
     add     x10, x9, #1728
     stp     x19, x20, [x10, #0]
     stp     x21, x22, [x10, #16]
@@ -46,8 +46,8 @@ call_protected:
     blr     x16
     mov     x0, #0                      // it returned
 protected_exit:
-    adrp    x9, actor_arena
-    add     x9, x9, :lo12:actor_arena
+    mrs     x9, tpidr_el1               // this core's actor arena (T_ARENA in domain.s)
+    ldr     x9, [x9, #176]
     str     xzr, [x9, #1088]
     ldp     x29, x30, [sp], #16
     ret
@@ -59,8 +59,8 @@ protected_exit:
 // panic always did.
     .global actor_failed
 actor_failed:
-    adrp    x9, actor_arena
-    add     x9, x9, :lo12:actor_arena
+    mrs     x9, tpidr_el1               // this core's actor arena (T_ARENA in domain.s)
+    ldr     x9, [x9, #176]
     ldr     x11, [x9, #1088]
     cbz     x11, 1f
     msr     daifclr, #2
@@ -94,11 +94,14 @@ handler_table_end:
 // void irq_init(void): lets the physical timer interrupt the core, and unmasks IRQs.
 // The Pi's per-core interrupt controller (ARM local peripherals, 0x40000000) routes
 // the non-secure physical timer, bit 1 of CORE0_TIMER_IRQCNTL (0x40000040), to the
-// core's IRQ. Only core 0 runs Raven for now (decision 111).
+// core's IRQ; each core has its own register, 4 bytes on from the last (decision 178).
     .global irq_init
 irq_init:
     msr     cntp_ctl_el0, xzr           // the timer starts disarmed
-    ldr     x0, =0x40000040
+    ldr     x0, =0x40000040             // CORE0_TIMER_IRQCNTL; core n's is 4 * n further
+    mrs     x2, mpidr_el1
+    and     x2, x2, #3
+    add     x0, x0, x2, lsl #2
     mov     w1, #2                      // nCNTPNSIRQ -> IRQ
     str     w1, [x0]
     msr     daifclr, #2                 // unmask IRQ
@@ -122,8 +125,8 @@ irq_enable_source:
     .global irq_take_pending
 irq_take_pending:
     msr     daifset, #2
-    adrp    x1, actor_arena
-    add     x1, x1, :lo12:actor_arena
+    mrs     x1, tpidr_el1               // this core's actor arena (T_ARENA in domain.s)
+    ldr     x1, [x1, #176]
     ldr     x0, [x1, #48]
     str     xzr, [x1, #48]
     msr     daifclr, #2
@@ -135,8 +138,8 @@ irq_take_pending:
     .global idle_until_interrupt
 idle_until_interrupt:
     msr     daifset, #2
-    adrp    x1, actor_arena
-    add     x1, x1, :lo12:actor_arena
+    mrs     x1, tpidr_el1               // this core's actor arena (T_ARENA in domain.s)
+    ldr     x1, [x1, #176]
     ldr     x0, [x1, #48]
     cbnz    x0, 1f
     wfi
@@ -163,19 +166,19 @@ timer_disarm:
 // actor, mailbox and Raven's actor tables are carved from.
     .global actor_arena_base
 actor_arena_base:
-    adrp    x0, actor_arena
-    add     x0, x0, :lo12:actor_arena
+    mrs     x0, tpidr_el1               // this core's actor arena (T_ARENA in domain.s)
+    ldr     x0, [x0, #176]
     ret
 
     .global actor_arena_limit
 actor_arena_limit:
-    adrp    x0, actor_arena_end
-    add     x0, x0, :lo12:actor_arena_end
+    mrs     x0, tpidr_el1
+    ldr     x0, [x0, #176]
+    add     x0, x0, #65536
     ret
 
     .section .bss
     .balign 4096
-    .global actor_arena                 // vectors.s notes interrupts in its pending word
+    .global actor_arena                 // domains_init gives core n the arena at actor_arena + 64 KB * n
 actor_arena:
-    .space  65536                       // 64 KB; zeroed at boot with the rest of .bss
-actor_arena_end:
+    .space  4 * 65536                   // 64 KB for each of the four cores; zeroed at boot with the rest of .bss

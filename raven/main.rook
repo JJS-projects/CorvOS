@@ -1,6 +1,6 @@
 // Raven's kernel_main, in Rook.
 
-import hardware: current_el, irq_init, mmu_state, quiet_build, run_test_hooks
+import hardware: cores_online_mask, counter_frequency, current_el, irq_init, mmu_state, quiet_build, read_counter, run_test_hooks
 import devices: Mmio
 import led: Led
 import pl011: Pl011
@@ -47,6 +47,23 @@ pub fn kernel_main(entry_el: u64, peripherals: Mmio) {
     } else {
         console.write("Raven: MMU or caches OFF\n")
     }
+    // The other cores were released at the start; give them up to a second to come up.
+    mut hz: u64 = counter_frequency()
+    if hz == 0 {
+        hz = 19200000                   // the firmware did not say (hardware.md 12)
+    }
+    deadline: u64 = read_counter() + hz
+    waiting: loop cores_online_mask() != 15 and read_counter() < deadline {
+    }
+    mut up: u64 = 0
+    mut mask: u64 = cores_online_mask()
+    counting: loop mask != 0 {
+        up += mask and 1
+        mask = mask shr 1
+    }
+    console.write("Raven: ")
+    console.write_dec(up)
+    console.write(" cores online\n")
     irq_init()                          // the handler time budget needs the timer interrupt
     run_test_hooks(peripherals)
     console.write("Raven: boot complete, idling\n")

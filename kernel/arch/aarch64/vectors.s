@@ -33,7 +33,7 @@ irq_entry:
     tbz     x1, #2, 1f                  // ISTATUS (bit 2): the timer condition is met
     msr     cntp_ctl_el0, xzr           // disarm, so it can't fire again while we report
     isb
-    ldr     x2, =domain_tramp           // The budget of a handler in a protection domain ran out while Raven
+    mrs     x2, tpidr_el1               // (this core's block, domain.s) The budget of a handler in a protection domain ran out while Raven
     ldr     x3, [x2, #152]              // was doing something for it (or before it began): there is no
     cbz     x3, 4f                      // protected call to abandon, so note it (T_TIMED_OUT in domain.s) and go
     mov     x3, #1                      // on; the domain is not continued (domain_resume) but stopped with
@@ -54,8 +54,8 @@ irq_entry:
     cbz     w1, 2f                      // nothing we know of: report it
     ldr     x2, =0x3F00B220             // disable IRQs 2: switch off what fired
     str     w1, [x2]
-    adrp    x2, actor_arena
-    add     x2, x2, :lo12:actor_arena
+    mrs     x2, tpidr_el1               // this core's actor arena
+    ldr     x2, [x2, #176]              // (T_ARENA in domain.s)
     ldr     x3, [x2, #48]               // the pending word
     orr     x3, x3, x1                  // w1 was zero-extended by the load
     str     x3, [x2, #48]

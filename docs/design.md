@@ -241,9 +241,10 @@ ordinary single-threaded Rook, written the way the programs on top of it are.
 Chosen over one shared kernel (with lock-free queues, or with one big lock) for
 fewer places where `unsafe` and memory-ordering bugs can hide (principle 1), one
 kind of send instead of two (principle 6) and a smaller part of Raven to audit
-(principle 7). Milestone 3 still runs on core 0 only; the point is that Raven's
-tables are written as one core's own from the start, which is cheap now and costly
-to retrofit.
+(principle 7). Milestone 3 ran on core 0 only; the point was that Raven's
+tables are written as one core's own from the start, which is cheap then and costly
+to retrofit. All four cores come up with a Raven of their own since milestone 6d-1 (decision 178); sends
+between them (the rings) are 6d-2.
 
 ### 6.3a What application code can reach
 
