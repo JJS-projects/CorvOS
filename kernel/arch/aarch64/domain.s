@@ -178,6 +178,29 @@ domain_wipe:
     b.lo    1b
     ret
 
+// void domain_wipe_data(d): zeroes what a domain has made of its pool, the stack and the data (not the guard, which
+// is not mapped, and not the control page, where Raven keeps the actor's header and mailbox). A domain restarts from
+// nothing: whatever a failed domain left in its memory is gone.
+    .global domain_wipe_data
+domain_wipe_data:
+    sub     x0, x0, #1
+    mov     x1, #POOL_BASE
+    add     x1, x1, x0, lsl #21
+    add     x2, x1, #STACK_TOP          // the stack: [pool + 4 KB, pool + 64 KB)
+    add     x1, x1, #0x1000
+1:  stp     xzr, xzr, [x1], #16
+    cmp     x1, x2
+    b.lo    1b
+    sub     x1, x2, #STACK_TOP          // back to the pool's start
+    add     x1, x1, #0x11000            // the data: [pool + 68 KB, pool + 2 MB)
+    sub     x2, x2, #STACK_TOP
+    mov     x3, #0x200000
+    add     x2, x2, x3
+2:  stp     xzr, xzr, [x1], #16
+    cmp     x1, x2
+    b.lo    2b
+    ret
+
 // Saves Raven's callee-saved registers and sp where an exception from EL0 will find them: after this, a
 // return to our caller is made by leave_domain. Leaves x9 = domain_tramp.
     .macro save_kernel

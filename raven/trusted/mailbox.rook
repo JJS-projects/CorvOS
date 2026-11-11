@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -279,6 +279,27 @@ fn rerun_begin(rt_who: u64) {
         clearing: loop rt_at < rt_fields_end {
             store64(rt_at, 0)
             rt_at = rt_at + 8
+        }
+        if domain_of(rt_who) != 0 {
+            wipe_domain(rt_who)
+        }
+    }
+}
+
+/// A domain restarts as a unit (decision 176): everything its memory held goes, but the arguments the actor was
+/// spawned with, which are kept in its data for the `new` that is about to run again.
+fn wipe_domain(rt_who: u64) {
+    unsafe {
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        rt_kept: u64 = load64(rt_header + ACTOR_H_ARGS)
+        rt_words: u64 = load64(rt_header + ACTOR_H_ARGS_WORDS)
+        rt_scratch: u64 = actor_arena_base() + ACTOR_MSG_BUFFER
+        saving: loop rt_w: u64 in 0..rt_words {
+            store64(rt_scratch + rt_w * 8, load64(rt_kept + rt_w * 8))
+        }
+        domain_wipe_data(domain_of(rt_who))
+        restoring: loop rt_x: u64 in 0..rt_words {
+            store64(rt_kept + rt_x * 8, load64(rt_scratch + rt_x * 8))
         }
     }
 }

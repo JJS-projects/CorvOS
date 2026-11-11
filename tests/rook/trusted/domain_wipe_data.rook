@@ -1,0 +1,29 @@
+// A domain's wipe clears its stack and its data, and leaves the control page (Raven's record of the actor) alone.
+// Worked out: dt_own_pool writes a value at an address in the pool and reads it back; it is run twice, with 5 at
+// 0x8000 (the middle of the stack) and 6 at 0x30000 (the data). Raven puts 7 in the control page (0x10000)
+// itself. After domain_wipe_data(1) the stack word and the data word are 0 and the control word is still 7.
+// expect: 5
+// expect: 6
+// expect: 0
+// expect: 0
+// expect: 7
+
+import assembly: domain_enter, domain_pool_base, domain_resume, domain_saved_x, domain_wipe_data, dt_program
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        pool: u64 = domain_pool_base(1)
+        discard domain_enter(1, dt_program(9), pool + 0x8000, 5, 0)
+        print_u64(domain_saved_x(0))
+        discard domain_resume(0)
+        discard domain_enter(1, dt_program(9), pool + 0x30000, 6, 0)
+        print_u64(domain_saved_x(0))
+        discard domain_resume(0)
+        store64(pool + 0x10000, 7)
+        domain_wipe_data(1)
+        print_u64(load64(pool + 0x8000))
+        print_u64(load64(pool + 0x30000))
+        print_u64(load64(pool + 0x10000))
+    }
+}
