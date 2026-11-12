@@ -1,0 +1,109 @@
+// The milestone 6 demo: two `separate` actors in two protection domains on two cores rally a ball across the
+// boundary; one is made to read the other's memory and fails; the other is not disturbed (milestone 6e).
+//
+// Raven puts the first `separate` actor on core 1 and the second on core 2 (decision 180), each in domain 1 of its
+// core. Every send between them is a record on a ring between the cores (decision 181), copied, checked by Raven.
+//
+// Worked out (every step ends with run_until_idle):
+//  1. Cores: `ann` is on core 1, `bob` on core 2 (test_main reads Raven's record of each; a domain cannot). Prints 1, 2.
+//  2. ann.rally(10, bob) hits the ball (ann's count 1) and passes 9 to bob, who passes 8 back (each message carries
+//     the sender, so no one stores the other), and so on down to n = 0, where the rally ends. ann handles n = 10, 8, 6, 4, 2, 0 = 6 times, bob n = 9, 7, 5, 3, 1 = 5 times.
+//     Prints 6, 5.
+//  3. ann plants 4242 in her own data, 256 KB past her fields (pool of core 1 domain 1, + 0x11000 + 0x40000, as in
+//     separate_isolation_other_domain). bob is asked to read that address: core 2's page tables do not map it, so
+//     bob faults ("domain 1 faulted") and his domain restarts, his data wiped.
+//  4. ann reads her own secret: prints 4242, and her count is still 6. bob's count was wiped: prints 0.
+//  5. The rally works again across the boundary after the restart: ann.rally(2, bob) makes ann's count 7 and passes 1 to
+//     bob (count 1), who passes 0 back (ann's count 8). Prints 8, 1.
+// expect: 1
+// expect: 2
+// expect: 6
+// expect: 5
+// expect-failure: domain 1 faulted
+// expect: 4242
+// expect: 6
+// expect: 0
+// expect: 8
+// expect: 1
+
+import actors: run_until_idle
+import assembly: domain_pool_base_of
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Player {
+    mut hits: u64
+
+    new() {
+        .hits = 0
+    }
+
+    // The ball arrives with n returns left, and the player it came from; at 0 the rally is over.
+    lossy on rally(n: u64, from: Player) {
+        .hits += 1
+        if n > 0 {
+            from.rally(n - 1, self)
+        }
+    }
+
+    lossy on plant(value: u64) {
+        unsafe {
+            store64(actor_address(self) + 0x40000, value)
+        }
+    }
+
+    lossy on peek(address: u64, to: Printer) {
+        unsafe {
+            to.show(load64(address))
+        }
+    }
+
+    lossy on count(to: Printer) {
+        to.show(.hits)
+    }
+}
+
+// The core an actor is on: bits 4 to 7 of the domain word in its header (Raven's record, which a domain cannot read).
+fn core_of(who: u64) -> u64 {
+    unsafe {
+        return (load64(who - 1264 + 104) shr 4) and 0xf
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    ann: Player = spawn Player()
+    bob: Player = spawn Player()
+    unsafe {
+        print_u64(core_of(actor_address(ann)))
+        print_u64(core_of(actor_address(bob)))
+    }
+    ann.rally(10, bob)
+    run_until_idle()
+    ann.count(printer)
+    run_until_idle()
+    bob.count(printer)
+    run_until_idle()
+    secret: u64 = domain_pool_base_of(1, 1) + 0x11000 + 0x40000
+    ann.plant(4242)
+    run_until_idle()
+    bob.peek(secret, printer)
+    run_until_idle()
+    ann.peek(secret, printer)
+    run_until_idle()
+    ann.count(printer)
+    run_until_idle()
+    bob.count(printer)
+    run_until_idle()
+    ann.rally(2, bob)
+    run_until_idle()
+    ann.count(printer)
+    run_until_idle()
+    bob.count(printer)
+    run_until_idle()
+}
