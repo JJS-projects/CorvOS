@@ -1,0 +1,14 @@
+// Below each secondary core's stack is a page nothing maps, so a stack that overruns faults instead of writing over
+// the next one (the compiled code's own check only knows core 0's stack). Core 0 sees the same tables.
+// Worked out: a store to core 2's guard page is a data abort from the same EL (class 0x25 = 37); translation fault at
+// level 3, on a write: low 7 bits of ESR_EL1 = WnR (0x40) + DFSC 7 = 0x47. Raven reports FAR_EL1, the guard's address,
+// which the test's own line cannot know; the ESR line is exact: EC 0x25 << 26 = 0x94000000, IL 0x02000000, + 0x47.
+// expect-fault: ESR_EL1:  0x0000000096000047
+
+import assembly: core_stack_guard
+
+fn test_main() {
+    unsafe {
+        store64(core_stack_guard(2), 1)
+    }
+}

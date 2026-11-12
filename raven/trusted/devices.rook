@@ -6,6 +6,7 @@ module public
 // private to this file, so this is the only place one can be created
 // (decision 96). Every other `Mmio` is a `part` of the one made here.
 
+import assembly: core_online_mark, cores_release
 import main: kernel_main
 
 /// Every device register on the BCM2837 (Pi Zero 2 W, QEMU raspi3b), as seen
@@ -65,5 +66,9 @@ pub struct Mmio {
 /// from nothing and hands it to `kernel_main`. Without `pub`, no Rook code
 /// elsewhere can call it.
 fn raven_start(entry_el: u64) {
+    unsafe {
+        core_online_mark()
+        cores_release()                         // cores 1 to 3 come up in raven_secondary
+    }
     kernel_main(entry_el, Mmio(base: PERIPHERALS_BASE, size: PERIPHERALS_SIZE))
 }

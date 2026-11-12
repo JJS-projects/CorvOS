@@ -7,7 +7,7 @@
 // expect: 21
 
 import actors: run_until_idle
-import assembly: actor_arena_base
+import assembly: raven_arena_address
 import print: print_u64
 
 actor Printer {
@@ -25,7 +25,7 @@ separate actor Spy {
 
     lossy on spy(to: Printer) {
         unsafe {
-            to.show(load64(actor_arena_base()))
+            to.show(load64(raven_arena_address()))
         }
     }
 

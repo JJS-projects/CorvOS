@@ -1,0 +1,33 @@
+// Raven runs on all four cores (decision 178): each has come up, in its own state, with an actor arena of its own.
+// Worked out: this test runs on core 0 (core_id 0). Each core reported the address of its arena when it came up: core n's
+// is 64 KB (65536 bytes) after core n-1's, so the differences from core 0's, in 64 KB units, are 0, 1, 2 and 3.
+// kernel_main waited up to a second for the cores before the test began. Each core also reported how it runs:
+// at EL1 (CurrentEL 1, so 1 << 16 = 65536) with the MMU, the data cache and the instruction cache on (bits 0, 2 and 12
+// of SCTLR_EL1 = 1 + 4 + 4096 = 4101): 65536 + 4101 = 69637, for all four.
+// expect: 0
+// expect: 0
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 69637
+// expect: 69637
+// expect: 69637
+// expect: 69637
+
+import assembly: core_id, core_online_arena, core_online_state
+import print: print_u64
+
+fn test_main() {
+    unsafe {
+        print_u64(core_id())
+        first: u64 = core_online_arena(0)
+        print_u64((core_online_arena(0) - first) / 65536)
+        print_u64((core_online_arena(1) - first) / 65536)
+        print_u64((core_online_arena(2) - first) / 65536)
+        print_u64((core_online_arena(3) - first) / 65536)
+        print_u64(core_online_state(0))
+        print_u64(core_online_state(1))
+        print_u64(core_online_state(2))
+        print_u64(core_online_state(3))
+    }
+}

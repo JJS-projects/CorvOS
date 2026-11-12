@@ -6,7 +6,7 @@
 // expect: 100
 
 import actors: run_until_idle
-import assembly: actor_arena_base
+import assembly: raven_arena_address
 import print: print_u64
 
 actor Printer {
@@ -28,7 +28,7 @@ separate actor Counter {
 
     lossy on poke() {
         unsafe {
-            store64(actor_arena_base(), 1)
+            store64(raven_arena_address(), 1)
         }
     }
 

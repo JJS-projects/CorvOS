@@ -10,7 +10,7 @@
 // expect: 8
 
 import actors: run_until_idle
-import assembly: actor_arena_base
+import assembly: raven_arena_address
 import mailbox: raven_send
 import print: print_u64
 
@@ -31,7 +31,7 @@ separate actor Counter {
 
     lossy on forge_target() {
         unsafe {
-            raven_send(actor_arena_base() + 4096, 0, 0, 0)
+            raven_send(raven_arena_address() + 4096, 0, 0, 0)
         }
     }
 
@@ -51,7 +51,7 @@ separate actor Counter {
 
     lossy on forge_payload(to: Printer) {
         unsafe {
-            raven_send(actor_address(to), handler_number("show"), actor_arena_base(), 1)
+            raven_send(actor_address(to), handler_number("show"), raven_arena_address(), 1)
         }
     }
 
@@ -63,7 +63,7 @@ separate actor Counter {
 
     lossy on forge_panic() {
         unsafe {
-            rook_panic(actor_arena_base(), 5, actor_arena_base(), 5, 1)
+            rook_panic(raven_arena_address(), 5, raven_arena_address(), 5, 1)
         }
     }
 

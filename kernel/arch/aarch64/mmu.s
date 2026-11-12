@@ -39,7 +39,8 @@
     .equ KERNEL_START,  0x80000                 // where the image is loaded (link.ld)
     .equ DEVICE_FIRST,  504                     // L2 index of 0x3F000000 (0x3F000000 >> 21)
 
-// void mmu_enable(void): builds the tables and turns the MMU and the caches on. Uses x0-x9; keeps x19.
+// void mmu_enable(void): builds the tables and turns the MMU and the caches on (mmu_activate, below, is the second
+// half, which every core runs). Uses x0-x13; keeps x19.
     .global mmu_enable
 mmu_enable:
     ldr     x9, =page_tables            // L1 at +0, L2 at +0x1000, L3 for 0-2 MB at +0x2000, for 2-4 MB at +0x3000
@@ -86,6 +87,9 @@ mmu_enable:
     ldr     x6, =DESC_PAGE_RW
     ldr     x7, =DESC_PAGE_RO
     ldr     x8, =DESC_PAGE_RX
+    ldr     x11, =secondary_stacks      // the first page of each secondary core's stack block is a guard: not mapped
+    add     x12, x11, #0x10000
+    add     x13, x11, #0x20000
     mov     x0, #0                      // x0 = page index
 3:  lsl     x3, x0, #12                 // the page's address
     mov     x10, x6                     // default: read/write
@@ -98,14 +102,24 @@ mmu_enable:
 5:  cmp     x3, x5
     b.hs    4f
     mov     x10, x7                     // [__text_end, __rodata_end): constants
-4:  orr     x3, x3, x10
+4:  cmp     x3, x11
+    csel    x10, xzr, x10, eq           // a guard page: the entry stays invalid (just the address)
+    cmp     x3, x12
+    csel    x10, xzr, x10, eq
+    cmp     x3, x13
+    csel    x10, xzr, x10, eq
+    orr     x3, x3, x10
     str     x3, [x2, x0, lsl #3]
     add     x0, x0, #1
     cmp     x0, #1024
     b.lo    3b
 
-    // Switch on. The tables were written with the data cache off, so memory has them; the walker reads
-    // them through the cache, which holds nothing yet.
+    // Switch on (the other cores come here too, from secondary_el1 in start.s, with the tables core 0 made).
+    // The tables were written with the data cache off, so memory has them; the walker reads them through the
+    // cache, which holds nothing yet.
+    .global mmu_activate
+mmu_activate:
+    ldr     x9, =page_tables
     ldr     x0, =MAIR_VALUE
     msr     mair_el1, x0
     ldr     x0, =TCR_VALUE
