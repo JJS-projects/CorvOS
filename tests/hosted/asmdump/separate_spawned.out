@@ -114,6 +114,7 @@ start:
     adr x2, Driver__Start
     sub x3, x29, #0
     mov x4, #0
+    mov x5, #0
     bl raven_spawn_separate
     str x0, [x29, #-16]
     // line 15

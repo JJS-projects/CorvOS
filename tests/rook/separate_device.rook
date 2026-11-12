@@ -1,0 +1,38 @@
+// A `separate` actor is given a device's registers (milestone 7e, decision 182): an `Mmio` in its `new` is mapped into
+// its domain, and it reads them at EL0 with no call to Raven.
+// Worked out: the page at 0x3F201000 is the PL011 UART. Its identification registers are fixed by the ARM PL011 manual:
+// PeriphID0 (offset 0xFE0) is 0x11 = 17, PeriphID1 (0xFE4) is 0x10 = 16, PrimeCellID0 (0xFF0) is 0x0D = 13.
+// expect: 17
+// expect: 16
+// expect: 13
+
+import actors: run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Probe {
+    regs: val Mmio
+
+    new(regs: val Mmio) {
+        .regs = regs
+    }
+
+    lossy on ids(to: Printer) {
+        to.show(.regs.read32(0xFE0) as u64)
+        to.show(.regs.read32(0xFE4) as u64)
+        to.show(.regs.read32(0xFF0) as u64)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    probe: Probe = spawn Probe(peripherals.part(0x201000, 0x1000))
+    probe.ids(printer)
+    run_until_idle()
+}

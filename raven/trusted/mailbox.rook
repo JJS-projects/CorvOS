@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: raven_arena_address, core_wait_event, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_map_device_of, raven_arena_address, core_wait_event, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -30,6 +30,8 @@ ACTOR_H_COUNT: u64 = 16             // messages waiting
 ACTOR_H_QUEUED: u64 = 24            // 1 if it is in the run queue
 ACTOR_H_START: u64 = 32             // its start stub, which runs `new` on stored arguments (0: none)
 ACTOR_H_PARENT: u64 = 40            // the actor that spawned it (0: spawned outside any actor)
+DEVICE_BASE: u64 = 0x3F000000       // the peripherals (devices.rook): an Mmio given to a domain lies inside
+DEVICE_SPAN: u64 = 0x01000000
 ACTOR_H_ARGS_WORDS: u64 = 48        // words of `new` arguments kept for a restart
 ACTOR_H_FIRST_CHILD: u64 = 56       // the actors it spawned, in order: the first ...
 ACTOR_H_NEXT_SIBLING: u64 = 64      // ... and each one's next
@@ -107,19 +109,51 @@ SVC_PANIC: u64 = 8
 /// one being made (decision 148), so references to it stay valid.
 pub fn spawn_actor_impl(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
                         rt_args_words: u64) -> u64 {
-    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, false)
+    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, false, 0)
 }
 
 /// The same for an actor that lives in a protection domain of its own (`separate actor`, decision 172): the
 /// next free domain is given to it, its fields are in the domain's pool and its header and mailbox in the
 /// pool's control page, which only Raven reaches. Its `new` runs in the domain.
+///
+/// `rt_devices` has bit i set if words i and i+1 of the arguments are an `Mmio` (base, size): the compiler marks them.
+/// The pages it covers are mapped into the domain before `new` runs (decision 182).
 pub fn spawn_separate_impl(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
-                           rt_args_words: u64) -> u64 {
-    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, true)
+                           rt_args_words: u64, rt_devices: u64) -> u64 {
+    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, true, rt_devices)
+}
+
+/// Maps the registers named by the `Mmio` arguments of a `separate` actor's `new` into its domain (decision 182). The
+/// compiler says which words are an `Mmio`; Raven still checks each one: whole pages, inside the peripherals.
+fn grant_devices(gd_core: u64, gd_domain: u64, gd_args: u64, gd_words: u64, gd_mask: u64) {
+    granting: loop gd_i: u64 in 0..gd_words {
+        if ((gd_mask shr gd_i) and 1) == 1 {
+            unsafe {
+                if gd_i + 1 >= gd_words {
+                    panic("an Mmio argument is cut short")
+                }
+                gd_base: u64 = load64(gd_args + gd_i * 8)
+                gd_size: u64 = load64(gd_args + (gd_i + 1) * 8)
+                if gd_size == 0 or gd_size > DEVICE_SPAN or gd_base < DEVICE_BASE or gd_base > DEVICE_BASE + DEVICE_SPAN - gd_size {
+                    panic("an Mmio given to a separate actor is outside the peripherals")
+                }
+                if gd_base % 4096 != 0 or gd_size % 4096 != 0 {
+                    panic("an Mmio given to a separate actor is not whole pages")
+                }
+                mut gd_at: u64 = gd_base
+                paging: loop gd_at < gd_base + gd_size {
+                    if domain_map_device_of(gd_core, gd_domain, gd_at) != 0 {
+                        panic("a separate actor can have registers from one 2 MB block of the peripherals only")
+                    }
+                    gd_at += 4096
+                }
+            }
+        }
+    }
 }
 
 fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
-                rt_args_words: u64, rt_separate: bool) -> u64 {
+                rt_args_words: u64, rt_separate: bool, rt_devices: u64) -> u64 {
     rt_base: u64 = actor_arena_base()
     unsafe {
         rt_parent: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
@@ -156,6 +190,7 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS, rt_actor + fields * 8)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN, rt_domain or (rt_core shl 4))
             domain_set_actor_of(rt_core, rt_domain, rt_actor)
+            grant_devices(rt_core, rt_domain, rt_args, rt_args_words, rt_devices)
         }
         if rt_actor == 0 {
             mut rt_next: u64 = load64(rt_base + ACTOR_S_NEXT)

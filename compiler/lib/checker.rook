@@ -1173,7 +1173,8 @@ pub struct Checker {
                 .say(" is already a plain value")
                 return 0
             }
-            if .has_word(.nodes.get(.types.get(owner).decl).text, "separate") and .is_aggregate(ty) {
+            mmio_ok: bool = is_new and modifier == 2 and .is_mmio(ty)      // a device's registers, mapped into the domain
+            if .has_word(.nodes.get(.types.get(owner).decl).text, "separate") and .is_aggregate(ty) and not mmio_ok {
                 .fail_node(type_node)
                 .say_text(what)
                 .say(" of a `separate` actor takes numbers, bools, chars and actor references for now: ")
@@ -2898,6 +2899,11 @@ pub struct Checker {
     // ---- function bodies (5d-3c-1) ---------------------------------------------------------------
 
     /// Is the actor type `act` declared `separate actor` (decision 172)? Its `spawn` makes a domain.
+    /// Is `ty` the struct `Mmio`? One of those in the `new` of a `separate` actor is given to its domain (decision 182).
+    pub fn is_mmio(ty: u64) -> bool {
+        return ty != 0 and .named_aggregate("Mmio", CHK_STRUCT) == ty
+    }
+
     pub fn is_separate(act: u64) -> bool {
         return .has_word(.nodes.get(.types.get(act).decl).text, "separate")
     }

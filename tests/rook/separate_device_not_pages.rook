@@ -1,0 +1,18 @@
+// An Mmio given to a domain must be whole pages (decision 182): the MMU maps 4 KB, and the domain would otherwise reach
+// registers its Mmio does not cover.
+// Worked out: 0x3F201000 with size 0x100 is not a whole page.
+// expect-panic: an Mmio given to a separate actor is not whole pages at mailbox.rook:*
+
+import devices: Mmio
+
+separate actor One {
+    mut n: u64
+
+    new(a: val Mmio) {
+        .n = 0
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    t: One = spawn One(peripherals.part(0x201000, 0x100))
+}

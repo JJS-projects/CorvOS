@@ -742,12 +742,15 @@ class Gen:
         spawn made before), keeps a copy of the arguments so the actor can be restarted,
         runs the actor's start stub (which runs `new`) and gives back the reference."""
         at = 0
+        devices = 0                     # bit i: words i and i+1 are an `Mmio`, whose pages a domain is given (decision 182)
         for arg in e.args:
             self.expr(arg)
             n = words(arg.ty)
             self.region_addr(e.args_slot, e.args_words - at, "x1")
             if is_aggregate(arg.ty):
                 self.copy_words(n)
+                if arg.ty.name == "Mmio" and e.actor.decl.separate:
+                    devices |= 1 << at
             else:
                 self.emit("str x0, [x1]")
             at += n
@@ -757,6 +760,8 @@ class Gen:
         self.region_addr(e.args_slot, e.args_words, "x3")
         self.emit(f"mov x4, #{e.args_words}")
         # an actor in a domain of its own is made by a different call (decision 175)
+        if e.actor.decl.separate:
+            self.emit(f"mov x5, #{devices}")
         self.emit("bl raven_spawn_separate" if e.actor.decl.separate else "bl raven_spawn_actor")
 
     def send(self, e):

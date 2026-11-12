@@ -1538,6 +1538,7 @@ pub struct Codegen {
         args_words: u64 = if .has(e, CHK_NOTE_ARGS_WORDS) { .note(e, CHK_NOTE_ARGS_WORDS) } else { 0 }
         args_slot: u64 = .note(e, CHK_NOTE_ARGS_SLOT)
         mut at: u64 = 0
+        mut devices: u64 = 0                    // bit i: words i and i+1 are an `Mmio`, whose pages a domain is given
         laying: loop k: u64 in 0..(args.len()) {
             arg: u64 = args.get(k)
             .expr(arg)
@@ -1545,6 +1546,9 @@ pub struct Codegen {
             .region_addr(args_slot, args_words - at, "x1")
             if .is_agg(.ty_of(arg)) {
                 .copy_words(n)
+                if .c.is_mmio(.ty_of(arg)) and .c.is_separate(.ty_of(e)) {
+                    devices = devices or (1 shl at)
+                }
             } else {
                 .emit("str x0, [x1]")
             }
@@ -1574,6 +1578,12 @@ pub struct Codegen {
         .ob("mov x4, #")
         .num(args_words)
         .nl()
+        if .c.is_separate(act) {
+            .o4()
+            .ob("mov x5, #")
+            .num(devices)
+            .nl()
+        }
         .emit(if .c.is_separate(act) { "bl raven_spawn_separate" } else { "bl raven_spawn_actor" })
     }
 

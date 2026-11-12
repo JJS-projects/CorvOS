@@ -105,6 +105,7 @@ claim. Only deliberately shared data pays any runtime cost.
   read out of bounds) and the MMU (a domain reaches only its own pages).
 - A bug in Raven's own code can't be restarted by a supervisor: it stops the
   machine. That is one more reason to keep the trusted files few and small.
+- **A driver in a protection domain** is given its registers as an `Mmio` argument of the `new` of its `separate` actor: Raven maps exactly those pages into the domain (Device memory, read/write at EL0, one 2 MB block of the peripherals per domain; decision 182), so `Mmio.read32` is a plain load in the domain and the MMU backs the software bounds check.
 - **DMA-capable devices** are the exception, because without an IOMMU they can write
   anywhere. Their DMA registers are never handed to drivers; drivers ask a trusted
   DMA actor in Raven, which checks every address range.

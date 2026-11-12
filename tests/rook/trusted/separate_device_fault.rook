@@ -1,0 +1,47 @@
+// A domain reaches the pages it was given and no other device page (milestone 7e, decision 182).
+// Worked out: the actor is given the UART page (0x3F201000), whose PeriphID0 register (offset 0xFE0) reads 0x11 = 17.
+// peek(0x3F201FE0) prints 17. The GPIO page next to it (0x3F200000, the same 2 MB block, not given) and the interrupt
+// controller page (0x3F00B000, another block) are not in the domain's table: each read faults ("domain 1 faulted"),
+// the domain restarts (its `new` runs again with the same Mmio, so the mapping is the same) and the next peek of the
+// UART page prints 17 again.
+// expect: 17
+// expect-failure: domain 1 faulted
+// expect-failure: domain 1 faulted
+// expect: 17
+
+import actors: run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Probe {
+    regs: val Mmio
+
+    new(regs: val Mmio) {
+        .regs = regs
+    }
+
+    lossy on peek(address: u64, to: Printer) {
+        unsafe {
+            to.show(load32(address) as u64)
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    probe: Probe = spawn Probe(peripherals.part(0x201000, 0x1000))
+    probe.peek(0x3F201FE0, printer)
+    run_until_idle()
+    probe.peek(0x3F200000, printer)
+    run_until_idle()
+    probe.peek(0x3F00B200, printer)
+    run_until_idle()
+    probe.peek(0x3F201FE0, printer)
+    run_until_idle()
+}
