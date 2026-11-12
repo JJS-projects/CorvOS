@@ -35,6 +35,7 @@ one from a number; a domain can only name an actor it was handed, and Raven chec
   (design.md section 9) are milestone 7.
 - **Raven itself.** Raven is trusted and runs at EL1. A bug in `mailbox.rook`'s checks is a hole; they are small (about
   200 lines) and each has a test, but they are not proved.
+- **Cores.** Domains on different cores share nothing but the rings (decision 181), and a core's page tables map only its own pools; the checks above hold on every core (`separate_isolation_other_domain` is two domains on two cores).
 - **Several actors in one domain.** There is one actor per domain for now (nothing can `spawn` inside a domain).
 
 ## What QEMU cannot show

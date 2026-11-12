@@ -1,0 +1,63 @@
+// An actor whose `new` has not run yet accepts messages but is not scheduled until it has (decision 181): a message from
+// another core can arrive before the start record does, and the handler must not run on fields `new` has yet to set.
+// Worked out: three `separate` actors fill cores 1, 2 and 3, so the probe is the fourth, on core 0, where this test can
+// reach its header. The header ends 1264 bytes before the actor's fields; its flags word is at offset 88 (4 = STARTING).
+// With the flag set, one hit() is accepted and nothing is scheduled: actors_waiting() is 0. With the flag cleared, a
+// second hit() schedules the actor: actors_waiting() is 1. When the system settles both hits have run: 2.
+// expect: 0
+// expect: 1
+// expect: 2
+
+import actors: run_until_idle
+import mailbox: actors_waiting
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Idle {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+}
+
+separate actor Probe {
+    mut hits: u64
+
+    new() {
+        .hits = 0
+    }
+
+    lossy on hit() {
+        .hits += 1
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.hits)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    a: Idle = spawn Idle()
+    b: Idle = spawn Idle()
+    c: Idle = spawn Idle()
+    probe: Probe = spawn Probe()
+    unsafe {
+        flags: u64 = actor_address(probe) - 1264 + 88
+        store64(flags, 4)
+        probe.hit()
+        print_u64(actors_waiting())
+        store64(flags, 0)
+        probe.hit()
+        print_u64(actors_waiting())
+    }
+    run_until_idle()
+    probe.report(printer)
+    run_until_idle()
+}

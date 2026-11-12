@@ -1,6 +1,7 @@
 // Two `separate` actors are two domains: each keeps its own total.
-// Worked out: a starts at 1, b at 10; a.add(1) makes 2, b.add(2) makes 12. The run queue is round robin: a runs add,
-// b runs add, a runs report (the printer gets show(2)), b runs report (show(12)); the printer then prints 2, 12.
+// Worked out: a starts at 1, b at 10; a.add(1) makes 2, b.add(2) makes 12. They are on different cores (a on core 1,
+// b on core 2, decision 180), so what they send is not ordered between them: each report is made after the system has
+// settled (run_until_idle), and the printer prints 2, then 12.
 // expect: 2
 // expect: 12
 
@@ -35,7 +36,9 @@ fn test_main() {
     b: Counter = spawn Counter(10)
     a.add(1)
     b.add(2)
+    run_until_idle()
     a.report(printer)
+    run_until_idle()
     b.report(printer)
     run_until_idle()
 }

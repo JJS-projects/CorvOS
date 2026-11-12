@@ -1,14 +1,15 @@
 // A `separate` actor cannot read another domain's memory, and the other domain is not disturbed (milestone 6c).
-// Worked out: the first actor spawned in a domain is in domain 1, the second in domain 2. `a` plants 4242 in its data,
-// 256 KB past its fields (so at pool 1 + 0x11000 + 0x40000); `b` is asked to read that address: domain 2's page
-// table has no entry for domain 1's pool, so it faults ("domain 2 faulted") and is restarted. `a` still has the
-// secret (a prints 4242) and Raven, which sees all memory, reads the same 4242.
-// expect-failure: domain 2 faulted
+// Worked out: Raven puts the first `separate` actor on core 1 and the second on core 2 (decision 180), each in its
+// core's domain 1. `a` plants 4242 in its data, 256 KB past its fields (so at pool (core 1, domain 1) + 0x11000 + 0x40000);
+// `b` is asked to read that address: core 2's page tables have no entry for core 1's pool, so it faults ("domain 1
+// faulted": the domain's number on its core) and is restarted. `a` still has the secret (a prints 4242) and Raven, which
+// sees all memory, reads the same 4242.
+// expect-failure: domain 1 faulted
 // expect: 4242
 // expect: 4242
 
 import actors: run_until_idle
-import assembly: domain_pool_base
+import assembly: domain_pool_base_of
 import print: print_u64
 
 actor Printer {
@@ -41,7 +42,7 @@ fn test_main() {
     printer: Printer = spawn Printer()
     a: Holder = spawn Holder()
     b: Holder = spawn Holder()
-    secret: u64 = domain_pool_base(1) + 0x11000 + 0x40000
+    secret: u64 = domain_pool_base_of(1, 1) + 0x11000 + 0x40000
     a.plant(4242)
     run_until_idle()
     b.peek(secret, printer)

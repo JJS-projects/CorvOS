@@ -1367,28 +1367,34 @@ def check_report_copies():
 
 
 def check_domain_budget_stress():
-    """A domain handler's budget runs out at a random moment: in the domain, in Raven serving it, or in the few
-    instructions between loading its registers and the eret (the bug of decision 179: an interrupt there overwrote
-    ELR_EL1 and SPSR_EL1, and about one run in five hung). One run cannot show that, so the same image is booted eight
-    at a time, twice, and every run must finish and print what it should."""
+    """Two races no single run shows, so the same image is booted eight at a time, twice, and every run must finish and
+    print what it should. A domain handler's budget runs out at a random moment: in the domain, in Raven serving it,
+    or in the few instructions between loading its registers and the eret (the bug of decision 179: an interrupt there
+    overwrote ELR_EL1 and SPSR_EL1, and about one run in five hung). And a message from one core can reach an actor on
+    another before that actor's `new` has run, because two rings are not ordered against each other (decision 181):
+    the handler ran on zeroed fields and `new` then erased its work."""
     if board_mode():
         return None
-    image = os.path.join(ROOT, "build", "rook-tests", "trusted", "separate_spins_in_calls.img")
-    if not os.path.exists(image):
-        return missing_image(image)
+    cases = [("separate_spins_in_calls", ["Raven: boot complete, idling", "out: 5",
+                                          "Raven: panic: domain 1 ran for over 100 ms"]),
+             ("separate_cross_domain", ["Raven: boot complete, idling", "out: 11", "out: 1", "out: 3",
+                                        "Raven: panic: pong crash at separate_cross_domain.rook:36"])]
+    for name, wanted in cases:
+        image = os.path.join(ROOT, "build", "rook-tests", "trusted", name + ".img")
+        if not os.path.exists(image):
+            return missing_image(image)
 
-    def one(n):
-        output, timed_out, qemu_log = boot(image, lambda lines: "Raven: boot complete, idling" in lines, 40.0,
-                                           MACHINES[0], os.path.join(LOG_DIR, f"harness_budget_stress_{n}.qemu"))
-        lines = complete_lines(output)
-        return "Raven: boot complete, idling" in lines and "out: 5" in lines and \
-            "Raven: panic: domain 1 ran for over 100 ms" in lines
+        def one(n):
+            output, timed_out, qemu_log = boot(image, lambda lines: "Raven: boot complete, idling" in lines, 40.0,
+                                               MACHINES[0], os.path.join(LOG_DIR, f"harness_stress_{name}_{n}.qemu"))
+            lines = complete_lines(output)
+            return all(want in lines for want in wanted)
 
-    for round_number in range(2):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(one, range(8 * round_number, 8 * round_number + 8)))
-        if not all(results):
-            return f"{results.count(False)} of 8 runs did not finish with the budget stopping the domain"
+        for round_number in range(2):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(one, range(8 * round_number, 8 * round_number + 8)))
+            if not all(results):
+                return f"{name}: {results.count(False)} of 8 runs did not print what they should"
     return None
 
 

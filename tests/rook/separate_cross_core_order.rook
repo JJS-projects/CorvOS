@@ -1,0 +1,51 @@
+// Messages from one actor to another arrive in the order they were sent, also across cores (decision 181).
+// Worked out: the checker is a `separate` actor, so on another core than this test (core 1); it is sent 1, 2, ... 10, and
+// each must be one more than the one before, or the actor panics. Then report prints how many it got in order, 10, and
+// the sum of what it got, 55 (1 + 2 + ... + 10).
+// expect: 10
+// expect: 55
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Checker {
+    mut last: u64
+    mut sum: u64
+
+    new() {
+        .last = 0
+        .sum = 0
+    }
+
+    lossy on next(n: u64) {
+        if n != .last + 1 {
+            panic("out of order")
+        }
+        .last = n
+        .sum += n
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.last)
+        to.show(.sum)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    checker: Checker = spawn Checker()
+    mut n: u64 = 1
+    sending: loop n <= 10 {
+        checker.next(n)
+        n += 1
+    }
+    run_until_idle()
+    checker.report(printer)
+    run_until_idle()
+}
