@@ -621,6 +621,35 @@ fn route_message(target: u64, handler: u64, payload: u64, words: u64, absorb: bo
     }
 }
 
+/// Sends the message `fired` of an interrupt to `target` (decision 183). On this core it is the mailbox, unless a `fired`
+/// is waiting. To an actor on another core it is a ring record, which that core drops if a `fired` is waiting; and unlike
+/// every other send it does not wait if the ring is full, it is dropped: this runs in core 0's scheduler, which must go
+/// on draining its own rings, and a source that still asserts fires again (it is switched back on after this).
+fn route_interrupt(target: u64, handler: u64) {
+    rt_core: u64 = core_of_actor(target)
+    unsafe {
+        if rt_core == core_id() {
+            if not rt_queued(target, handler) {
+                discard rt_enqueue(target, handler, 0, 0)       // full: the source fires again
+            }
+            return
+        }
+        if (load64(target - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
+            return
+        }
+        rt_rec: u64 = ring_scratch(0)
+        store64(rt_rec, REC_SEND)
+        store64(rt_rec + 8, target)
+        store64(rt_rec + 16, handler)
+        store64(rt_rec + 24, 0)
+        store64(rt_rec + 120, 1)
+        pending_add(1)
+        if ring_push(rt_core, rt_rec) == 0 {
+            pending_sub(1)                                      // the ring is full: nothing was queued
+        }
+    }
+}
+
 /// Queues a record for `core`, waiting if its ring is full. The record counts as work to do until that core has handled it.
 fn push_record(core: u64, rec: u64) {
     unsafe {
@@ -785,9 +814,7 @@ fn deliver_interrupt(line: u64) {
         rt_target: u64 = load64(rt_slot)
         if rt_target != 0 {
             rt_number: u64 = load64(rt_slot + 8)
-            // To an actor in a domain on another core this is a record in the ring (decision 183). A message for `fired`
-            // already waiting absorbs this one, there or here; if the mailbox is full the source fires again.
-            discard route_message(rt_target, rt_number, 0, 0, true)
+            route_interrupt(rt_target, rt_number)
         }
     }
     irq_enable_source(line)

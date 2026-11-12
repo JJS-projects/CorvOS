@@ -49,7 +49,20 @@ irq_entry:
 // switches those sources off at the controller; the scheduler turns them into
 // messages between turns (decision 134) and switches them back on. Uses four
 // registers, saved at the entry, then returns to what was running.
-1:  ldr     x0, =0x3F00B208             // IRQ pending 2: sources 32 to 63
+1:  mrs     x2, mpidr_el1               // A record in a ring for this core (rings.s raises the core's mailbox 0 interrupt,
+    and     x2, x2, #3                  // decision 183): nothing to note, only to clear. The scheduler's next turn drains the
+    lsl     x2, x2, #2                  // rings; the interrupt was all that was needed to wake the core from `wfi`.
+    ldr     x0, =0x40000060             // CORE0_IRQ_SOURCE; core n's is 4 * n further
+    ldr     w1, [x0, x2]
+    tbz     w1, #4, 3f                  // bit 4: mailbox 0
+    ldr     x0, =0x400000C0             // CORE0 mailbox 0 write-clear; core n's is 16 * n further
+    lsl     x2, x2, #2
+    mov     w1, #-1
+    str     w1, [x0, x2]
+    ldp     x2, x3, [sp], #16
+    ldp     x0, x1, [sp], #16
+    eret
+3:  ldr     x0, =0x3F00B208             // IRQ pending 2: sources 32 to 63
     ldr     w1, [x0]
     cbz     w1, 2f                      // nothing we know of: report it
     ldr     x2, =0x3F00B220             // disable IRQs 2: switch off what fired
@@ -62,10 +75,9 @@ irq_entry:
     ldp     x2, x3, [sp], #16
     ldp     x0, x1, [sp], #16
     eret
-2:  ldp     x2, x3, [sp], #16           // an interrupt nobody asked for: report it, with
-    ldp     x0, x1, [sp], #16           // the registers as they were
-    mov     x0, #5
-    b       exception_report
+2:  ldp     x2, x3, [sp], #16           // nothing pending: a level-triggered source withdrew before we looked (a driver on
+    ldp     x0, x1, [sp], #16           // another core read the UART's bytes meanwhile, decision 183). Spurious: go on.
+    eret
 
 // x0 = vector index (0-15). Never returns.
     .global exception_report

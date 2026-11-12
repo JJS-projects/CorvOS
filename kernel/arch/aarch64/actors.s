@@ -102,7 +102,11 @@ irq_init:
     mrs     x2, mpidr_el1
     and     x2, x2, #3
     add     x0, x0, x2, lsl #2
-    mov     w1, #2                      // nCNTPNSIRQ -> IRQ
+    mov     w1, #10                     // nCNTPNSIRQ (bit 1) and nCNTVIRQ (bit 3) -> IRQ. The virtual timer is the idle
+    str     w1, [x0]                    // backstop of idle_until_interrupt, below
+    ldr     x0, =0x40000050             // CORE0_MBOX_IRQCNTL; core n's is 4 * n further
+    add     x0, x0, x2, lsl #2
+    mov     w1, #1                      // mailbox 0 -> IRQ: how another core wakes this one from `wfi` (rings.s)
     str     w1, [x0]
     msr     daifclr, #2                 // unmask IRQ
     isb
@@ -133,10 +137,10 @@ irq_take_pending:
     ret
 
 // void idle_until_interrupt(void): sleeps until an interrupt arrives, unless one
-// already has, or another core sends this one a record (`sev`, decision 183: it was `wfi`, which a ring record does
-// not wake). Masks IRQs while it looks, because `wfe`, like `wfi`, wakes for a pending interrupt even when it is
-// masked, so none can slip between the look and the sleep; a `sev` between the look at the rings and the `wfe` leaves
-// the event register set, so the `wfe` returns at once.
+// already has. Masks IRQs while it looks, because `wfi` wakes for a pending
+// interrupt even when it is masked, so none can slip between the look and the sleep. A record in a ring for this core
+// raises its mailbox 0 interrupt (rings.s), so it wakes too (decision 183). (`wfe` would wake for the `sev` as well but
+// QEMU runs a core in `wfe` as a busy thread: harness/idle_sleeps.)
     .global idle_until_interrupt
 idle_until_interrupt:
     msr     daifset, #2
@@ -144,7 +148,16 @@ idle_until_interrupt:
     ldr     x1, [x1, #176]
     ldr     x0, [x1, #48]
     cbnz    x0, 1f
-    wfe
+    mrs     x2, cntfrq_el0              // a backstop: the virtual timer wakes the core after 1 ms in any case. QEMU was seen
+    mov     x3, #1000                   // to leave a core in `wfi` with the mailbox interrupt pending (decision 183), and a
+    udiv    x2, x2, x3                  // wake-up that waits for one event is fragile; this costs a thousand wake-ups a
+    msr     cntv_tval_el0, x2           // second on an idle core 0 and bounds the latency of a ring record
+    mov     x2, #1                      // ENABLE, not masked
+    msr     cntv_ctl_el0, x2
+    isb
+    wfi
+    msr     cntv_ctl_el0, xzr           // (the interrupt, if it was this timer, is taken at the `daifclr` below, and finds
+    isb                                 // nothing: vectors.s goes on)
 1:  msr     daifclr, #2
     ret
 
