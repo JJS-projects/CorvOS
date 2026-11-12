@@ -130,7 +130,7 @@ cannot reach the UART.
 
 ## 6. Protection domains and multicore
 
-*Built so far: 6a (the MMU and caches on, decision 171), 6b-1 (`separate actor` in both compilers, decisions 172 and 173) and 6b-2a (domains run code at EL0, decision 174). Next: 6b-2b (a compiled `separate` actor runs in a domain), 6b-2c (a failing domain restarts as a unit), 6c (isolation tests), 6d (cores 1 to 3), 6e (the two-core demo).*
+*Built so far: 6a (the MMU and caches on, decision 171), 6b-1 (`separate actor` in both compilers, decisions 172 and 173) and 6b-2a (domains run code at EL0, decision 174). Next: 6b-2b (a compiled `separate` actor runs in a domain), 6b-2c (a failing domain restarts as a unit), 6c (isolation tests), 6d (cores 1 to 3), 6e (the two-core demo, [milestone6.md](milestone6.md)).*
 
 - MMU set up per domain; cross-domain messages are copied.
 - Raven runs on all four cores, one copy per core (decision 111); each domain is
