@@ -9,7 +9,7 @@ module public
 import assembly: actor_arena_base, core_online_mark, idle_until_interrupt, irq_enable_source
 import devices: Mmio
 import hardware: irq_init
-import mailbox: ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, run_one_turn
+import mailbox: ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, drain_rings, run_one_turn, sleep_until_event, this_core_waits_for_events, unfinished_messages, wait_for_other_cores
 
 /// What a send to a `reliable` handler tells the sender (decisions 126 and 150).
 pub enum Sent {
@@ -40,26 +40,34 @@ pub fn restart_count() -> u64 {
     }
 }
 
-/// Runs actors until none has a message waiting and no interrupt is waiting to be
-/// delivered. Each turn delivers one message to the actor at the front of the run
-/// queue; an actor with more waiting goes to the back (decision 122, d).
+/// Runs actors until none has a message waiting, no interrupt is waiting to be delivered, and no other core has a
+/// message left to handle or send (the count of messages nobody has finished with, over all cores, is 0). Each turn
+/// delivers one message to the actor at the front of the run queue; an actor with more waiting goes to the back
+/// (decision 122, d). Between turns it handles what other cores have sent to this one (decision 181).
 pub fn run_until_idle() {
     scheduling: loop {
-        deliver_interrupts()
-        if actors_waiting() == 0 {
-            break scheduling
-        }
-        run_one_turn()
-    }
-}
-
-/// Runs actors for ever. When none has a message waiting, the core sleeps until an
-/// interrupt arrives (decision 134).
-pub fn run_forever() {
-    scheduling: loop true {
+        drain_rings()
         deliver_interrupts()
         if actors_waiting() != 0 {
             run_one_turn()
+        } else if unfinished_messages() != 0 {
+            wait_for_other_cores()
+        } else {
+            break scheduling
+        }
+    }
+}
+
+/// Runs actors for ever. When none has a message waiting, the core sleeps until an interrupt arrives (decision 134);
+/// a core other than 0 sleeps until another core sends it something (`sev`).
+pub fn run_forever() {
+    scheduling: loop true {
+        drain_rings()
+        deliver_interrupts()
+        if actors_waiting() != 0 {
+            run_one_turn()
+        } else if this_core_waits_for_events() {
+            sleep_until_event()
         } else {
             idle_until_interrupt()
         }

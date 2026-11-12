@@ -53,6 +53,29 @@ pub extern fn core_online_mark()
 pub extern fn core_id() -> u64
 pub extern fn core_online_arena(core: u64) -> u64
 pub extern fn core_online_state(core: u64) -> u64
+
+/// Rings between cores (kernel/arch/aarch64/rings.s, decision 181). A record is 16 words. `ring_push` queues one for
+/// core `dst`, `ring_pop` takes the oldest from core `src`'s ring, `rings_waiting` tells which rings hold one. The
+/// `pending_*` calls keep the count of messages nobody has finished with, over all cores; `ring_scratch` is room for
+/// two records in the core's own block. `domain_*_of` reach another core's domains; `spawn_next_core` says where the
+/// next `separate` actor goes.
+pub extern fn ring_push(dst: u64, record: u64) -> u64
+pub extern fn ring_pop(src: u64, record: u64) -> u64
+pub extern fn rings_waiting() -> u64
+pub extern fn pending_add(n: u64)
+pub extern fn pending_sub(n: u64)
+pub extern fn pending_load() -> u64
+pub extern fn core_wait_event()
+pub extern fn core_pause()
+pub extern fn ring_scratch(i: u64) -> u64
+pub extern fn domain_actor_of(core: u64, d: u64) -> u64
+pub extern fn domain_set_actor_of(core: u64, d: u64, who: u64)
+pub extern fn domain_pool_base_of(core: u64, d: u64) -> u64
+pub extern fn pool_wipe(base: u64)
+pub extern fn domain_pools_start() -> u64
+pub extern fn domain_pools_end() -> u64
+pub extern fn spawn_next_core() -> u64
+pub extern fn spawn_count() -> u64
 pub extern fn core_stack_guard(core: u64) -> u64
 
 /// Interrupts and the handler time budget (kernel/arch/aarch64/actors.s,

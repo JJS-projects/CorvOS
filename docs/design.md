@@ -244,7 +244,8 @@ kind of send instead of two (principle 6) and a smaller part of Raven to audit
 (principle 7). Milestone 3 ran on core 0 only; the point was that Raven's
 tables are written as one core's own from the start, which is cheap then and costly
 to retrofit. All four cores come up with a Raven of their own since milestone 6d-1 (decision 178); sends
-between them (the rings) are 6d-2.
+between them go through rings, one for each ordered pair of cores (milestone 6d-2, decision 181), and Raven puts each
+`separate` actor on the next core in turn (decision 180).
 
 ### 6.3a What application code can reach
 

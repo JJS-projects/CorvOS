@@ -390,7 +390,7 @@ fn classify(b: u8) -> u8 {
   actor take numbers, bools, chars and actor references for now (a struct or enum, `iso` or `val`, is an
   error: copying data between address spaces is not built). A send to it is written like any other;
   `python3 -m fledgling FILES --report-copies` lists the sends that copy, with the size (decision 173).
-  A `separate` actor runs at EL0 in a domain of its own (decision 175, milestone 6b-2b); for now it cannot `spawn`, `watch` or `stop`, and at most three can exist. A failing one restarts as a unit with its memory wiped (decision 176), and it can be watched and stopped like any actor.
+  A `separate` actor runs at EL0 in a domain of its own (decision 175, milestone 6b-2b); for now it cannot `spawn`, `watch` or `stop`, and at most three can exist. A failing one restarts as a unit with its memory wiped (decision 176), and it can be watched and stopped like any actor. Raven puts each on the next core in turn (decision 180; there is no syntax for it): messages to and from it cross cores through rings (decision 181), in order for one sender and one receiver, and a program that wants to know that everything has settled calls `run_until_idle`.
 - Inside an actor, its own fields are written `.field`; `self` is a reference to
   the actor itself, for handing out (`counter.read(narrow(self, Reply<u64>))`).
 - An actor processes one message at a time, so its fields never need locks.

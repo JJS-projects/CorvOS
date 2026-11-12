@@ -1,0 +1,52 @@
+// A sender that outruns the other core waits for room in the ring instead of losing the record or deadlocking
+// (decision 181). The mailbox of the receiver holds 16 messages, so some of 300 sent at once are dropped there (counted
+// on its core); what matters is that this core does not hang, the actor gets some in order (never an earlier one after
+// a later one), and the system settles.
+// Worked out: Sink keeps the largest number it has seen and panics if one arrives that is not larger. All 300 are
+// sent in order, so none can be out of order; whatever is dropped, the last that arrives is at most 300 and at least 1.
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Sink {
+    mut largest: u64
+
+    new() {
+        .largest = 0
+    }
+
+    lossy on take(n: u64) {
+        if n <= .largest {
+            panic("out of order")
+        }
+        .largest = n
+    }
+
+    lossy on report(to: Printer) {
+        if .largest >= 1 and .largest <= 300 {
+            to.show(1)
+        } else {
+            to.show(0)
+        }
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    sink: Sink = spawn Sink()
+    mut n: u64 = 1
+    sending: loop n <= 300 {
+        sink.take(n)
+        n += 1
+    }
+    run_until_idle()
+    sink.report(printer)
+    run_until_idle()
+}

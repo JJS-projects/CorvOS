@@ -1,0 +1,39 @@
+// Raven puts each `separate` actor on the next core in turn: 1, 2, 3, then 0, then 1 again (decision 180).
+// Worked out: an actor's domain word (offset 104 of its header, which ends 1264 bytes before the actor's fields) holds
+// the core in bits 4 to 7. Five actors are spawned: cores 1, 2, 3, 0, 1.
+// expect: 1
+// expect: 2
+// expect: 3
+// expect: 0
+// expect: 1
+
+import print: print_u64
+
+separate actor Idle {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+}
+
+fn core_of(who: u64) -> u64 {
+    unsafe {
+        return (load64(who - 1264 + 104) shr 4) and 0xf
+    }
+}
+
+fn test_main() {
+    a: Idle = spawn Idle()
+    b: Idle = spawn Idle()
+    c: Idle = spawn Idle()
+    d: Idle = spawn Idle()
+    e: Idle = spawn Idle()
+    unsafe {
+        print_u64(core_of(actor_address(a)))
+        print_u64(core_of(actor_address(b)))
+        print_u64(core_of(actor_address(c)))
+        print_u64(core_of(actor_address(d)))
+        print_u64(core_of(actor_address(e)))
+    }
+}
