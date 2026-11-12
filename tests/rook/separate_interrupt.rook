@@ -1,0 +1,49 @@
+// The UART's interrupt becomes a message to an actor in a protection domain on another core (milestone 7f, decision 183).
+// The listener is a `separate` actor: Raven puts it on core 1, maps the UART's registers into its domain (decision 182),
+// and the `Irq` routes line 57 to it. Core 0 takes the interrupt and sends `fired` to core 1 through the ring; the
+// listener, at EL0, reads the received bytes from the UART and sends each to `Echo` on core 0, which hands it to the
+// writer. The test is the echo demo with the receiving half in a domain.
+// input: hello
+// expect-echo: hello
+
+import actors: Interrupt, make_irq, run_forever
+import devices: Mmio
+import pl011: ByteSink, Pl011, UartWriter
+
+actor Echo: ByteSink {
+    out: ByteSink
+
+    new(out: ByteSink) {
+        .out = out
+    }
+
+    lossy on byte(b: u8) {
+        .out.byte(b)
+    }
+}
+
+separate actor DomainListener: Interrupt {
+    console: val Pl011
+    out: ByteSink
+
+    new(regs: val Mmio, out: ByteSink) {
+        .console = Pl011(regs: copy(regs))
+        .out = out
+        .console.listen()
+    }
+
+    lossy on fired() {
+        draining: loop .console.has_byte() {
+            .out.byte(.console.take())
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    writer: UartWriter = spawn UartWriter(console)
+    echo: Echo = spawn Echo(narrow(writer, ByteSink))
+    listener: DomainListener = spawn DomainListener(peripherals.part(0x201000, 0x1000), narrow(echo, ByteSink))
+    make_irq(peripherals, 57).route(narrow(listener, Interrupt))
+    run_forever()
+}

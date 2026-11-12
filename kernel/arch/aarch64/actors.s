@@ -133,8 +133,10 @@ irq_take_pending:
     ret
 
 // void idle_until_interrupt(void): sleeps until an interrupt arrives, unless one
-// already has. Masks IRQs while it looks, because `wfi` wakes for a pending
-// interrupt even when it is masked, so none can slip between the look and the sleep.
+// already has, or another core sends this one a record (`sev`, decision 183: it was `wfi`, which a ring record does
+// not wake). Masks IRQs while it looks, because `wfe`, like `wfi`, wakes for a pending interrupt even when it is
+// masked, so none can slip between the look and the sleep; a `sev` between the look at the rings and the `wfe` leaves
+// the event register set, so the `wfe` returns at once.
     .global idle_until_interrupt
 idle_until_interrupt:
     msr     daifset, #2
@@ -142,7 +144,7 @@ idle_until_interrupt:
     ldr     x1, [x1, #176]
     ldr     x0, [x1, #48]
     cbnz    x0, 1f
-    wfi
+    wfe
 1:  msr     daifclr, #2
     ret
 

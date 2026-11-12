@@ -10,7 +10,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
   ownership, imports, the capability demo.
 - Milestone 7 (supervision): restarts (7a, decision 148), `watch` (7b, 149), `stop`/`Gone`/`stopped`
   (7c, 150) and a supervisor written in Rook (7d, 151; `tests/rook/supervisor_demo.rook`,
-  `docs/fault-tolerance.md`) are done. 7e (decision 182): a `separate` actor whose `new` takes a `val Mmio` has those device pages mapped into its domain (`separate_device*`). Interrupts to domains (7f), the UART driver in a domain (7g) and the DMA check (7h) remain.
+  `docs/fault-tolerance.md`) are done. 7e (decision 182): a `separate` actor whose `new` takes a `val Mmio` has those device pages mapped into its domain (`separate_device*`). 7f (decision 183): `Irq.route` to a `separate` actor on any core, core 0 wakes for ring records (`separate_interrupt*`). The UART driver in a domain (7g) and the DMA check (7h) remain.
 - Milestone 5 (self-hosting) is done ([self-hosting.md](self-hosting.md)). The compiler is written in Rook
   (`compiler/`, `compiler/lib/`: lexer, parser, generics pass, checker, code generator; `make selfhost-check`
   compares each stage with Fledgling). It compiles itself twice with identical output (5e, `selfhost/stage2`,

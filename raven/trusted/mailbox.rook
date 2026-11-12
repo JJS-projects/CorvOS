@@ -785,9 +785,9 @@ fn deliver_interrupt(line: u64) {
         rt_target: u64 = load64(rt_slot)
         if rt_target != 0 {
             rt_number: u64 = load64(rt_slot + 8)
-            if not rt_queued(rt_target, rt_number) {
-                discard rt_enqueue(rt_target, rt_number, 0, 0)    // full: the source fires again
-            }
+            // To an actor in a domain on another core this is a record in the ring (decision 183). A message for `fired`
+            // already waiting absorbs this one, there or here; if the mailbox is full the source fires again.
+            discard route_message(rt_target, rt_number, 0, 0, true)
         }
     }
     irq_enable_source(line)
