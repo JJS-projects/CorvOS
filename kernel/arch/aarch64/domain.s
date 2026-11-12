@@ -40,6 +40,8 @@
     .equ D_CONST,       0x0060000000000FC7      // the same, never executed
     .equ D_TRAMP,       0x0060000000000F07      // AP 00: EL1 only, read/write, never executed
     .equ D_POOL,        0x0060000000000F47      // AP 01: read/write at EL0 and EL1, never executed
+    .equ D_DEVICE,      0x0060000000000E43      // page, attribute 0 (Device-nGnRE), outer shareable, AF, nG, AP 01, never executed
+    .equ DEVICE_FIRST,  504                     // L2 index of 0x3F000000: the peripherals are L2 entries 504 to 511
 
     .equ REASON_DONE,    0
     .equ REASON_FAULT,   1
@@ -113,7 +115,7 @@ domains_init:
 
     // each domain: L1 -> L2 -> (image L3 for 0 - 2 MB and 2 - 4 MB, its own L3 for its pool)
     ldr     x5, =domain_l1
-    mov     x0, #(9 << 12)
+    mov     x0, #(12 << 12)
     madd    x5, x15, x0, x5             // this core's array of tables
     mov     x4, #1                      // x4 = domain number
 10: sub     x0, x4, #1
@@ -166,6 +168,50 @@ domains_init:
     add     x15, x15, #1
     cmp     x15, #NCORES
     b.lo    20b
+    ret
+
+// u64 domain_map_device_of(core, d, address): maps the 4 KB page at `address` (a peripheral's registers, page aligned)
+// into domain d of core `core`, read/write at EL0, as Device memory, at the same virtual address (so an `Mmio` over it
+// works unchanged). A domain has room for the pages of one 2 MB block of the peripherals (one device L3 table; the UART
+// and the GPIO are in the same block). Returns 0, 1 if `address` is not in the peripherals, 2 if the domain already has
+// pages in another block. Raven calls it before the domain's actor starts; a domain is never given back, so a
+// mapping is never undone. Nothing here invalidates the TLB: a translation that faulted is not cached.
+    .global domain_map_device_of
+domain_map_device_of:
+    ldr     x3, =domain_l1
+    mov     x4, #(12 << 12)
+    madd    x3, x0, x4, x3              // core's tables
+    sub     x4, x1, #1
+    add     x3, x3, x4, lsl #12         // L1 of domain d
+    add     x4, x3, #(NDOMAINS << 12)   // its L2
+    add     x5, x4, #(6 << 12)          // its device L3: after the 3 L2 and the 3 pool L3 tables (= L1 + 9 pages)
+    lsr     x6, x2, #21                 // the 2 MB block
+    cmp     x6, #DEVICE_FIRST
+    b.lo    8f
+    cmp     x6, #511
+    b.hi    8f
+    and     x7, x2, #0xfff
+    cbnz    x7, 8f                      // page aligned
+    mov     x7, #DEVICE_FIRST
+1:  cmp     x7, x6
+    b.eq    2f
+    ldr     x8, [x4, x7, lsl #3]
+    cbnz    x8, 9f                      // another block of the peripherals is in use
+2:  add     x7, x7, #1
+    cmp     x7, #511
+    b.ls    1b
+    orr     x8, x5, #D_TABLE
+    str     x8, [x4, x6, lsl #3]        // L2[block] -> the device L3
+    ldr     x8, =D_DEVICE
+    orr     x8, x8, x2
+    ubfx    x7, x2, #12, #9             // the page's index in its block
+    str     x8, [x5, x7, lsl #3]
+    dsb     ishst                       // the walker (and any other core) sees the tables
+    mov     x0, #0
+    ret
+8:  mov     x0, #1
+    ret
+9:  mov     x0, #2
     ret
 
 // u64 domain_actor(d) / void domain_set_actor(d, actor): the actor that lives in domain d (0: free). Raven's
@@ -501,7 +547,7 @@ domain_fault_elr:
     .global domain_tramp
 domain_tramp:                           // a page for each core (see the layout above); EL1 only, in every domain's table
     .space  NCORES * 4096
-domain_l1:                              // for each core: NDOMAINS L1 tables, NDOMAINS L2 tables, NDOMAINS pool L3 tables
-    .space  NCORES * 9 * 4096
+domain_l1:                              // for each core: NDOMAINS L1 tables, NDOMAINS L2 tables, NDOMAINS pool L3 tables,
+    .space  NCORES * 12 * 4096          // NDOMAINS device L3 tables (empty until domain_map_device_of fills one)
 image_l3:                               // for each core, the image as a domain sees it: 2 tables cover 0 - 4 MB
     .space  NCORES * 2 * 4096

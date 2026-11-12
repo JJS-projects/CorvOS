@@ -10,7 +10,7 @@ test fails if it breaks. Everything here ran on QEMU only; the last section says
 |---|---|---|
 | read or write another domain's memory | its page table has no entry for another pool | `separate_isolation_other_domain`, `domain_fault_other_domain` |
 | read or write Raven's data (the actor arena, the tables) | the kernel's data and bss are not in its table | `separate_isolation_raven`, `domain_fault_raven_memory` |
-| reach a device | the peripherals are not in its table | `separate_isolation_raven` (a write to the UART) |
+| reach a device it was not given | the peripherals are not in its table, except the pages of an `Mmio` handed to its `new` (decision 182) | `separate_isolation_raven` (a write to the UART), `separate_device_fault` (a neighbouring page, another block) |
 | read or change Raven's record of the actor (header, mailbox) | the control page is mapped for EL1 only | `domain_fault_control_page`, `domain_fault_tramp` |
 | change the kernel's code or constants | they are mapped read-only | `domain_fault_code_write`, `mmu_code_read_only`, `mmu_constants_read_only` |
 | run its own data as code | the pool is never executable (execute-never bit, and WXN) | `domain_no_exec_data` (both removed together), `mmu_ram_not_executable` |
@@ -31,7 +31,7 @@ one from a number; a domain can only name an actor it was handed, and Raven chec
   send is dropped, a `reliable` one is told `MailboxFull`). Isolation is of memory and failure, not of capacity.
 - **Timing and side channels.** Domains share the scheduler, the caches and the timer; nothing here addresses speculative
   execution, cache timing or covert channels through run-queue order.
-- **DMA.** No domain has a device mapped, so none can program one; drivers in their own domains and the DMA question
+- **DMA.** A domain given a device (an `Mmio` in `new`) can program it, and a DMA-capable device writes anywhere (no IOMMU); no DMA device is given to a domain yet, drivers in their own domains and the DMA question
   (design.md section 9) are milestone 7.
 - **Raven itself.** Raven is trusted and runs at EL1. A bug in `mailbox.rook`'s checks is a hole; they are small (about
   200 lines) and each has a test, but they are not proved.

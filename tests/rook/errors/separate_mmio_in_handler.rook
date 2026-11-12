@@ -1,0 +1,19 @@
+// A separate actor's handler cannot take an Mmio: only new maps registers into the domain
+// error: 13:29: handler `give` of a `separate` actor takes numbers, bools, chars and actor references for now: Mmio would have to be copied between domains
+
+import devices: Mmio
+
+separate actor Dev {
+    mut n: u64
+
+    new() {
+        .n = 0
+    }
+
+    lossy on give(regs: val Mmio) {
+        .n = 1
+    }
+}
+
+fn test_main() {
+}

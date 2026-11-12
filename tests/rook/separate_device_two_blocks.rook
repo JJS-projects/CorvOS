@@ -1,0 +1,18 @@
+// A domain's table has room for the pages of one 2 MB block of the peripherals (decision 182).
+// Worked out: 0x3F201000 (the UART) is in block 505 (0x3F200000 to 0x3F3FFFFF), 0x3F00B000 (the interrupt controller) in
+// block 504. An actor given both has no table for the second, so the spawn panics.
+// expect-panic: a separate actor can have registers from one 2 MB block of the peripherals only at mailbox.rook:*
+
+import devices: Mmio
+
+separate actor Two {
+    mut n: u64
+
+    new(a: val Mmio, b: val Mmio) {
+        .n = 0
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    t: Two = spawn Two(peripherals.part(0x201000, 0x1000), peripherals.part(0x00B000, 0x1000))
+}

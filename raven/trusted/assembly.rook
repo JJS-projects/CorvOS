@@ -72,6 +72,7 @@ pub extern fn domain_actor_of(core: u64, d: u64) -> u64
 pub extern fn domain_set_actor_of(core: u64, d: u64, who: u64)
 pub extern fn domain_pool_base_of(core: u64, d: u64) -> u64
 pub extern fn pool_wipe(base: u64)
+pub extern fn domain_map_device_of(core: u64, d: u64, address: u64) -> u64
 pub extern fn domain_pools_start() -> u64
 pub extern fn domain_pools_end() -> u64
 pub extern fn spawn_next_core() -> u64
