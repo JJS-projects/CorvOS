@@ -7,6 +7,9 @@
 // flags and 4 = 0.
 // expect: 4
 // expect: 0
+// retries: 3
+// (`retries: 3`: on a loaded machine core 0 can be held for more than the 5 ms of the spin between the spawn and the read; a flag
+// that is never set fails every run, decision 188.)
 
 import actors: run_until_idle
 import print: print_u64
