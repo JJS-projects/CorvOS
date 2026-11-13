@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_map_device_of, raven_arena_address, core_wait_event, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_map_device_of, raven_arena_address, core_wait_event, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -30,6 +30,7 @@ ACTOR_H_COUNT: u64 = 16             // messages waiting
 ACTOR_H_QUEUED: u64 = 24            // 1 if it is in the run queue
 ACTOR_H_START: u64 = 32             // its start stub, which runs `new` on stored arguments (0: none)
 ACTOR_H_PARENT: u64 = 40            // the actor that spawned it (0: spawned outside any actor)
+RING_IRQ_SHARE: u64 = 4             // records of interrupts a ring may hold: the rest of its 32 slots are for everything else (decision 188)
 RING_WAIT_MS: u64 = 5               // how long a send waits for room in a full ring before it is dropped (decision 186)
 DEVICE_BASE: u64 = 0x3F000000       // the peripherals (devices.rook): an Mmio given to a domain lies inside
 DEVICE_SPAN: u64 = 0x01000000
@@ -55,6 +56,7 @@ pub ACTOR_S_DROPPED: u64 = 24           // messages dropped because a mailbox wa
 ACTOR_S_CURRENT_DISPATCHER: u64 = 32  // the handler now running: its actor's dispatcher ...
 ACTOR_S_CURRENT_HANDLER: u64 = 40     // ... and its number
 ACTOR_S_IRQ_PENDING: u64 = 48       // bit n: peripheral interrupt 32 + n has fired (vectors.s)
+ACTOR_S_RING_WAIT: u64 = 56         // ticks a send waits for room in a full ring; 0: the default, RING_WAIT_MS (a test sets it)
 ACTOR_RUNQ_OFFSET: u64 = 64         // the run queue: a ring of actor references
 ACTOR_RUNQ_SLOTS: u64 = 128
 ACTOR_S_RESTARTED: u64 = 1128       // the number of the handler `restarted`, kept by `watch`
@@ -621,6 +623,15 @@ fn route_message(target: u64, handler: u64, payload: u64, words: u64, absorb: bo
     }
 }
 
+/// For tests: how long this core's sends wait for room in a full ring, in counter ticks (0: the default of 5 ms). A test
+/// that wants to see a refusal sets it to 1 so that it does not depend on how long another core stays busy, which on a
+/// loaded machine is not a time anyone can promise (decision 186).
+pub fn set_ring_wait_ticks(ticks: u64) {
+    unsafe {
+        store64(actor_arena_base() + ACTOR_S_RING_WAIT, ticks)
+    }
+}
+
 /// Queues a message record for `core` and waits for room in the ring for at most RING_WAIT_MS; false, with nothing queued,
 /// if there was none by then (decision 186). A sender that waited for ever could deadlock with the core it waits for: two
 /// cores flooding each other, each waiting for room in a ring only the other one empties. Giving up is a drop, which a
@@ -629,7 +640,10 @@ fn push_record_bounded(core: u64, rec: u64) -> bool {
     unsafe {
         pending_add(1)
         rt_start: u64 = read_counter()
-        rt_limit: u64 = RING_WAIT_MS * (counter_frequency() / 1000)
+        mut rt_limit: u64 = load64(actor_arena_base() + ACTOR_S_RING_WAIT)
+        if rt_limit == 0 {
+            rt_limit = RING_WAIT_MS * (counter_frequency() / 1000)
+        }
         waiting: loop ring_push(core, rec) == 0 {
             if read_counter() - rt_start > rt_limit {
                 pending_sub(1)
@@ -656,6 +670,9 @@ fn route_interrupt(target: u64, handler: u64) {
         }
         if (load64(target - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
             return
+        }
+        if ring_pending(rt_core) >= RING_IRQ_SHARE {
+            return                                              // the driver has not caught up: it will get one when it has
         }
         rt_rec: u64 = ring_scratch(0)
         store64(rt_rec, REC_SEND)

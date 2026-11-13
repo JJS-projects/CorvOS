@@ -30,7 +30,7 @@ STAGES = [
     ("demo6", "rook/trusted/two_core_demo", "milestone 6: the two-core demo, a failure on one core leaves the other alone", "20-23", "docs/milestone6.md"),
     ("device", "rook/separate_device", "a domain reads a device's registers (the UART's ID registers)", "24", "item 24: Device attributes at EL0"),
     ("irq_domain", "rook/separate_interrupt", "the UART interrupt reaches a driver in a domain on another core; type a line", "25", "item 25: the local mailbox interrupt and the timer"),
-    ("driver", "rook/separate_uart_driver", "milestone 7: the UART driver in a domain, killed mid-use; type he!llo then world", "24, 25", "decision 184"),
+    ("driver", "rook/separate_uart_driver", "milestone 7: the UART driver in a domain, killed mid-use; type hello, then !llo (the driver crashes and restarts), then world", "24, 25", "decision 184"),
 ]
 
 

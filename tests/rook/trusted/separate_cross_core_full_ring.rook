@@ -1,0 +1,66 @@
+// A `reliable` send to an actor on another core whose ring is full is told `MailboxFull` (decision 186; before it waited
+// for room, and was never told).
+// The test does not depend on how long another core stays busy (a first version spun for 12 ms and failed the 100 ms budget
+// on a loaded CI runner): it sets the wait for room to one tick, so a send that finds the ring full is refused at once,
+// and floods 3000 sends at a receiver whose `new` holds its core for about 2 ms (100000 counted steps: 3 million took 56 ms,
+// measured). Core 0 can put 32 records in the ring and then finds it full unless core 1 has taken some off at that very
+// moment; with 3000 sends that happens many times, so at least one is refused.
+// Printed: 1 if at least one send was refused, and 1 if the receiver, once free, handled some (the system recovers).
+// expect: 1
+// expect: 1
+
+import actors: Sent, run_until_idle
+import mailbox: set_ring_wait_ticks
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Slow {
+    mut handled: u64
+
+    new() {
+        mut count: u64 = 0
+        holding: loop i: u64 in 0..100000 {         // about 2 ms (3 million steps took 3.5 million ticks of the 62.5 MHz counter)
+            count += 1
+        }
+        .handled = count - 100000
+    }
+
+    reliable on hit(n: u64) {
+        .handled += 1
+    }
+
+    lossy on report(to: Printer) {
+        if .handled >= 1 {
+            to.show(1)
+        } else {
+            to.show(0)
+        }
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    slow: Slow = spawn Slow()
+    mut refused: u64 = 0
+    set_ring_wait_ticks(1)
+    sending: loop i: u64 in 0..3000 {
+        match slow.hit(i) {
+            Delivered => { }
+            MailboxFull => refused += 1
+            Gone => panic("gone")
+        }
+    }
+    if refused >= 1 {
+        print_u64(1)
+    } else {
+        print_u64(0)
+    }
+    run_until_idle()
+    slow.report(printer)
+    run_until_idle()
+}

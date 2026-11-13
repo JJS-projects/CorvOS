@@ -64,6 +64,21 @@ ring_push:
 1:  mov     x0, #0
     ret
 
+// u64 ring_pending(dst): how many records are waiting in the ring from this core to `dst` (tail - head; a reader may
+// have taken one since: a bound for Raven's own sends, not a promise).
+    .global ring_pending
+ring_pending:
+    mrs     x2, mpidr_el1
+    and     x2, x2, #3                  // src: this core
+    lsl     x2, x2, #2
+    add     x2, x2, x0                  // 4 * src + dst
+    ldr     x3, =rings
+    add     x3, x3, x2, lsl #RING_STRIDE_SHIFT
+    ldr     x4, [x3, #64]               // tail: ours
+    ldar    x5, [x3]                    // head: the reader's, with acquire
+    sub     x0, x4, x5
+    ret
+
 // u64 ring_pop(src, record): takes the oldest record of the ring from `src` to this core, into the 128 bytes at
 // `record`. 1 if there was one, 0 if the ring is empty.
     .global ring_pop

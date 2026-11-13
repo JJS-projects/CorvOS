@@ -61,6 +61,7 @@ pub extern fn core_online_state(core: u64) -> u64
 /// next `separate` actor goes.
 pub extern fn ring_push(dst: u64, record: u64) -> u64
 pub extern fn ring_pop(src: u64, record: u64) -> u64
+pub extern fn ring_pending(dst: u64) -> u64
 pub extern fn rings_waiting() -> u64
 pub extern fn pending_add(n: u64)
 pub extern fn pending_sub(n: u64)

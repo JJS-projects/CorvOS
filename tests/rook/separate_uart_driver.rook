@@ -4,15 +4,20 @@
 // `Echo`, a plain actor on core 0, which sends it back for the driver to transmit. Raven's own console is still the
 // polled one in Raven, used for its boot lines and failure reports.
 //
-// Worked out: the first input line is "he!llo". The driver echoes 'h' and 'e'. On '!' it panics ("uart driver crash"):
-// its domain is restarted (memory wiped, `new` run again, which switches the receive interrupt on again). 'l', 'l', 'o'
-// were still in the receive FIFO, the interrupt still asserts, and the restarted driver echoes them: "hello" comes back
-// (the '!' was never echoed). The second input line, "world", is echoed whole by the restarted driver.
-// input: he!llo
+// Worked out: three input lines, each typed once the one before has come back. "hello" is echoed whole. "!llo" starts with
+// the byte the driver panics on ("uart driver crash"): its domain is restarted (memory wiped, `new` run again, which switches
+// the receive interrupt on again). 'l', 'l', 'o' were still in the receive FIFO, the interrupt still asserts, and the
+// restarted driver echoes them: "llo" comes back (the '!' was never echoed). The third line, "world", is echoed whole by the
+// restarted driver. (A first version put the '!' in the middle of the first line, "he!llo": whether 'h' and 'e' had been
+// echoed back to the driver before it crashed depended on timing, and a restart discards what is waiting in the mailbox; CI
+// lost the 'h'.)
+// input: hello
 // expect-echo: hello
+// input: !llo
+// expect-echo: llo
 // input: world
 // expect-echo: world
-// expect-failure: uart driver crash at separate_uart_driver.rook:45
+// expect-failure: uart driver crash at separate_uart_driver.rook:50
 
 import actors: Interrupt, make_irq, run_forever
 import devices: Mmio

@@ -1175,7 +1175,7 @@ def check_bringup_stages():
     if "out: 6" not in lines or "Raven: panic: domain 1 faulted" not in lines:
         return f"two_core_demo expectations read wrongly: {lines}"
     lines, typed = module.expectations("rook/separate_uart_driver")
-    if typed != ["he!llo", "world"]:
+    if typed != ["hello", "!llo", "world"]:
         return f"the typed input of separate_uart_driver read wrongly: {typed}"
     return None
 
@@ -1426,6 +1426,28 @@ def check_domain_budget_stress():
     return None
 
 
+def check_interrupt_stress():
+    """The UART driver in a domain, run eight at a time (two rounds), must echo what is typed and survive its crash every
+    time. Alone it did, but with several QEMUs on a few CPUs a core is descheduled for milliseconds: core 0's interrupt
+    records (a level-triggered UART asserts again at every scheduler turn) then filled the ring to that core and the
+    echo's replies found it full for longer than a send waits, and the first bytes of a line were lost (decision 188;
+    about one run in eight failed). Not a deterministic test: a regression shows as failures here, with a chance of
+    missing it that shrinks with the runs."""
+    if board_mode():
+        return None
+    for round_number in range(2):
+        def one(n):
+            result = subprocess.run([sys.executable, os.path.join(ROOT, "tests", "run_tests.py"),
+                                     "rook/separate_uart_driver", "rook/separate_interrupt"],
+                                    capture_output=True, text=True)
+            return result.returncode == 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(one, range(8)))
+        if not all(results):
+            return f"{results.count(False)} of 8 runs of the driver tests failed"
+    return None
+
+
 def check_hosted_expectations():
     """A hosted test fails when the output differs, when the program never writes the
     `Hosted:` lines, and when it takes too long."""
@@ -1640,6 +1662,8 @@ HARNESS_TESTS = [
                 check_report_copies),
     HarnessTest("harness/domain_budget_stress", "A domain handler's budget runs out at any moment without hanging "
                 "Raven (16 runs, 8 at a time)", check_domain_budget_stress),
+    HarnessTest("harness/interrupt_stress", "The UART driver in a domain echoes and survives its crash when "
+                "eight runs share the CPUs (2 rounds)", check_interrupt_stress),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "
