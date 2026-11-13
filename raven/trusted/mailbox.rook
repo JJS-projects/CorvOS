@@ -949,14 +949,14 @@ pub fn run_one_turn() {
 // reads or writes it, and a target must be an actor Raven made.
 
 /// The protection domain an actor lives in (0: Raven's own).
-fn domain_of(dm_actor: u64) -> u64 {
+pub fn domain_of(dm_actor: u64) -> u64 {
     unsafe {
         return load64(dm_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN) and 0xf
     }
 }
 
 /// The core an actor lives on: bits 4 to 7 of its domain word (0 for every plain actor, which lives on core 0).
-fn core_of_actor(dm_actor: u64) -> u64 {
+pub fn core_of_actor(dm_actor: u64) -> u64 {
     unsafe {
         return (load64(dm_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN) shr 4) and 0xf
     }

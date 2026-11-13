@@ -1,0 +1,31 @@
+// Where a DMA transfer may go (milestone 7h, decision 185). The board has no IOMMU, so a device that does DMA can write
+// anywhere in memory once it has an address; a driver in a protection domain is therefore never given a DMA-capable
+// device's address registers. It asks a trusted DMA actor in Raven (not built yet: no DMA device is driven), which
+// names a buffer by an dw_offset into the driver's own pool and checks it here, before any address reaches the device.
+// A driver cannot name Raven's memory or another domain's, because an dw_offset into its own pool cannot leave the pool.
+//
+// An internal module: application code can't import it (decision 142).
+
+import assembly: domain_pool_base_of
+import mailbox: core_of_actor, domain_of
+
+DMA_DATA_START: u64 = 0x11000       // the first byte of a pool a device may touch: after the guard page, the stack (0x1000 to
+                                    // 0x10000) and the control page (0x10000 to 0x11000, the actor's header and mailbox,
+                                    // which only Raven reaches); it is where the actor's fields begin
+DMA_POOL_BYTES: u64 = 0x200000      // a pool is 2 MB
+
+/// The physical address of the `length` bytes at `offset` in the pool of the actor `dw_owner` (a `separate` actor, the
+/// driver the transfer is for), or 0 if they are not wholly inside the part of the pool a device may use. A plain actor
+/// (not in a domain) has no pool: 0. A length of 0 is refused too: a transfer of nothing is a driver bug, not a request.
+pub fn dma_window(dw_owner: u64, dw_offset: u64, dw_length: u64) -> u64 {
+    dm_domain: u64 = domain_of(dw_owner)
+    if dm_domain == 0 {
+        return 0
+    }
+    if dw_length == 0 or dw_offset < DMA_DATA_START or dw_offset > DMA_POOL_BYTES or dw_length > DMA_POOL_BYTES - dw_offset {
+        return 0                                    // (the last two cannot overflow: the offset is at most the pool's size)
+    }
+    unsafe {
+        return domain_pool_base_of(core_of_actor(dw_owner), dm_domain) + dw_offset
+    }
+}
