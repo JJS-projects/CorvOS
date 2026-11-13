@@ -91,3 +91,5 @@ actor Guard: Lifecycle {
 ## A driver in a domain (milestone 7g)
 
 `tests/rook/separate_uart_driver.rook`: the UART driver is a `separate` actor that holds the UART's registers and takes its interrupt. It is killed in the middle of draining the receive FIFO; its domain restarts as a unit, its `new` switches the receive interrupt on again, and the bytes still in the FIFO and a second line are echoed. Raven's own console is a separate, polled one, so the report of the driver's failure does not depend on the driver (decision 184).
+
+`tests/rook/separate_driver_storm.rook` (decision 190): the other way a driver can fail, again and again. A driver that panics on every interrupt restarts as fast as its core allows; its spawner, which holds the authority to stop it, counts the restarts and stops it, and the system carries on. The number of failures is not fixed (at least the guard's limit plus one), and the guard writes only after being told `stopped`, because the failure reports of one core and the output of another are not serialised.

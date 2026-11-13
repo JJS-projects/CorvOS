@@ -28,9 +28,11 @@ that a target is an actor it made. A driver is handed an `Mmio` for exactly its 
 - A device given to a domain is reachable in its pages and nowhere else (`separate_device`, `separate_device_fault`).
 
 **Not shown.** Anything on a board: the MMU, caches, ASIDs, Device ordering and cache coherence between cores are things
-QEMU does not model (hardware.md items 20-25). Side channels and timing are not addressed at all. DMA is designed
-(`dma_window` checks a buffer) but no DMA device is driven, so the claim "a driver cannot use DMA to escape" rests on the
-design and one function, not on a device that has done it. The trusted base is not proved; `mailbox.rook` is 1221 lines
+QEMU does not model (hardware.md items 20-25). Side channels and timing are not addressed at all. DMA is built for a copy inside a
+driver's pool (`DmaService`, `dma_window`; a driver's requests for the control page, past the pool, overlapping or empty are
+refused, and two drivers' services touch only their own pools, on QEMU's DMA controller); no real device is driven, so the
+claim "a driver cannot use DMA to escape" rests on that service and the design, not on a device that has done it, and
+cache maintenance and the bus alias are unchecked on a board. The trusted base is not proved; `mailbox.rook` is 1221 lines
 with 48 `unsafe` blocks, and a bug there is a hole.
 
 ## 2. Fault tolerance: failed components are restarted and the system stays up
@@ -45,11 +47,13 @@ with the same reference, a domain restarts as a unit with its memory wiped, and 
 - A failure on one core leaves an actor on another core alone (`two_core_demo`, `separate_cross_domain`).
 - **The milestone 7 test:** the UART driver in a domain of its own is killed in the middle of draining the receive FIFO; its
   domain restarts, the bytes still in the FIFO are echoed and the next line is too (`separate_uart_driver`, decision 184).
+- A driver that fails on every interrupt, restarting at full speed, is stopped by its spawner and the system carries on
+  (`separate_driver_storm`, decision 190).
 - A handler that never returns, also inside a call to Raven, is stopped by the budget timer (`domain_timeout*`,
   `separate_spins*`).
 
-**Not shown.** A driver killed while a device transfer is in flight (no DMA device yet; hardware.md item 26); a restart
-storm of the driver; the cost of a restart on real memory (a pool wipe is 2 MB). Raven's own bugs cannot be restarted by a
+**Not shown.** A driver killed while a device transfer is in flight (the DMA service copies inside a driver's pool, tested
+on QEMU's DMA controller, decision 189; the case of a transfer to a device is not built; hardware.md item 26); the cost of a restart on real memory (a pool wipe is 2 MB). Raven's own bugs cannot be restarted by a
 supervisor: they stop the machine. A message to an actor on another core that finds the ring full for 5 ms is dropped
 (decision 186), which `lossy` allows and `reliable` reports as `MailboxFull`.
 
