@@ -31,6 +31,8 @@ STAGES = [
     ("device", "rook/separate_device", "a domain reads a device's registers (the UART's ID registers)", "24", "item 24: Device attributes at EL0"),
     ("irq_domain", "rook/separate_interrupt", "the UART interrupt reaches a driver in a domain on another core; type a line", "25", "item 25: the local mailbox interrupt and the timer"),
     ("driver", "rook/separate_uart_driver", "milestone 7: the UART driver in a domain, killed mid-use; type hello, then !llo (the driver crashes and restarts), then world", "24, 25", "decision 184"),
+    ("dma", "rook/trusted/dma_copy", "a driver copies inside its pool through the DMA service; bad requests are refused", "26", "item 26: the bus alias 0xC0000000, cache maintenance, the channel registers (0x3F007000)"),
+    ("storm", "rook/separate_driver_storm", "a driver that fails on every interrupt is stopped by its spawner; type xy", "25", "decision 190"),
 ]
 
 

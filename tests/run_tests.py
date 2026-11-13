@@ -1201,6 +1201,10 @@ def check_bringup_stages():
     lines, typed = module.expectations("rook/separate_uart_driver")
     if typed != ["hello", "!llo", "world"]:
         return f"the typed input of separate_uart_driver read wrongly: {typed}"
+    names = [stage[0] for stage in module.STAGES]
+    for wanted in ("dma", "storm"):
+        if wanted not in names:
+            return f"the stage list has no {wanted} stage"
     return None
 
 
