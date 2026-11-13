@@ -963,8 +963,8 @@ def thread_ticks(pid):
 
 def check_idle_sleeps():
     """Every core with nothing to run sleeps (`wfi`) instead of spinning. Boots the interrupt echo, which idles in
-    `run_forever`, and counts QEMU's busy threads: none should be. (Cores 1 to 3 used to sleep in `wfe`, which QEMU spins
-    on, one busy thread each, so every test cost four CPUs: decision 191.)"""
+    `run_forever`, and counts QEMU's busy threads: none should be. (Cores 1 to 3 used to idle in a loop around `wfe` and showed as busy
+    threads, so every test cost four CPUs: decision 191.)"""
     if board_mode():
         return None
     image = os.path.join(ROOT, "build", "rook-tests", "echo_interrupt.img")
