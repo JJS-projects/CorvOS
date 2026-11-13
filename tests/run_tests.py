@@ -962,10 +962,9 @@ def thread_ticks(pid):
 
 
 def check_idle_sleeps():
-    """A core with nothing to run sleeps (`wfi`) instead of spinning. Boots the
-    interrupt echo, which idles in `run_forever`, and counts QEMU's busy threads. Cores
-    1 to 3 are parked with `wfe`, which QEMU spins on (one busy thread each), so a
-    sleeping core 0 leaves exactly three; a spinning one makes four."""
+    """Every core with nothing to run sleeps (`wfi`) instead of spinning. Boots the interrupt echo, which idles in
+    `run_forever`, and counts QEMU's busy threads: none should be. (Cores 1 to 3 used to sleep in `wfe`, which QEMU spins
+    on, one busy thread each, so every test cost four CPUs: decision 191.)"""
     if board_mode():
         return None
     image = os.path.join(ROOT, "build", "rook-tests", "echo_interrupt.img")
@@ -989,8 +988,8 @@ def check_idle_sleeps():
         after = thread_ticks(proc.pid)
         busy = sum(1 for t, n in after.items()
                    if (n - before.get(t, 0)) / os.sysconf("SC_CLK_TCK") > 1.5)
-        if busy > 3:
-            return f"{busy} QEMU threads were busy for 2 s; core 0 is not sleeping"
+        if busy > 0:
+            return f"{busy} QEMU threads were busy for 2 s; an idle core is not sleeping"
         return None
     finally:
         proc.kill()

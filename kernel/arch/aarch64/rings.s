@@ -55,11 +55,11 @@ ring_push:
     add     x5, x5, #1
     stlr    x5, [x4]                    // the tail, with release: the slot is complete before the reader can see it
     sev
-    cbnz    x0, 2f                      // x0 is still `dst`. Core 0 sleeps in `wfi` (so that QEMU does not spin on it), which
-    ldr     x9, =0x40000080             // `sev` does not wake: raise its mailbox 0 interrupt (core 0's write-set register;
-    mov     w10, #1                     // vectors.s clears it). A core other than 0 sleeps in `wfe` and `sev` is enough.
-    str     w10, [x9]
-2:  mov     x0, #1
+    ldr     x9, =0x40000080             // x0 is still `dst`. Every core sleeps in `wfi` (QEMU spins a core in `wfe`, which cost
+    add     x9, x9, x0, lsl #4          // four busy threads for each test: decision 191), which `sev` does not wake: raise its
+    mov     w10, #1                     // mailbox 0 interrupt (its write-set register, 16 bytes on for each core; vectors.s
+    str     w10, [x9]                   // clears it). `sev` is kept for a core that is still in a `wfe` of the boot code.
+    mov     x0, #1
     ret
 1:  mov     x0, #0
     ret

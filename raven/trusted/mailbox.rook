@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_map_device_of, raven_arena_address, core_wait_event, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -885,22 +885,6 @@ pub fn unfinished_messages() -> u64 {
 pub fn wait_for_other_cores() {
     unsafe {
         core_pause()
-    }
-}
-
-/// True on a core that sleeps in `wfe` between messages (every core but 0, which has the UART's interrupts to wait for).
-pub fn this_core_waits_for_events() -> bool {
-    unsafe {
-        return core_id() != 0
-    }
-}
-
-/// Sleeps until another core sends this one a record, unless one is waiting already.
-pub fn sleep_until_event() {
-    unsafe {
-        if rings_waiting() == 0 {
-            core_wait_event()
-        }
     }
 }
 

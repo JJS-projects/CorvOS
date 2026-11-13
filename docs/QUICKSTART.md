@@ -26,7 +26,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 
 | Command | What it does |
 |---|---|
-| `make test` | Build and run every test (~45 s). Quiet: failures, `slowest:` and a summary. Rook and error tests run in parallel (`-j N` / `JOBS=N`) |
+| `make test` | Build and run every test (about 4 minutes on 4 CPUs, decision 191). Quiet: failures, `slowest:` and a summary. Rook and error tests run in parallel (`-j N` / `JOBS=N`) |
 | `make quick [T="rook/restart"]` | Only the tests named in T (names or prefixes); default every Rook and error test (~15 s). Not a substitute for `make test` before a push |
 | `python3 tests/run_tests.py [-v] PREFIX...` | Run tests by name or prefix (`rook/restart`, `error/`); `-v` lists every test. Needs images from a `make test` |
 | `make coverage` | Must exit 0 (compiler lines no test reaches, except `tools/coverage-gaps.txt`) |
