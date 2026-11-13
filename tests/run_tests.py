@@ -1154,6 +1154,32 @@ def check_decisions_index():
     return None if result.returncode == 0 else result.stderr.strip()
 
 
+def check_bringup_stages():
+    """tools/bringup-stages.py: every stage names a test that exists and has expected output; the table it writes
+    lists each stage with the serial output taken from the test's own header (decision 186)."""
+    tool = os.path.join(ROOT, "tools", "bringup-stages.py")
+    result = subprocess.run([sys.executable, tool, "--check"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return "the stage list is broken: " + result.stdout.strip()
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("bringup_stages", tool)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    text = module.table()
+    for number, (name, test, *_rest) in enumerate(module.STAGES, 1):
+        if f"{number:02d}_{name}.img" not in text:
+            return f"the table has no row for stage {number} ({name})"
+    # a stage's output comes from its test: the demo's header says the rally ends 6 and 5
+    lines, typed = module.expectations("rook/trusted/two_core_demo")
+    if "out: 6" not in lines or "Raven: panic: domain 1 faulted" not in lines:
+        return f"two_core_demo expectations read wrongly: {lines}"
+    lines, typed = module.expectations("rook/separate_uart_driver")
+    if typed != ["he!llo", "world"]:
+        return f"the typed input of separate_uart_driver read wrongly: {typed}"
+    return None
+
+
 def check_panic_wildcard():
     """`at FILE.rook:*` matches any line in one of Raven's files, but never the wrong message or
     file, and never the test's own file, which keeps its exact line."""
@@ -1624,6 +1650,8 @@ HARNESS_TESTS = [
                 "--accept fills in the real error", check_new_error_test),
     HarnessTest("harness/tools_batch_body", "The bug-check list and the PR body are built "
                 "correctly", check_batch_and_body_tools),
+    HarnessTest("harness/bringup_stages", "The first-boot stage list names real tests and takes the expected "
+                "serial output from their headers", check_bringup_stages),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
                 "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",

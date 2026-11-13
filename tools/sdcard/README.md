@@ -18,3 +18,7 @@ LED means.
    power the Pi. You should see the same `Raven:` lines as in QEMU.
 6. No serial output? Watch the activity LED: one flash means Raven started, two
    mean its console is up, solid on means boot complete (docs/hardware.md).
+
+## Stage images
+
+`tools/bringup-stages.py` (after `make test`) puts thirteen images in `build/sdcard/stages/` with a `STAGES.md` that says, for each, what the serial port should print and which items of docs/hardware.md to doubt when it differs. Use them one at a time as `kernel8.img`, in order, instead of starting with the biggest program (decision 187).

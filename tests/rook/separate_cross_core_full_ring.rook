@@ -1,0 +1,64 @@
+// A `reliable` send to an actor on another core whose ring stays full is told `MailboxFull` (decision 186; before it
+// waited for room, and was never told). The receiver's `new` holds core 1 for a while (a counted loop, well inside
+// the 100 ms budget), so nothing is taken off the ring from core 0: the ring (32 records) takes the first sends, then a send
+// waits 5 ms for room, finds none, and is told `MailboxFull`.
+// Worked out: the receiver's `new` holds core 1 for about 12 ms (640000 steps; 3 million steps took 3.5 million ticks of the 62.5 MHz counter, measured; a spin of 56 ms failed the 100 ms budget when the host was loaded),
+// and a core handling its start record takes nothing else off its rings meanwhile. Core 0 can put 32 records in the ring (the
+// start record is one) and the 33rd waits 5 ms and is refused, so with 200 sends the number told `MailboxFull` is at least 1. Printed: 1 if at least one send was refused, and
+// 1 if the receiver, once free, handled some (the system recovers).
+// expect: 1
+// expect: 1
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Slow {
+    mut handled: u64
+
+    new() {
+        mut count: u64 = 0
+        holding: loop i: u64 in 0..640000 {         // about 12 ms at 62.5 MHz (3 million steps took 3.5 million ticks)
+            count += 1
+        }
+        .handled = count - 640000
+    }
+
+    reliable on hit(n: u64) {
+        .handled += 1
+    }
+
+    lossy on report(to: Printer) {
+        if .handled >= 1 {
+            to.show(1)
+        } else {
+            to.show(0)
+        }
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    slow: Slow = spawn Slow()
+    mut refused: u64 = 0
+    sending: loop i: u64 in 0..200 {
+        match slow.hit(i) {
+            Delivered => { }
+            MailboxFull => refused += 1
+            Gone => panic("gone")
+        }
+    }
+    if refused >= 1 {
+        print_u64(1)
+    } else {
+        print_u64(0)
+    }
+    run_until_idle()
+    slow.report(printer)
+    run_until_idle()
+}

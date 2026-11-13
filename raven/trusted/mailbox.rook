@@ -15,7 +15,7 @@
 
 import actors: Sent
 import assembly: domain_map_device_of, raven_arena_address, core_wait_event, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
-import hardware: counter_frequency
+import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
 ACTOR_SLOTS: u64 = 16               // messages one mailbox holds (decision 113, g)
@@ -30,6 +30,7 @@ ACTOR_H_COUNT: u64 = 16             // messages waiting
 ACTOR_H_QUEUED: u64 = 24            // 1 if it is in the run queue
 ACTOR_H_START: u64 = 32             // its start stub, which runs `new` on stored arguments (0: none)
 ACTOR_H_PARENT: u64 = 40            // the actor that spawned it (0: spawned outside any actor)
+RING_WAIT_MS: u64 = 5               // how long a send waits for room in a full ring before it is dropped (decision 186)
 DEVICE_BASE: u64 = 0x3F000000       // the peripherals (devices.rook): an Mmio given to a domain lies inside
 DEVICE_SPAN: u64 = 0x01000000
 ACTOR_H_ARGS_WORDS: u64 = 48        // words of `new` arguments kept for a restart
@@ -616,7 +617,26 @@ fn route_message(target: u64, handler: u64, payload: u64, words: u64, absorb: bo
         copying: loop rt_w: u64 in 0..words {
             store64(rt_rec + REC_PAYLOAD + rt_w * 8, load64(payload + rt_w * 8))
         }
-        push_record(rt_core, rt_rec)
+        return push_record_bounded(rt_core, rt_rec)
+    }
+}
+
+/// Queues a message record for `core` and waits for room in the ring for at most RING_WAIT_MS; false, with nothing queued,
+/// if there was none by then (decision 186). A sender that waited for ever could deadlock with the core it waits for: two
+/// cores flooding each other, each waiting for room in a ring only the other one empties. Giving up is a drop, which a
+/// `lossy` send allows and a `reliable` sender is told as `MailboxFull`.
+fn push_record_bounded(core: u64, rec: u64) -> bool {
+    unsafe {
+        pending_add(1)
+        rt_start: u64 = read_counter()
+        rt_limit: u64 = RING_WAIT_MS * (counter_frequency() / 1000)
+        waiting: loop ring_push(core, rec) == 0 {
+            if read_counter() - rt_start > rt_limit {
+                pending_sub(1)
+                return false
+            }
+            core_pause()
+        }
         return true
     }
 }

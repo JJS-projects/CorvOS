@@ -36,6 +36,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `python3 -m fledgling FILES [--trusted DIR] --dump-tokens\|--dump-tree\|--dump-expanded\|--dump-declarations\|--dump-bodies [--no-bodies] [--all-bodies] [--ownership] [--actors]\|--dump-asm` | The text each self-hosted stage must print for the same input |
 | `python3 -m fledgling FILES --report-copies` | Every send to a `separate` actor (it copies its message), with the size (decision 173) |
 | `make difftest` | Random arithmetic against a Python model |
+| `tools/bringup-stages.py` | First-boot stage images for a board (after `make test`) in `build/sdcard/stages/`, with the serial output to expect (decision 187) |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |
 | `tools/new-error-test.py NAME "desc" < prog.rook` | Make an error test: writes a failing placeholder and shows the real error; read it, then `--accept NAME` fills the `// error:` line |
 | `tools/bug-check.py FILE OLD NEW` | Break one thing, run `make test`, list failing tests, restore |
