@@ -59,7 +59,7 @@ supervisor: they stop the machine. A message to an actor on another core that fi
 cross-core request. A driver is an actor with no `unsafe`. There is one way to be told about failure (`watch`) and one to
 stop (`stop`).
 
-**Shown.** The UART driver is 33 lines of Rook in the test (`separate_uart_driver`) and the same code runs as a plain actor
+**Shown.** The UART driver is about 25 lines of Rook in the test (`separate_uart_driver`) and the same code runs as a plain actor
 on core 0 or in a domain on core 1 or 3 (`separate_interrupt*`), changing only the word `separate`. An interrupt is a
 `fired` message (decisions 134, 183). Across cores the only shared memory is the rings (decision 181).
 
