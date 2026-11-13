@@ -1,0 +1,35 @@
+// An actor spawned on another core is marked STARTING from the moment of the spawn, until its `new` has run (decision
+// 181; its test until now only showed that the flag, once set by hand, keeps the actor from being scheduled).
+// Worked out: the first `separate` actor goes to core 1 (decision 180). Its `new` spins for about 5 ms (a counted loop of
+// 300000 steps at about 19 ns each: 3 million took 56 ms, measured; well inside the 100 ms budget), so when `spawn` returns on core 0 the start record is still being
+// handled or waiting: the flags word of its header (offset 88, the header ends 1264 bytes before the fields) has bit 4
+// set (STARTING). Printed: flags and 4 = 4 right after the spawn. After run_until_idle `new` has run and the flag is gone:
+// flags and 4 = 0.
+// expect: 4
+// expect: 0
+
+import actors: run_until_idle
+import print: print_u64
+
+separate actor Slow {
+    mut done: u64
+
+    new() {
+        mut count: u64 = 0
+        spinning: loop i: u64 in 0..300000 {
+            count += 1
+        }
+        .done = count
+    }
+}
+
+fn test_main() {
+    a: Slow = spawn Slow()
+    unsafe {
+        print_u64(load64(actor_address(a) - 1264 + 88) and 4)
+    }
+    run_until_idle()
+    unsafe {
+        print_u64(load64(actor_address(a) - 1264 + 88) and 4)
+    }
+}

@@ -53,6 +53,10 @@ Four kinds of test:
              that message. A header line `// alone` compiles the file by itself,
              without Raven's code (for errors about what a program must include).
 
+  A header line `// retries: 3` lets a test of a timing race (one a loaded machine can
+             upset, such as a handler waiting for ring room against the 100 ms budget) pass if
+             any of up to 3 runs does; a real regression, such as a deadlock, fails every run.
+
   harness/...  Checks of the test harness and build itself, defined in
              HARNESS_TESTS below: the things a Rook program can't test.
 
@@ -476,6 +480,7 @@ class RookTest:
     line_counts: list = field(default_factory=list)  # (line, times) it must write
     expect_failures: list = field(default_factory=list)   # contained panics, in order
     timeout: float = 10.0
+    retries: int = 1                # runs allowed: it passes if any one does (a test of a timing race, decision 188)
 
     @classmethod
     def from_file(cls, path):
@@ -483,7 +488,7 @@ class RookTest:
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
         fault, machines, typed, echo, counts = None, None, [], [], []
-        failures, timeout = [], 10.0
+        failures, timeout, retries = [], 10.0, 1
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -505,6 +510,8 @@ class RookTest:
                 machines = text[len("machines:"):].split()
             elif text.startswith("timeout:"):
                 timeout = float(text[len("timeout:"):])
+            elif text.startswith("retries:"):
+                retries = int(text[len("retries:"):])
             elif text.startswith("expect-qemu-log:"):
                 qemu_log.append(text[len("expect-qemu-log:"):].strip())
             elif text.startswith("input:"):
@@ -518,7 +525,7 @@ class RookTest:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
                    qemu_log, fault, machines, input=typed, expect_echo=echo,
-                   line_counts=counts, expect_failures=failures, timeout=timeout)
+                   line_counts=counts, expect_failures=failures, timeout=timeout, retries=retries)
 
     def own_file(self):
         """The test's own source file name, as a panic line names it."""
@@ -528,6 +535,15 @@ class RookTest:
         return on_each_machine(self, self.run_on, self.machines)
 
     def run_on(self, machine):
+        """One run, or up to `retries` for a test of a timing race that a loaded machine can upset: it passes if any run
+        does, and a real regression (a deadlock hangs every run) fails all of them."""
+        for attempt in range(max(1, self.retries)):
+            ok, message, output = self.run_once(machine)
+            if ok:
+                return ok, message if attempt == 0 else f"ok (run {attempt + 1} of {self.retries})", output
+        return ok, f"{message} (after {self.retries} runs)" if self.retries > 1 else message, output
+
+    def run_once(self, machine):
         image = os.path.join(ROOT, self.image)
         if not board_mode() and not os.path.exists(image):
             return False, missing_image(image)
@@ -1154,6 +1170,55 @@ def check_decisions_index():
     return None if result.returncode == 0 else result.stderr.strip()
 
 
+def check_bringup_stages():
+    """tools/bringup-stages.py: every stage names a test that exists and has expected output; the table it writes
+    lists each stage with the serial output taken from the test's own header (decision 186)."""
+    tool = os.path.join(ROOT, "tools", "bringup-stages.py")
+    result = subprocess.run([sys.executable, tool, "--check"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return "the stage list is broken: " + result.stdout.strip()
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("bringup_stages", tool)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    text = module.table()
+    for number, (name, test, *_rest) in enumerate(module.STAGES, 1):
+        if f"{number:02d}_{name}.img" not in text:
+            return f"the table has no row for stage {number} ({name})"
+    # a stage's output comes from its test: the demo's header says the rally ends 6 and 5
+    lines, typed = module.expectations("rook/trusted/two_core_demo")
+    if "out: 6" not in lines or "Raven: panic: domain 1 faulted" not in lines:
+        return f"two_core_demo expectations read wrongly: {lines}"
+    lines, typed = module.expectations("rook/separate_uart_driver")
+    if typed != ["hello", "!llo", "world"]:
+        return f"the typed input of separate_uart_driver read wrongly: {typed}"
+    return None
+
+
+def check_retries():
+    """`// retries: N` runs a test up to N times and passes if one run does; without it a failure is final."""
+    class Fake(RookTest):
+        results = []
+
+        def run_once(self, machine):
+            ok = self.results.pop(0)
+            return ok, "ok" if ok else "boom", ""
+
+    def made(retries, results):
+        test = Fake("rook/x", "d", "x.img", [], retries=retries)
+        test.results = list(results)
+        return test.run_on("raspi3b")[0]
+
+    if not made(3, [False, False, True]):
+        return "a test that passes on its third run of 3 should pass"
+    if made(3, [False, False, False]):
+        return "a test that fails 3 runs of 3 should fail"
+    if made(1, [False, True]):
+        return "without `retries:` a failure is final"
+    return None
+
+
 def check_panic_wildcard():
     """`at FILE.rook:*` matches any line in one of Raven's files, but never the wrong message or
     file, and never the test's own file, which keeps its exact line."""
@@ -1624,6 +1689,10 @@ HARNESS_TESTS = [
                 "--accept fills in the real error", check_new_error_test),
     HarnessTest("harness/tools_batch_body", "The bug-check list and the PR body are built "
                 "correctly", check_batch_and_body_tools),
+    HarnessTest("harness/bringup_stages", "The first-boot stage list names real tests and takes the expected "
+                "serial output from their headers", check_bringup_stages),
+    HarnessTest("harness/retries", "A test with `// retries: N` passes if any of N runs does; "
+                "without it a failure is final", check_retries),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
                 "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",

@@ -36,6 +36,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `python3 -m fledgling FILES [--trusted DIR] --dump-tokens\|--dump-tree\|--dump-expanded\|--dump-declarations\|--dump-bodies [--no-bodies] [--all-bodies] [--ownership] [--actors]\|--dump-asm` | The text each self-hosted stage must print for the same input |
 | `python3 -m fledgling FILES --report-copies` | Every send to a `separate` actor (it copies its message), with the size (decision 173) |
 | `make difftest` | Random arithmetic against a Python model |
+| `tools/bringup-stages.py` | First-boot stage images for a board (after `make test`) in `build/sdcard/stages/`, with the serial output to expect (decision 187) |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |
 | `tools/new-error-test.py NAME "desc" < prog.rook` | Make an error test: writes a failing placeholder and shows the real error; read it, then `--accept NAME` fills the `// error:` line |
 | `tools/bug-check.py FILE OLD NEW` | Break one thing, run `make test`, list failing tests, restore |
@@ -59,6 +60,7 @@ Long commands go in the background. `make test` once per change, not per edit.
 - `hosted/PROGRAM/CASE` = `tests/hosted/PROGRAM/CASE.in` fed to `compiler/PROGRAM.rook` on the UART
   (ended by byte 4; or a file listed in `PROGRAM/live.txt`, with Fledgling's output as the expectation); its output between `Hosted: begin`/`Hosted: end` must equal `CASE.out`
   ([self-hosting.md](self-hosting.md)).
+- `// retries: N` in a header lets a test of a timing race pass if one of up to N runs does (decision 188); a test whose handlers wait on ring room can be held past the 100 ms budget on a loaded machine. Do not use it to hide a failure.
 - `boot/` and `harness/` tests are Python in `run_tests.py`.
 - A panic expectation `at file.rook:N` is an exact line for the test's own file. For a
   panic inside Raven's files write `at mailbox.rook:*` (any line; the message stays exact).

@@ -33,11 +33,12 @@ board.
   cache incoherence between cores, Device ordering or a lost `sev`.
 - **Everything in "What it does not guarantee" in [isolation.md](isolation.md)**: capacity, timing and side channels,
   DMA, Raven's own bugs, several actors in one domain.
-- **Known weak spots in the cross-core rings** (decision 181): the line that marks a remote actor as `STARTING` has no
-  deterministic test (the race it closes appeared about 1 run in 64); a `reliable` send across cores cannot say
-  `MailboxFull`; a sender whose ring is full waits, so two cores flooding each other could deadlock; a `watch` on
-  another core's actor is dropped by a broadcast when its watcher ends (untested); core 0's `run_forever` idles in
-  `wfi` and does not wake for a ring record (fixed in 7f: a ring push to core 0 raises its mailbox interrupt, decision 183); only core 0 prints and takes interrupts.
+- **Known weak spots in the cross-core rings** (decision 181), as of 7i (decision 186): the line that marks a remote actor
+  as `STARTING` is now tested deterministically (`separate_starting_set`); a `reliable` send across cores can say
+  `MailboxFull` (when the ring stays full for 5 ms); two cores flooding each other no longer deadlock
+  (`separate_cross_core_both_ways`); a restarted watcher is still told once (`separate_watch_restarted_watcher`; the broadcast that drops
+  its old watches on other cores is still untested: nothing observable depends on it); core 0 wakes for ring records (decision 183). Still true: the control records (start,
+  watch, stop) wait for room without a bound; only core 0 prints and takes interrupts.
 - Plain (non-`separate`) actors all live on core 0.
 
 Next: milestone 7's rest (drivers as actors in their own domains, interrupts as messages to driver domains, the DMA

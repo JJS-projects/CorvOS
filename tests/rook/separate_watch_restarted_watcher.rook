@@ -1,0 +1,65 @@
+// A watcher that restarts is still told, once, when the actor it watches on another core fails (decision 181 listed the
+// broadcast that drops a watcher's old watches on every core as untested). What this checks is the behaviour: it does NOT
+// detect a missing drop: a second watch by the same watcher is replaced, not added, so a stale one cannot be seen from
+// here (the bug check for that row found no test, decision 186).
+// `Settings` (a plain actor on core 0) watches `Console` (a `separate` actor on core 1) in its `new`.
+// Worked out (each step ends with run_until_idle):
+//  1. console crash: the watch fires, Settings prints 99 (1st expect-failure).
+//  2. settings crash: it restarts (2nd expect-failure) and its `new` watches the console again.
+//  3. console crash again (3rd expect-failure): Settings prints 99 once, not twice and not never.
+// expect-failure: console crash at separate_watch_restarted_watcher.rook:51
+// expect-failure: settings crash at separate_watch_restarted_watcher.rook:39
+// expect-failure: console crash at separate_watch_restarted_watcher.rook:51
+// expect: 99
+// expect: 99
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+actor Settings: Lifecycle {
+    console: Console
+
+    new(console: Console) {
+        .console = console
+        watch(console, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        print_u64(99)
+    }
+
+    lossy on stopped() { }
+
+    pub lossy on crash() {
+        panic("settings crash")
+    }
+}
+
+separate actor Console {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+
+    pub lossy on crash() {
+        panic("console crash")
+    }
+}
+
+fn test_main() {
+    console: Console = spawn Console()
+    settings: Settings = spawn Settings(console)
+    run_until_idle()
+    console.crash()
+    run_until_idle()
+    settings.crash()
+    run_until_idle()
+    console.crash()
+    run_until_idle()
+}
