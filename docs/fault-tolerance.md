@@ -87,3 +87,7 @@ actor Guard: Lifecycle {
   that answers `Gone`; the 64 KB actor arena has no reuse yet (decision 148).
 - **Not tested on hardware.** The demo is a QEMU program; killing a real driver mid-use needs the
   drivers-as-actors work of milestone 7's other half and a Pi.
+
+## A driver in a domain (milestone 7g)
+
+`tests/rook/separate_uart_driver.rook`: the UART driver is a `separate` actor that holds the UART's registers and takes its interrupt. It is killed in the middle of draining the receive FIFO; its domain restarts as a unit, its `new` switches the receive interrupt on again, and the bytes still in the FIFO and a second line are echoed. Raven's own console is a separate, polled one, so the report of the driver's failure does not depend on the driver (decision 184).

@@ -1,0 +1,61 @@
+// The UART driver in a protection domain of its own, killed in the middle of its work and restarted (milestone 7g,
+// decision 184). `UartDriver` is a `separate` actor: it holds the UART's registers (decision 182), takes the receive
+// interrupt (decision 183), and writes whatever it is sent to the transmit side. It passes each received byte to
+// `Echo`, a plain actor on core 0, which sends it back for the driver to transmit. Raven's own console is still the
+// polled one in Raven, used for its boot lines and failure reports.
+//
+// Worked out: the first input line is "he!llo". The driver echoes 'h' and 'e'. On '!' it panics ("uart driver crash"):
+// its domain is restarted (memory wiped, `new` run again, which switches the receive interrupt on again). 'l', 'l', 'o'
+// were still in the receive FIFO, the interrupt still asserts, and the restarted driver echoes them: "hello" comes back
+// (the '!' was never echoed). The second input line, "world", is echoed whole by the restarted driver.
+// input: he!llo
+// expect-echo: hello
+// input: world
+// expect-echo: world
+// expect-failure: uart driver crash at separate_uart_driver.rook:45
+
+import actors: Interrupt, make_irq, run_forever
+import devices: Mmio
+import pl011: ByteSink, Pl011
+
+interface Reply {
+    lossy on shout(b: u8, to: ByteSink)
+}
+
+actor Echo: Reply {
+    lossy on shout(b: u8, to: ByteSink) {
+        to.byte(b)
+    }
+}
+
+separate actor UartDriver: Interrupt, ByteSink {
+    console: val Pl011
+    echo: Reply
+
+    new(regs: val Mmio, echo: Reply) {
+        .console = Pl011(regs: copy(regs))
+        .echo = echo
+        .console.listen()
+    }
+
+    lossy on fired() {
+        draining: loop .console.has_byte() {
+            b: u8 = .console.take()
+            if b == '!' {
+                panic("uart driver crash")
+            }
+            .echo.shout(b, narrow(self, ByteSink))
+        }
+    }
+
+    lossy on byte(b: u8) {
+        .console.put(b)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    echo: Echo = spawn Echo()
+    driver: UartDriver = spawn UartDriver(peripherals.part(0x201000, 0x1000), narrow(echo, Reply))
+    make_irq(peripherals, 57).route(narrow(driver, Interrupt))
+    run_forever()
+}

@@ -40,7 +40,9 @@ Four kinds of test:
              written a line "hello" back, even if test_main never returns (a
              polling driver doesn't). At most 15 bytes, so the UART's FIFO holds
              them. Several pairs are typed one after another: each `input:` after the
-             first is typed once the line before it has come back. `input:` alone
+             first is typed once the line before it has come back. With `expect-failure:`
+             lines too, the program's contained failures must be exactly those, before it
+             has echoed everything (a driver that is killed and restarted). `input:` alone
              types and expects nothing back (test_main must return). Not run against
              a real board: this harness doesn't type into one.
 
@@ -576,7 +578,7 @@ class RookTest:
             if not panic_matches(self.expect_panic, panics[0], self.own_file()):
                 return False, f"expected panic {self.expect_panic!r}, got {panics[0]!r}", output
         elif self.expect_echo:
-            if panics:
+            if panics and not self.expect_failures:       # (contained failures were matched above, decision 184)
                 return False, f"unexpected panic: {panics[0]!r}", output
             for echo in self.expect_echo:
                 if echo not in lines:
