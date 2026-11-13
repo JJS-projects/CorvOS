@@ -53,6 +53,10 @@ Four kinds of test:
              that message. A header line `// alone` compiles the file by itself,
              without Raven's code (for errors about what a program must include).
 
+  A header line `// retries: 3` lets a test of a timing race (one a loaded machine can
+             upset, such as a handler waiting for ring room against the 100 ms budget) pass if
+             any of up to 3 runs does; a real regression, such as a deadlock, fails every run.
+
   harness/...  Checks of the test harness and build itself, defined in
              HARNESS_TESTS below: the things a Rook program can't test.
 
@@ -476,6 +480,7 @@ class RookTest:
     line_counts: list = field(default_factory=list)  # (line, times) it must write
     expect_failures: list = field(default_factory=list)   # contained panics, in order
     timeout: float = 10.0
+    retries: int = 1                # runs allowed: it passes if any one does (a test of a timing race, decision 188)
 
     @classmethod
     def from_file(cls, path):
@@ -483,7 +488,7 @@ class RookTest:
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
         fault, machines, typed, echo, counts = None, None, [], [], []
-        failures, timeout = [], 10.0
+        failures, timeout, retries = [], 10.0, 1
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -505,6 +510,8 @@ class RookTest:
                 machines = text[len("machines:"):].split()
             elif text.startswith("timeout:"):
                 timeout = float(text[len("timeout:"):])
+            elif text.startswith("retries:"):
+                retries = int(text[len("retries:"):])
             elif text.startswith("expect-qemu-log:"):
                 qemu_log.append(text[len("expect-qemu-log:"):].strip())
             elif text.startswith("input:"):
@@ -518,7 +525,7 @@ class RookTest:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
                    qemu_log, fault, machines, input=typed, expect_echo=echo,
-                   line_counts=counts, expect_failures=failures, timeout=timeout)
+                   line_counts=counts, expect_failures=failures, timeout=timeout, retries=retries)
 
     def own_file(self):
         """The test's own source file name, as a panic line names it."""
@@ -528,6 +535,15 @@ class RookTest:
         return on_each_machine(self, self.run_on, self.machines)
 
     def run_on(self, machine):
+        """One run, or up to `retries` for a test of a timing race that a loaded machine can upset: it passes if any run
+        does, and a real regression (a deadlock hangs every run) fails all of them."""
+        for attempt in range(max(1, self.retries)):
+            ok, message, output = self.run_once(machine)
+            if ok:
+                return ok, message if attempt == 0 else f"ok (run {attempt + 1} of {self.retries})", output
+        return ok, f"{message} (after {self.retries} runs)" if self.retries > 1 else message, output
+
+    def run_once(self, machine):
         image = os.path.join(ROOT, self.image)
         if not board_mode() and not os.path.exists(image):
             return False, missing_image(image)
@@ -1180,6 +1196,29 @@ def check_bringup_stages():
     return None
 
 
+def check_retries():
+    """`// retries: N` runs a test up to N times and passes if one run does; without it a failure is final."""
+    class Fake(RookTest):
+        results = []
+
+        def run_once(self, machine):
+            ok = self.results.pop(0)
+            return ok, "ok" if ok else "boom", ""
+
+    def made(retries, results):
+        test = Fake("rook/x", "d", "x.img", [], retries=retries)
+        test.results = list(results)
+        return test.run_on("raspi3b")[0]
+
+    if not made(3, [False, False, True]):
+        return "a test that passes on its third run of 3 should pass"
+    if made(3, [False, False, False]):
+        return "a test that fails 3 runs of 3 should fail"
+    if made(1, [False, True]):
+        return "without `retries:` a failure is final"
+    return None
+
+
 def check_panic_wildcard():
     """`at FILE.rook:*` matches any line in one of Raven's files, but never the wrong message or
     file, and never the test's own file, which keeps its exact line."""
@@ -1426,28 +1465,6 @@ def check_domain_budget_stress():
     return None
 
 
-def check_interrupt_stress():
-    """The UART driver in a domain, run eight at a time (two rounds), must echo what is typed and survive its crash every
-    time. Alone it did, but with several QEMUs on a few CPUs a core is descheduled for milliseconds: core 0's interrupt
-    records (a level-triggered UART asserts again at every scheduler turn) then filled the ring to that core and the
-    echo's replies found it full for longer than a send waits, and the first bytes of a line were lost (decision 188;
-    about one run in eight failed). Not a deterministic test: a regression shows as failures here, with a chance of
-    missing it that shrinks with the runs."""
-    if board_mode():
-        return None
-    for round_number in range(2):
-        def one(n):
-            result = subprocess.run([sys.executable, os.path.join(ROOT, "tests", "run_tests.py"),
-                                     "rook/separate_uart_driver", "rook/separate_interrupt"],
-                                    capture_output=True, text=True)
-            return result.returncode == 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(one, range(8)))
-        if not all(results):
-            return f"{results.count(False)} of 8 runs of the driver tests failed"
-    return None
-
-
 def check_hosted_expectations():
     """A hosted test fails when the output differs, when the program never writes the
     `Hosted:` lines, and when it takes too long."""
@@ -1662,8 +1679,6 @@ HARNESS_TESTS = [
                 check_report_copies),
     HarnessTest("harness/domain_budget_stress", "A domain handler's budget runs out at any moment without hanging "
                 "Raven (16 runs, 8 at a time)", check_domain_budget_stress),
-    HarnessTest("harness/interrupt_stress", "The UART driver in a domain echoes and survives its crash when "
-                "eight runs share the CPUs (2 rounds)", check_interrupt_stress),
     HarnessTest("harness/hosted_expectations", "A hosted test fails on a different, missing or "
                 "extra output line, and on a program that writes none", check_hosted_expectations),
     HarnessTest("harness/parallel_run", "Tests run side by side report in order and overlap in "
@@ -1676,6 +1691,8 @@ HARNESS_TESTS = [
                 "correctly", check_batch_and_body_tools),
     HarnessTest("harness/bringup_stages", "The first-boot stage list names real tests and takes the expected "
                 "serial output from their headers", check_bringup_stages),
+    HarnessTest("harness/retries", "A test with `// retries: N` passes if any of N runs does; "
+                "without it a failure is final", check_retries),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
                 "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",

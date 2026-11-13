@@ -1,3 +1,5 @@
+// (`retries: 3`: a handler here waits up to 5 ms for ring room, and on a loaded machine one can be held for longer than the
+// 100 ms budget; the old deadlock hung every run, so three runs do not hide it.)
 // Two cores flooding each other do not deadlock (decision 181 listed this as a limit; decision 186 closes it). The sender
 // on core 0 sends 4000 messages to an actor on core 1 as fast as it can; the handler of each sends one on to a plain actor
 // on core 0. The ring from core 0 to core 1 is full (32 records) while the ring from core 1 to core 0 fills with the
@@ -6,6 +8,7 @@
 // the Sink having heard from the other core at least once (messages are dropped in full mailboxes, so how many arrive is
 // not fixed; that some arrive, and that the program returns at all, is the point).
 // expect: 1
+// retries: 3
 
 import actors: run_until_idle
 import print: print_u64
