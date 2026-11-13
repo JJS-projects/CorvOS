@@ -36,8 +36,8 @@ board.
 - **Known weak spots in the cross-core rings** (decision 181), as of 7i (decision 186): the line that marks a remote actor
   as `STARTING` is now tested deterministically (`separate_starting_set`); a `reliable` send across cores can say
   `MailboxFull` (when the ring stays full for 5 ms); two cores flooding each other no longer deadlock
-  (`separate_cross_core_both_ways`); a restarted watcher's stale watch on another core's actor is dropped
-  (`separate_watch_restarted_watcher`); core 0 wakes for ring records (decision 183). Still true: the control records (start,
+  (`separate_cross_core_both_ways`); a restarted watcher is still told once (`separate_watch_restarted_watcher`; the broadcast that drops
+  its old watches on other cores is still untested: nothing observable depends on it); core 0 wakes for ring records (decision 183). Still true: the control records (start,
   watch, stop) wait for room without a bound; only core 0 prints and takes interrupts.
 - Plain (non-`separate`) actors all live on core 0.
 

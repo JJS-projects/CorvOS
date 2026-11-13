@@ -1,14 +1,15 @@
-// A watcher that restarts forgets its old watch on an actor of another core, so the watched actor tells it once, not once
-// for every life it has had (decision 181 listed the broadcast that does this as untested).
+// A watcher that restarts is still told, once, when the actor it watches on another core fails (decision 181 listed the
+// broadcast that drops a watcher's old watches on every core as untested). What this checks is the behaviour: it does NOT
+// detect a missing drop: a second watch by the same watcher is replaced, not added, so a stale one cannot be seen from
+// here (the bug check for that row found no test, decision 186).
 // `Settings` (a plain actor on core 0) watches `Console` (a `separate` actor on core 1) in its `new`.
 // Worked out (each step ends with run_until_idle):
 //  1. console crash: the watch fires, Settings prints 99 (1st expect-failure).
-//  2. settings crash: it restarts (2nd expect-failure) and its `new` watches the console again. Its old watch is dropped on
-//     every core by REC_DROP_WATCHES; if it were not, the console would hold two.
-//  3. console crash again (3rd expect-failure): Settings prints 99 once. With a stale second watch it would print 99 twice.
-// expect-failure: console crash at separate_watch_restarted_watcher.rook:50
-// expect-failure: settings crash at separate_watch_restarted_watcher.rook:38
-// expect-failure: console crash at separate_watch_restarted_watcher.rook:50
+//  2. settings crash: it restarts (2nd expect-failure) and its `new` watches the console again.
+//  3. console crash again (3rd expect-failure): Settings prints 99 once, not twice and not never.
+// expect-failure: console crash at separate_watch_restarted_watcher.rook:51
+// expect-failure: settings crash at separate_watch_restarted_watcher.rook:39
+// expect-failure: console crash at separate_watch_restarted_watcher.rook:51
 // expect: 99
 // expect: 99
 
