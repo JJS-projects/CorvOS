@@ -1,12 +1,14 @@
 // Where a DMA transfer may go (milestone 7h, decision 185). The board has no IOMMU, so a device that does DMA can write
 // anywhere in memory once it has an address; a driver in a protection domain is therefore never given a DMA-capable
-// device's address registers. It asks a trusted DMA actor in Raven (not built yet: no DMA device is driven), which
-// names a buffer by an dw_offset into the driver's own pool and checks it here, before any address reaches the device.
-// A driver cannot name Raven's memory or another domain's, because an dw_offset into its own pool cannot leave the pool.
+// device's address registers. It asks a trusted DMA actor in Raven (`DmaService`, below), which
+// names a buffer by an offset into the driver's own pool and checks it here, before any address reaches the device.
+// A driver cannot name Raven's memory or another domain's, because an offset into its own pool cannot leave the pool.
 //
 // An internal module: application code can't import it (decision 142).
 
-import assembly: domain_pool_base_of
+import assembly: cache_flush_range, domain_pool_base_of
+import devices: Mmio
+import hardware: counter_frequency, read_counter
 import mailbox: core_of_actor, domain_of
 
 DMA_DATA_START: u64 = 0x11000       // the first byte of a pool a device may touch: after the guard page, the stack (0x1000 to
@@ -27,5 +29,86 @@ pub fn dma_window(dw_owner: u64, dw_offset: u64, dw_length: u64) -> u64 {
     }
     unsafe {
         return domain_pool_base_of(core_of_actor(dw_owner), dm_domain) + dw_offset
+    }
+}
+
+// ---- the DMA service (milestone 7j, decision 189) ----------------------------------------------------------------
+//
+// One `DmaService` for each driver that may start a transfer, spawned by trusted code with that driver as its owner:
+// holding the service's reference is the authority (messages carry no sender, so the owner is fixed at spawn). The driver
+// asks for a copy inside its own pool; the service checks both ranges with `dma_window`, runs the transfer on its channel
+// of the BCM2835 DMA controller and says whether it was done. The controller's registers are Raven's: no driver is given
+// the `Mmio` of a DMA channel.
+
+DMA_BUS: u64 = 0xC0000000           // the bus alias of RAM that bypasses the caches: a device's address is the physical one + this
+DMA_CB_OFFSET: u64 = 0x10800        // where the service keeps its control block: in the EL1-only control page of the owner's pool
+DMA_TI_COPY: u64 = 0x110            // transfer information: source and destination addresses both increment
+DMA_CS_ACTIVE: u64 = 1
+DMA_CS_END: u64 = 2
+DMA_CS_ERROR: u64 = 0x100
+DMA_WAIT_MS: u64 = 20               // a transfer inside a pool (2 MB at most) takes well under this; longer is a failure
+
+/// Whom a service tells when a copy is over.
+pub interface DmaDone {
+    lossy on done(ok: bool)
+}
+
+pub actor DmaService {
+    owner: u64
+    channel: val Mmio
+    enable: val Mmio
+    channel_number: u64
+
+    /// `owner` is the address of the driver (a `separate` actor); `channel` the registers of one DMA channel and `enable`
+    /// those of the controller's enable register (0x3F007F00 for 0x100 bytes), both parts of the peripherals.
+    new(owner: u64, channel: val Mmio, enable: val Mmio, channel_number: u64) {
+        .owner = owner
+        .channel = channel
+        .enable = enable
+        .channel_number = channel_number
+    }
+
+    /// Copies `length` bytes from offset `src` to offset `dst` of the owner's pool, both inside the part a device may
+    /// use and not overlapping; `reply` is told whether it was done.
+    pub lossy on transfer(src: u64, dst: u64, length: u64, reply: DmaDone) {
+        reply.done(dma_copy(.owner, .channel, .enable, .channel_number, src, dst, length))
+    }
+}
+
+fn dma_copy(dc_owner: u64, dc_channel: Mmio, dc_enable: Mmio, dc_number: u64, dc_src: u64, dc_dst: u64, dc_length: u64) -> bool {
+    dc_from: u64 = dma_window(dc_owner, dc_src, dc_length)
+    dc_to: u64 = dma_window(dc_owner, dc_dst, dc_length)
+    if dc_from == 0 or dc_to == 0 {
+        return false
+    }
+    if dc_from < dc_to + dc_length and dc_to < dc_from + dc_length {
+        return false                                // overlapping ranges: what a device does with them is not defined
+    }
+    unsafe {
+        dc_block: u64 = dc_to - dc_dst + DMA_CB_OFFSET          // the pool's base + the control block's offset
+        store32(dc_block, DMA_TI_COPY wrap u32)
+        store32(dc_block + 4, (DMA_BUS + dc_from) wrap u32)
+        store32(dc_block + 8, (DMA_BUS + dc_to) wrap u32)
+        store32(dc_block + 12, dc_length wrap u32)
+        store32(dc_block + 16, 0)
+        store32(dc_block + 20, 0)
+        cache_flush_range(dc_block, 32)
+        cache_flush_range(dc_from, dc_length)
+        cache_flush_range(dc_to, dc_length)
+        dc_enable.write32(0xF0, dc_enable.read32(0xF0) or (1 shl (dc_number wrap u32)))
+        dc_channel.write32(0x04, (DMA_BUS + dc_block) wrap u32)
+        dc_channel.write32(0x00, DMA_CS_ACTIVE wrap u32)
+        dc_start: u64 = read_counter()
+        dc_limit: u64 = DMA_WAIT_MS * (counter_frequency() / 1000)
+        waiting: loop (dc_channel.read32(0x00) as u64 and DMA_CS_ACTIVE) != 0 {
+            if read_counter() - dc_start > dc_limit {
+                dc_channel.write32(0x00, 0x80000000)    // reset the channel: it is not going to finish
+                return false
+            }
+        }
+        dc_state: u64 = dc_channel.read32(0x00) as u64
+        dc_channel.write32(0x00, DMA_CS_END wrap u32)     // END is cleared by writing a one
+        cache_flush_range(dc_to, dc_length)
+        return (dc_state and DMA_CS_ERROR) == 0
     }
 }

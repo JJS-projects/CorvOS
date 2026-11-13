@@ -271,3 +271,20 @@ pending_messages:
     .space  64
 next_core:
     .space  8
+
+    .section .text
+
+// void cache_flush_range(addr, len): cleans and invalidates the data cache lines of [addr, addr + len) to the point of
+// coherency (`dc civac`): what a device is about to read from memory is written back, and what it has written is not
+// hidden by a stale line (decision 189). The Cortex-A53's lines are 64 bytes. Nothing here can be seen in QEMU.
+    .global cache_flush_range
+cache_flush_range:
+    cbz     x1, 2f
+    add     x1, x0, x1                  // end
+    bic     x0, x0, #63                 // start of the first line
+1:  dc      civac, x0
+    add     x0, x0, #64
+    cmp     x0, x1
+    b.lo    1b
+    dsb     sy                          // the maintenance is complete before the device is started
+2:  ret
