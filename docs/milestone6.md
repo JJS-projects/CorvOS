@@ -37,7 +37,7 @@ board.
   deterministic test (the race it closes appeared about 1 run in 64); a `reliable` send across cores cannot say
   `MailboxFull`; a sender whose ring is full waits, so two cores flooding each other could deadlock; a `watch` on
   another core's actor is dropped by a broadcast when its watcher ends (untested); core 0's `run_forever` idles in
-  `wfi` and does not wake for a ring record; only core 0 prints and takes interrupts.
+  `wfi` and does not wake for a ring record (fixed in 7f: a ring push to core 0 raises its mailbox interrupt, decision 183); only core 0 prints and takes interrupts.
 - Plain (non-`separate`) actors all live on core 0.
 
 Next: milestone 7's rest (drivers as actors in their own domains, interrupts as messages to driver domains, the DMA

@@ -480,7 +480,18 @@ domain_irq:
     isb
     mov     x0, #REASON_TIMEOUT
     b       leave_domain
-1:  ldr     x0, =0x3F00B208             // IRQ pending 2: sources 32 to 63
+1:  mrs     x2, mpidr_el1               // a record for this core in a ring (mailbox 0, decision 183): clear it, the domain goes on
+    and     x2, x2, #3
+    lsl     x2, x2, #2
+    ldr     x0, =0x40000060             // CORE0_IRQ_SOURCE; + 4 * core
+    ldr     w1, [x0, x2]
+    tbz     w1, #4, 3f
+    ldr     x0, =0x400000C0             // mailbox 0 write-clear; + 16 * core
+    lsl     x2, x2, #2
+    mov     w1, #-1
+    str     w1, [x0, x2]
+    b       resume_current
+3:  ldr     x0, =0x3F00B208             // IRQ pending 2: sources 32 to 63
     ldr     w1, [x0]
     cbz     w1, 2f
     ldr     x2, =0x3F00B220             // disable IRQs 2: switch off what fired
@@ -491,8 +502,7 @@ domain_irq:
     orr     x3, x3, x1
     str     x3, [x2, #48]
     b       resume_current
-2:  mov     x0, #9                      // an interrupt nobody asked for: report it (never returns)
-    b       exception_report
+2:  b       resume_current              // nothing pending: the source withdrew before we looked (decision 183): go on
 
 // What the stub at the end of a handler does: `svc #0`.
     .global domain_return_stub
