@@ -108,7 +108,7 @@ claim. Only deliberately shared data pays any runtime cost.
 - **A driver in a protection domain** is given its registers as an `Mmio` argument of the `new` of its `separate` actor: Raven maps exactly those pages into the domain (Device memory, read/write at EL0, one 2 MB block of the peripherals per domain; decision 182), so `Mmio.read32` is a plain load in the domain and the MMU backs the software bounds check.
 - **DMA-capable devices** are the exception, because without an IOMMU they can write
   anywhere. Their DMA registers are never handed to drivers; drivers ask a trusted
-  DMA actor in Raven, which checks every address range.
+  DMA actor in Raven, which checks every address range (a buffer is named by an offset into the driver's own pool, so there is no address to forge: decision 185).
 
 ### 3.6 Errors
 
@@ -334,9 +334,7 @@ How failure and ending look to other actors (decisions 117 to 120):
 
 ## 9. Open questions
 
-- **DMA without an IOMMU**: the approach is settled (a trusted DMA actor in Raven
-  checks every address range; section 3.5). The details of its interface are decided
-  at milestone 7.
+- **DMA without an IOMMU**: the approach and the interface are settled (a trusted DMA actor per driver in Raven; a buffer is an offset and length in the driver's own pool; `dma_window` checks it; decision 185). The DMA actor itself waits for the first DMA device. Still open: the bus address, cache maintenance and what happens to a transfer when the driver restarts (hardware.md item 26).
 - **Mailbox sizes and fairness**: bounded mailboxes and what a full one means are
   settled (decision 112). Still open: how big a mailbox is, whether an actor can ask
   for a different size, whether one sender can fill a mailbox so that every other

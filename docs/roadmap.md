@@ -142,7 +142,7 @@ and a domain cannot read another's memory.
 
 ## 7. Drivers as actors, and supervision
 
-*Steps 7a (restarts), 7b (`watch`), 7c (`stop`, `Gone`, `stopped`) and 7d (a supervisor in Rook, the demo, [fault-tolerance.md](fault-tolerance.md)) are built, and 7e (a device's registers mapped into a domain, decision 182). 7f (interrupts as messages to a domain on any core, decision 183) and 7g (the UART driver in its own domain, killed mid-use and restarted, decision 184). Next: 7h (the DMA check).*
+*Steps 7a (restarts), 7b (`watch`), 7c (`stop`, `Gone`, `stopped`) and 7d (a supervisor in Rook, the demo, [fault-tolerance.md](fault-tolerance.md)) are built, and 7e (a device's registers mapped into a domain, decision 182). 7f (interrupts as messages to a domain on any core, decision 183) and 7g (the UART driver in its own domain, killed mid-use and restarted, decision 184). and 7h (the DMA window check and the interface, decision 185; the DMA actor itself waits for the first DMA device). Milestone 7's "done when" is met by 7g.*
 
 - Interrupts delivered as messages to driver actors in their own domains.
 - Supervision trees; a domain restarts as a unit. Supervisors are ordinary actors

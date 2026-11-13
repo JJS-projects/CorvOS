@@ -1,0 +1,67 @@
+// The check behind every DMA transfer (milestone 7h, decision 185): a buffer is named by an offset into the driver's own
+// pool, and only the part of the pool a device may touch is accepted.
+// Worked out: Raven puts the first `separate` actor on core 1 and the second on core 2, each in its core's domain 1; a
+// pool is at 0x14000000 + (3 * core + domain - 1) * 2 MB, so core 1's is 0x14600000 = 341835776 and core 2's is
+// 0x14C00000 = 348127232. A pool is 2 MB = 0x200000, its data begins at 0x11000. Each line is one request:
+//  1. (a, 0x11000, 64) is the first byte of the data: 341835776 + 0x11000 = 341835776 + 69632 = 341905408.
+//  2. (b, 0x11000, 64) is the same offset in the other pool: 348127232 + 69632 = 348196864.
+//  3. (a, 0x1FFFC0, 64) ends exactly at the pool's end: 341835776 + 0x1FFFC0 (= 2097088) = 343932864.
+//  4. (a, 0x1FFFC1, 64) is one byte past the end: 0.
+//  5. (a, 0x10FFF, 64) starts one byte before the data (in the control page): 0.
+//  6. (a, 0x10000, 4096) is the control page itself, where Raven keeps the actor's header: 0.
+//  7. (a, 0x2000, 16) is in the stack: 0.
+//  8. (a, 0x11000, 0) is a transfer of nothing: 0.
+//  9. (a, 0xFFFFFFFFFFFFFFF0, 32): offset + length wraps round to 16, which a careless sum would accept: 0.
+// 10. (a, 0x200000, 1) starts at the end: 0.
+// 11. a plain actor has no pool: 0.
+// expect: 341905408
+// expect: 348196864
+// expect: 343932864
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+
+import dma: dma_window
+import print: print_u64
+
+actor Plain {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+}
+
+separate actor Driver {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+}
+
+fn test_main() {
+    a: Driver = spawn Driver()
+    b: Driver = spawn Driver()
+    p: Plain = spawn Plain()
+    unsafe {
+        who_a: u64 = actor_address(a)
+        who_b: u64 = actor_address(b)
+        print_u64(dma_window(who_a, 0x11000, 64))
+        print_u64(dma_window(who_b, 0x11000, 64))
+        print_u64(dma_window(who_a, 0x1FFFC0, 64))
+        print_u64(dma_window(who_a, 0x1FFFC1, 64))
+        print_u64(dma_window(who_a, 0x10FFF, 64))
+        print_u64(dma_window(who_a, 0x10000, 4096))
+        print_u64(dma_window(who_a, 0x2000, 16))
+        print_u64(dma_window(who_a, 0x11000, 0))
+        print_u64(dma_window(who_a, 0xFFFFFFFFFFFFFFF0, 32))
+        print_u64(dma_window(who_a, 0x200000, 1))
+        print_u64(dma_window(actor_address(p), 0x11000, 64))
+    }
+}
