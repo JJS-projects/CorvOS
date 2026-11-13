@@ -1,0 +1,87 @@
+// Two drivers on two cores, each with a DMA service of its own: the same request lands in the right pool only (milestone 7j,
+// decision 189). The service is the authority and it is fixed to its owner, and an offset names a place in the owner's pool,
+// so a driver cannot make a transfer touch another driver's memory, even asking for the same offsets.
+// Worked out: the first `separate` actor goes to core 1 and the second to core 2, each in its core's domain 1. Each driver
+// is told to `fill` its offset 0x20000 with a number of its own (111 and 222; one word), and then both ask their own service
+// to copy 8 bytes from 0x20000 to 0x30000 (each is told done: prints 1, 1; they run on different cores and both are told before
+// the next step settles, and the two lines are the same, so their order does not matter). Then each looks at 0x30000: a sees 111 and b sees 222 (not the other's). Last,
+// a asks for a copy that must be refused (destination in the control page) and b's 0x30000 is still 222.
+// expect: 1
+// expect: 1
+// expect: 111
+// expect: 222
+// expect: 0
+// expect: 222
+
+import actors: run_until_idle
+import devices: Mmio
+import dma: DmaDone, DmaService
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Driver: DmaDone {
+    printer: Printer
+
+    new(printer: Printer) {
+        .printer = printer
+    }
+
+    lossy on fill(value: u64) {
+        unsafe {
+            store64(actor_address(self) + 0x20000 - 0x11000, value)
+        }
+    }
+
+    lossy on go(dma: DmaService, src: u64, dst: u64, length: u64) {
+        dma.transfer(src, dst, length, narrow(self, DmaDone))
+    }
+
+    lossy on done(ok: bool) {
+        if ok {
+            .printer.show(1)
+        } else {
+            .printer.show(0)
+        }
+    }
+
+    lossy on look(offset: u64) {
+        unsafe {
+            .printer.show(load64(actor_address(self) + offset - 0x11000))
+        }
+    }
+}
+
+fn address_of(driver: Driver) -> u64 {
+    unsafe {
+        return actor_address(driver)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    a: Driver = spawn Driver(printer)
+    b: Driver = spawn Driver(printer)
+    dma_a: DmaService = spawn DmaService(address_of(a), peripherals.part(0x007000, 0x100),
+                                         peripherals.part(0x007F00, 0x100), 0)
+    dma_b: DmaService = spawn DmaService(address_of(b), peripherals.part(0x007100, 0x100),
+                                         peripherals.part(0x007F00, 0x100), 1)
+    a.fill(111)
+    b.fill(222)
+    run_until_idle()
+    a.go(dma_a, 0x20000, 0x30000, 8)
+    b.go(dma_b, 0x20000, 0x30000, 8)
+    run_until_idle()
+    a.look(0x30000)
+    run_until_idle()
+    b.look(0x30000)
+    run_until_idle()
+    a.go(dma_a, 0x20000, 0x10700, 8)
+    run_until_idle()
+    b.look(0x30000)
+    run_until_idle()
+}
