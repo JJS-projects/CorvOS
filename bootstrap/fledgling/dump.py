@@ -1,6 +1,8 @@
 """Plain-text dumps of the compiler's stages, in the formats the self-hosted compiler must match
 (docs/self-hosting.md)."""
 
+import threading
+
 from .errors import CompileError
 from .lexer import lex
 from .parser import parse
@@ -54,7 +56,15 @@ def _group(kind, items, text=""):
     return (kind, None, text, [tree(i) for i in items])
 
 
-_annotate = [False]     # set while `dump_bodies` builds a tree: nodes then carry what the checker found
+# Set while `dump_bodies` builds a tree: nodes then carry what the checker found. One for each thread: the test harness
+# makes the references of many hosted tests at once in threads of one process, and a flag shared between them put one
+# dump's notes into another's, now and then (about 1 file in 600 of `make selfhost-check`: decision 194).
+_state = threading.local()
+
+
+def _annotating():
+    return getattr(_state, "on", False)
+
 
 
 NOTE_DEFAULTS = {"words": 1, "stopped": 0, "payload_words": 0, "args_words": 0}   # the parser's value: not a note
@@ -101,7 +111,7 @@ def tree(n):
     """The `(kind, pos, text, kids)` form of syntax node `n`. A top-level item of a program (it has
     `file`) ends with a `File` child; a generic's instance with a `GenericBase` child."""
     kind, pos, text, kids = _tree(n)
-    if _annotate[0]:
+    if _annotating():
         notes = _notes(n)
         if notes:
             text = f"{text} {notes}" if text else notes
@@ -404,11 +414,11 @@ def dump_bodies(stream, ownership=False, actors=False, bodies=True):
            for name, (ty, value) in checker.consts.items()]
     shown = S.Program()
     shown.items = [item for item in program.items if item.file == last]
-    _annotate[0] = True
+    _state.on = True
     try:
         body = _print_tree(tree(shown))
     finally:
-        _annotate[0] = False
+        _state.on = False
     return "\n".join(out) + ("\n" if out else "") + body
 
 
