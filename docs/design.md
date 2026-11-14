@@ -357,8 +357,9 @@ How failure and ending look to other actors (decisions 117 to 120):
   whether stopping an actor stops the actors it spawned. Decide at milestone 6 or 7,
   when a program first needs an actor per request.
 - **Richer supervisor policies** (a restart window in time, restarting siblings together): a
-  supervisor is written in Rook (decision 151); a library that helps needs generics or a
-  way to name a child's type, and a clock the policy can read. Open.
+  supervisor is written in Rook (decision 151). A restart budget that refills with time is a
+  library (`RestartBudget`, decision 193); restarting siblings together, and a library that takes
+  the child's type, still need generics over actors. Open.
 - **Visible cost of cross-domain sends**: settled by decision 173 (`--report-copies`). The question was: a send to an actor in
   another domain copies the message, while an identical-looking send within a
   domain doesn't. Should the difference show in the code? A send to another core is a

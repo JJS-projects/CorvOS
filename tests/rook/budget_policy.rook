@@ -1,0 +1,66 @@
+// The restart budget (decision 193): a bucket of `capacity` restarts that gains one every `ticks_per_restart` ticks.
+// Worked out for capacity 3, 10 ticks a restart, made at time 100 (full: 3 available). Each line: time, then what is left
+// before the call, then the answer (1: allowed, 0: stop).
+//   100: 3 -> 1 (2 left)      100: 2 -> 1 (1)      100: 1 -> 1 (0)      100: 0 -> 0 (a burst of 4 is too many)
+//   105: 0, only 5 ticks gone -> 0
+//   110: 10 ticks since 100: gains 1 -> 1 (0)      110: 0 -> 0
+//   135: since is 110, 25 ticks: gains 2 (since 130) -> 2, uses one -> 1 (1 left)      135: 5 ticks: no gain, 1 -> 1 (0)     135: 0
+//        -> 0
+//   139: since is 130, only 9 ticks -> 0     140: 10 ticks since 130 (the 5 left over at 135 count): gains 1 -> 1 (0)
+//   1000: a long time: the bucket is full again at 3 (not more) -> 1 (2), 1 (1), 1 (0), then 0
+// Printed in that order: 1 1 1 0 | 0 | 1 0 | 1 1 0 | 0 1 | 1 1 1 0 (sixteen numbers). Then one with a zero refill period (made 1
+// tick: at least 1) and capacity 1: 50 -> 1, 50 -> 0, 51 -> 1 (one tick is enough): 1 0 1.
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 0
+// expect: 0
+// expect: 1
+// expect: 0
+// expect: 1
+// expect: 1
+// expect: 0
+// expect: 0
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 0
+// expect: 1
+// expect: 0
+// expect: 1
+
+import print: print_u64
+import restart_budget: RestartBudget
+
+fn show(answer: bool) {
+    if answer {
+        print_u64(1)
+    } else {
+        print_u64(0)
+    }
+}
+
+fn test_main() {
+    mut b: RestartBudget = RestartBudget(capacity: 3, ticks_per_restart: 10, now: 100)
+    show(b.allow(100))
+    show(b.allow(100))
+    show(b.allow(100))
+    show(b.allow(100))
+    show(b.allow(105))
+    show(b.allow(110))
+    show(b.allow(110))
+    show(b.allow(135))
+    show(b.allow(135))
+    show(b.allow(135))
+    show(b.allow(139))
+    show(b.allow(140))
+    show(b.allow(1000))
+    show(b.allow(1000))
+    show(b.allow(1000))
+    show(b.allow(1000))
+    mut c: RestartBudget = RestartBudget(capacity: 1, ticks_per_restart: 0, now: 50)
+    show(c.allow(50))
+    show(c.allow(50))
+    show(c.allow(51))
+}
