@@ -1,0 +1,42 @@
+// How often a supervisor lets a failing actor come back: a budget of restarts that fills up again with time (a token
+// bucket). A supervisor that counts every restart for ever cannot tell a driver that fails once a day from one that fails
+// every millisecond; this can. The budget holds up to `capacity` restarts; one more becomes available every
+// `ticks_per_restart` ticks of the clock (the ARM generic timer, `hardware.read_counter()`, at `counter_frequency()` ticks
+// a second); a restart takes one away, and when none is left the supervisor should stop the actor.
+//
+// The supervisor passes the time in (`allow(now)`), so the policy is plain arithmetic: the same numbers give the same
+// answers, and a test can use made-up times. It is a library, not a language feature (decision 193).
+
+pub struct RestartBudget {
+    capacity: u64
+    ticks_per_restart: u64
+    available: u64
+    since: u64                      // the time up to which the clock has been counted into `available`
+
+    /// A full budget of `capacity` restarts at time `now`, refilled one restart every `ticks_per_restart` ticks (at
+    /// least 1).
+    new(capacity: u64, ticks_per_restart: u64, now: u64) {
+        .capacity = capacity
+        .ticks_per_restart = if ticks_per_restart == 0 { 1 } else { ticks_per_restart }
+        .available = capacity
+        .since = now
+    }
+
+    /// Asks to restart at time `now`: true, and one restart is used up, if the budget has one; false if it is empty
+    /// (stop the actor). `now` must not go back.
+    pub mut fn allow(now: u64) -> bool {
+        gained: u64 = (now - .since) / .ticks_per_restart
+        if .available + gained >= .capacity {
+            .available = .capacity
+            .since = now                    // full: time spent full does not pile up
+        } else {
+            .available += gained
+            .since += gained * .ticks_per_restart       // the part of a refill period that has not finished counts later
+        }
+        if .available == 0 {
+            return false
+        }
+        .available -= 1
+        return true
+    }
+}
