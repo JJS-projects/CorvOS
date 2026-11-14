@@ -106,6 +106,9 @@ MACHINES = os.environ.get("MACHINES", "raspi3b raspi3ap").split()
 # serial port on a pseudo-terminal), or a serial device such as /dev/ttyUSB0
 # connected to a real board. See docs/hardware.md.
 SERIAL = os.environ.get("CORVOS_SERIAL", "stdio")
+# ICOUNT=N runs every test under QEMU's instruction counter with shift N: the cores take turns in a fixed pattern, so a
+# schedule repeats exactly and a race found by chance can be replayed; other shifts give other schedules.
+ICOUNT = os.environ.get("ICOUNT") or None
 # A board is slower to start than QEMU: its timeouts are this many times longer.
 BOARD_PATIENCE = 6
 
@@ -188,6 +191,10 @@ def boot(image, finished, timeout, machine, log_path, feed=None):
     cmd = [QEMU, "-M", machine, "-kernel", image,
            "-display", "none", "-serial", SERIAL,
            "-d", "unimp,guest_errors", "-D", log_path]
+    if ICOUNT is not None:
+        # One instruction counter drives every core: QEMU runs them one at a time and their interleaving is the same on every
+        # run (a failure found by chance repeats at will), and another shift gives another schedule (decision 195).
+        cmd += ["-icount", f"shift={ICOUNT},sleep=off"]
     if SERIAL == "pty":
         # Output written before the port is opened would be lost, so QEMU
         # starts paused and is told to go once the port is open.
@@ -480,6 +487,7 @@ class RookTest:
     line_counts: list = field(default_factory=list)  # (line, times) it must write
     expect_failures: list = field(default_factory=list)   # contained panics, in order
     timeout: float = 10.0
+    expect_any: int = None          # `expect-any: N`: N output lines whose content is not checked (a number that depends on the schedule)
     failures_open: bool = False     # the last expected failure may repeat (`xN+`)
     retries: int = 1                # runs allowed: it passes if any one does (a test of a timing race, decision 188)
 
@@ -489,7 +497,7 @@ class RookTest:
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
         fault, machines, typed, echo, counts = None, None, [], [], []
-        failures, timeout, retries, failures_open = [], 10.0, 1, False
+        failures, timeout, retries, failures_open, expect_any = [], 10.0, 1, False, None
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -516,6 +524,8 @@ class RookTest:
                 timeout = float(text[len("timeout:"):])
             elif text.startswith("retries:"):
                 retries = int(text[len("retries:"):])
+            elif text.startswith("expect-any:"):
+                expect_any = int(text[len("expect-any:"):])
             elif text.startswith("expect-qemu-log:"):
                 qemu_log.append(text[len("expect-qemu-log:"):].strip())
             elif text.startswith("input:"):
@@ -530,7 +540,7 @@ class RookTest:
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
                    qemu_log, fault, machines, input=typed, expect_echo=echo,
                    line_counts=counts, expect_failures=failures, timeout=timeout, retries=retries,
-                   failures_open=failures_open)
+                   failures_open=failures_open, expect_any=expect_any)
 
     def own_file(self):
         """The test's own source file name, as a panic line names it."""
@@ -591,11 +601,15 @@ class RookTest:
             return True, "ok", output
         if any("unhandled exception" in l for l in lines):
             return False, "CPU exception (see output)", output
-        for i, (want, got) in enumerate(zip(self.expect, outs)):
-            if want != got:
-                return False, f"output line {i + 1}: expected {want!r}, got {got!r}", output
-        if len(outs) != len(self.expect):
-            return False, f"expected {len(self.expect)} output line(s), got {len(outs)}", output
+        if self.expect_any is not None:
+            if len(outs) != self.expect_any:
+                return False, f"expected {self.expect_any} output line(s) of any content, got {len(outs)}", output
+        else:
+            for i, (want, got) in enumerate(zip(self.expect, outs)):
+                if want != got:
+                    return False, f"output line {i + 1}: expected {want!r}, got {got!r}", output
+            if len(outs) != len(self.expect):
+                return False, f"expected {len(self.expect)} output line(s), got {len(outs)}", output
         if self.expect_panic is not None:
             if not panics:
                 return False, f"expected a panic ({self.expect_panic!r}), but none happened", output
@@ -1283,6 +1297,34 @@ def check_dump_threads():
     return None
 
 
+def check_icount_schedules():
+    """Under QEMU's instruction counter (ICOUNT, decision 195) the cores take turns in a fixed pattern: a program whose result
+    the schedule decides (the number of messages a flood drops) prints the same on every run at one shift."""
+    global ICOUNT
+    if board_mode():
+        return None
+    image = os.path.join(ROOT, "build", "rook-tests", "separate_flood_drops.img")
+    if not os.path.exists(image):
+        return missing_image(image)
+    saved = ICOUNT
+    try:
+        for shift in ("0", "2"):
+            ICOUNT = shift
+            counts = []
+            for n in range(3):
+                output, timed_out, _ = boot(image, lambda lines: "Raven: boot complete, idling" in lines, 60.0, MACHINES[0],
+                                            os.path.join(LOG_DIR, f"harness_icount_{shift}_{n}.qemu"))
+                outs = [l for l in complete_lines(output) if l.startswith("out: ")]
+                if timed_out or len(outs) != 1:
+                    return f"shift {shift}: the flood program did not finish ({outs})"
+                counts.append(outs[0])
+            if len(set(counts)) != 1:
+                return f"shift {shift}: the same schedule gave different counts {counts}"
+    finally:
+        ICOUNT = saved
+    return None
+
+
 def check_soak_tool():
     """tools/soak.py expands names and prefixes to the tests they name (each once), and counts the failing runs of a test with
     the first reason."""
@@ -1300,8 +1342,8 @@ def check_soak_tool():
         return "no argument means every test"
     calls = []
 
-    def fake_run(cmd, capture_output, text):
-        calls.append(cmd[-1])
+    def fake_run(cmd, capture_output, text, env=None):
+        calls.append((cmd[-1], (env or {}).get("ICOUNT")))
         failed = len(calls) in (2, 4)
         return types.SimpleNamespace(returncode=1 if failed else 0,
                                      stdout="FAIL  rook/a  0.1s  d\n      reason: boom %d\n" % len(calls) if failed else "")
@@ -1309,6 +1351,10 @@ def check_soak_tool():
     name, failures, first = soak.soak_one("rook/a", 5)
     if (name, failures, first, len(calls)) != ("rook/a", 2, "reason: boom 2", 5):
         return f"soak_one gave {(name, failures, first, len(calls))}"
+    calls.clear()
+    name, failures, first = soak.soak_one("rook/a", 99, ["0", "1", "2", "3"])
+    if (failures, first, [c[1] for c in calls]) != (2, "at shifts 1,3; reason: boom 2", ["0", "1", "2", "3"]):
+        return f"a sweep of shifts gave {(failures, first, [c[1] for c in calls])}"
     return None
 
 
@@ -1790,6 +1836,8 @@ HARNESS_TESTS = [
                 check_failures_open),
     HarnessTest("harness/dump_threads", "The dump of bodies annotates for the thread that asked and no other",
                 check_dump_threads),
+    HarnessTest("harness/icount_schedules", "Under QEMU's instruction counter a schedule-dependent result repeats "
+                "exactly", check_icount_schedules),
     HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
                 check_soak_tool),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "

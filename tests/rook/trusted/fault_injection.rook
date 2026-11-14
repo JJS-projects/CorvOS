@@ -1,0 +1,60 @@
+// Fault injection (milestone 8a, decision 195): a test fails the handlers of a core at chosen points, and the supervised
+// system carries on. `inject_failures(0, 7, 7)` fails the 7th handler core 0 runs and every 7th after it, as if it had panicked
+// (reported as "injected failure"; the actor restarts with its fields cleared; the messages queued for it are lost).
+// Worked out. A counter starts at 0; batches of messages are sent and let settle (run_until_idle). h counts handlers run since
+// the injection was armed.
+//   batch 1: 5 adds, h = 1..5: total 5.
+//   batch 2: 5 adds, h = 6 (total 6), h = 7 FAILS: the counter restarts (total 0) and the 3 adds still queued are lost.
+//   batch 3: 5 adds, h = 8..12: total 5.
+//   batch 4: h = 13 (6), h = 14 FAILS: total 0, 3 lost.
+//   batch 5: 5 adds, h = 15..19: total 5.
+//   batch 6: h = 20 (6), h = 21 FAILS: total 0, 3 lost.
+//   batch 7: 3 adds, h = 22..24: total 3. Then `report`, h = 25 (the next failure is h = 28): prints 3.
+// Then test_main prints the restarts so far (3) and the messages lost (3 x 3 = 9).
+// expect-failure: injected failure x3
+// expect: 3
+// expect: 3
+// expect: 9
+
+import actors: lost_messages, restart_count, run_until_idle
+import mailbox: inject_failures
+import print: print_u64
+
+actor Counter {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    lossy on add(n: u64) {
+        .total += n
+    }
+
+    lossy on report() {
+        print_u64(.total)
+    }
+}
+
+fn batch(counter: Counter, adds: u64) {
+    sending: loop i: u64 in 0..adds {
+        counter.add(1)
+    }
+    run_until_idle()
+}
+
+fn test_main() {
+    counter: Counter = spawn Counter()
+    inject_failures(0, 7, 7)
+    batch(counter, 5)
+    batch(counter, 5)
+    batch(counter, 5)
+    batch(counter, 5)
+    batch(counter, 5)
+    batch(counter, 5)
+    batch(counter, 3)
+    counter.report()
+    run_until_idle()
+    print_u64(restart_count())
+    print_u64(lost_messages())
+}
