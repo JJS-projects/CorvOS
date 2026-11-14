@@ -1249,6 +1249,35 @@ def check_failures_open():
     return None
 
 
+def check_soak_tool():
+    """tools/soak.py expands names and prefixes to the tests they name (each once), and counts the failing runs of a test with
+    the first reason."""
+    import importlib.util
+    import types
+    spec = importlib.util.spec_from_file_location("soak", os.path.join(ROOT, "tools", "soak.py"))
+    soak = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(soak)
+    fakes = [types.SimpleNamespace(name=n) for n in ("rook/a", "rook/ab", "error/x", "rook/c")]
+    if soak.expand(["rook/a", "error/x"], fakes) != ["rook/a", "rook/ab", "error/x"]:
+        return f"prefixes expanded wrongly: {soak.expand(['rook/a', 'error/x'], fakes)}"
+    if soak.expand(["rook/a", "rook/ab"], fakes) != ["rook/a", "rook/ab"]:
+        return "a test named by two arguments must appear once"
+    if soak.expand([], fakes) != ["rook/a", "rook/ab", "error/x", "rook/c"]:
+        return "no argument means every test"
+    calls = []
+
+    def fake_run(cmd, capture_output, text):
+        calls.append(cmd[-1])
+        failed = len(calls) in (2, 4)
+        return types.SimpleNamespace(returncode=1 if failed else 0,
+                                     stdout="FAIL  rook/a  0.1s  d\n      reason: boom %d\n" % len(calls) if failed else "")
+    soak.subprocess = types.SimpleNamespace(run=fake_run)
+    name, failures, first = soak.soak_one("rook/a", 5)
+    if (name, failures, first, len(calls)) != ("rook/a", 2, "reason: boom 2", 5):
+        return f"soak_one gave {(name, failures, first, len(calls))}"
+    return None
+
+
 def check_panic_wildcard():
     """`at FILE.rook:*` matches any line in one of Raven's files, but never the wrong message or
     file, and never the test's own file, which keeps its exact line."""
@@ -1725,6 +1754,8 @@ HARNESS_TESTS = [
                 "without it a failure is final", check_retries),
     HarnessTest("harness/failures_open", "`expect-failure: msg xN+` reads as N or more, `xN` as exactly N",
                 check_failures_open),
+    HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
+                check_soak_tool),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
                 "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",
