@@ -46,8 +46,10 @@ def executable_lines(path):
     return lines
 
 
-def compile_everything():
-    """Compile each test program once, as the tests do."""
+def compile_everything(shard=0, shards=1):
+    """Compile each test program once, as the tests do. With `shards` > 1 this call does only its share of the two long
+    lists (every `shards`-th file, starting at `shard`) and, in shard 0, the short ones below them: the shards together
+    do exactly what one call does (decision 192)."""
     # Import the compiler here, under the tracer, so the lines that run at import
     # (every `def` and `class`) count too.
     for name in [m for m in sys.modules if m == "fledgling" or m.startswith("fledgling.")]:
@@ -55,14 +57,18 @@ def compile_everything():
     from fledgling import compile_program
     from fledgling.dump import dump_tokens, dump_tree, dump_expanded, dump_declarations, dump_bodies, dump_asm, make_stream, report_copies, tree
     lib = run_tests.ROOK_LIB
-    for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
-                       + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook"))):
+    programs = sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "*.rook"))
+                      + glob.glob(os.path.join(ROOT, "tests", "rook", "trusted", "*.rook")))
+    for path in programs[shard::shards]:
         compile_program([(p, open(p).read()) for p in lib + [path]], run_tests.TRUSTED_DIRS)
     # Error programs go through the test itself, so `// alone` and the other
     # headers are honoured exactly as `make test` does.
-    for path in sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "errors", "*.rook"))
-                       + glob.glob(os.path.join(ROOT, "tests", "rook", "errors", "trusted", "*.rook"))):
+    errors = sorted(glob.glob(os.path.join(ROOT, "tests", "rook", "errors", "*.rook"))
+                    + glob.glob(os.path.join(ROOT, "tests", "rook", "errors", "trusted", "*.rook")))
+    for path in errors[shard::shards]:
         run_tests.ErrorTest.from_file(path).run()
+    if shard != 0:
+        return                  # the rest is short: shard 0 does it
     # The two import cases a one-file test can't reach.
     run_tests.check_import_ambiguous()
     run_tests.check_suggest_imports()
@@ -159,14 +165,30 @@ def load_gaps():
     return gaps
 
 
+def run_shard(arguments):
+    """One worker: its share of compile_everything under a tracer of its own; the lines that ran, as (path, line)."""
+    shard, shards = arguments
+    tracer = trace.Trace(count=1, trace=0)
+    tracer.runfunc(compile_everything, shard, shards)
+    return {(os.path.realpath(path), line) for (path, line), _ in tracer.results().counts.items()}
+
+
 def main(argv):
     if argv:
         sys.exit(__doc__)
-    tracer = trace.Trace(count=1, trace=0)
-    tracer.runfunc(compile_everything)
+    # Python's `trace` is slow (a single process took 15 minutes in CI): the work is split over the CPUs, one tracer
+    # each, and the lines that ran are the union (decision 192). JOBS=1 does it in one process.
+    shards = int(os.environ.get("JOBS") or min(8, os.cpu_count() or 1))
+    if shards > 1:
+        import multiprocessing
+        with multiprocessing.get_context("fork").Pool(shards) as pool:
+            results = pool.map(run_shard, [(n, shards) for n in range(shards)], chunksize=1)
+    else:
+        results = [run_shard((0, 1))]
     ran = {}
-    for (path, line), _ in tracer.results().counts.items():
-        ran.setdefault(os.path.realpath(path), set()).add(line)
+    for lines in results:
+        for path, line in lines:
+            ran.setdefault(path, set()).add(line)
 
     gaps = load_gaps()
     seen_gaps = set()
