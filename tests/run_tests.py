@@ -480,6 +480,7 @@ class RookTest:
     line_counts: list = field(default_factory=list)  # (line, times) it must write
     expect_failures: list = field(default_factory=list)   # contained panics, in order
     timeout: float = 10.0
+    failures_open: bool = False     # the last expected failure may repeat (`xN+`)
     retries: int = 1                # runs allowed: it passes if any one does (a test of a timing race, decision 188)
 
     @classmethod
@@ -488,7 +489,7 @@ class RookTest:
         base = os.path.splitext(rel)[0].replace(os.sep, "/")
         description, expect, panic, qemu_log = "", [], None, []
         fault, machines, typed, echo, counts = None, None, [], [], []
-        failures, timeout, retries = [], 10.0, 1
+        failures, timeout, retries, failures_open = [], 10.0, 1, False
         for line in open(path):
             line = line.strip()
             if not line.startswith("//"):
@@ -502,6 +503,9 @@ class RookTest:
                 what, _, times = text[len("expect-failure:"):].strip().rpartition(" x")
                 if what and times.isdigit():
                     failures += [what] * int(times)      # "msg at f.rook:7 x40": 40 times
+                elif what and times.endswith("+") and times[:-1].isdigit():
+                    failures += [what] * int(times[:-1])     # "msg x3+": 3 times or more (a storm ends when a supervisor
+                    failures_open = True                     # gets to it: how many restarts are in flight is not fixed)
                 else:
                     failures.append(text[len("expect-failure:"):].strip())
             elif text.startswith("expect-fault:"):
@@ -525,7 +529,8 @@ class RookTest:
                 description = text
         return cls(f"rook/{base}", description, f"build/rook-tests/{base}.img", expect, panic,
                    qemu_log, fault, machines, input=typed, expect_echo=echo,
-                   line_counts=counts, expect_failures=failures, timeout=timeout, retries=retries)
+                   line_counts=counts, expect_failures=failures, timeout=timeout, retries=retries,
+                   failures_open=failures_open)
 
     def own_file(self):
         """The test's own source file name, as a panic line names it."""
@@ -572,8 +577,11 @@ class RookTest:
         panics = [l[len(PANIC):] for l in lines if l.startswith(PANIC)]
 
         if self.expect_failures:
-            if len(panics) != len(self.expect_failures) or not all(
-                    panic_matches(w, g, self.own_file()) for w, g in zip(self.expect_failures, panics)):
+            wanted = list(self.expect_failures)
+            if self.failures_open and len(panics) > len(wanted):
+                wanted += [wanted[-1]] * (len(panics) - len(wanted))     # `xN+`: more of the last one
+            if len(panics) != len(wanted) or not all(
+                    panic_matches(w, g, self.own_file()) for w, g in zip(wanted, panics)):
                 return False, f"expected the failures {self.expect_failures!r}, got {panics!r}", output
         elif len(panics) > 1:
             return False, f"more than one panic: {panics[1]!r}", output
@@ -954,10 +962,9 @@ def thread_ticks(pid):
 
 
 def check_idle_sleeps():
-    """A core with nothing to run sleeps (`wfi`) instead of spinning. Boots the
-    interrupt echo, which idles in `run_forever`, and counts QEMU's busy threads. Cores
-    1 to 3 are parked with `wfe`, which QEMU spins on (one busy thread each), so a
-    sleeping core 0 leaves exactly three; a spinning one makes four."""
+    """Every core with nothing to run sleeps (`wfi`) instead of spinning. Boots the interrupt echo, which idles in
+    `run_forever`, and counts QEMU's busy threads: none should be. (Cores 1 to 3 used to idle in a loop around `wfe` and showed as busy
+    threads, so every test cost four CPUs: decision 191.)"""
     if board_mode():
         return None
     image = os.path.join(ROOT, "build", "rook-tests", "echo_interrupt.img")
@@ -981,8 +988,8 @@ def check_idle_sleeps():
         after = thread_ticks(proc.pid)
         busy = sum(1 for t, n in after.items()
                    if (n - before.get(t, 0)) / os.sysconf("SC_CLK_TCK") > 1.5)
-        if busy > 3:
-            return f"{busy} QEMU threads were busy for 2 s; core 0 is not sleeping"
+        if busy > 0:
+            return f"{busy} QEMU threads were busy for 2 s; an idle core is not sleeping"
         return None
     finally:
         proc.kill()
@@ -1193,6 +1200,10 @@ def check_bringup_stages():
     lines, typed = module.expectations("rook/separate_uart_driver")
     if typed != ["hello", "!llo", "world"]:
         return f"the typed input of separate_uart_driver read wrongly: {typed}"
+    names = [stage[0] for stage in module.STAGES]
+    for wanted in ("dma", "storm"):
+        if wanted not in names:
+            return f"the stage list has no {wanted} stage"
     return None
 
 
@@ -1216,6 +1227,25 @@ def check_retries():
         return "a test that fails 3 runs of 3 should fail"
     if made(1, [False, True]):
         return "without `retries:` a failure is final"
+    return None
+
+
+def check_failures_open():
+    """`expect-failure: msg xN+` accepts N or more of that failure, in order; `xN` and a plain line stay exact."""
+    import tempfile
+    def parse(header):
+        with tempfile.NamedTemporaryFile("w", suffix=".rook", dir=os.path.join(ROOT, "build"), delete=False) as f:
+            f.write("// d\n" + header + "\nfn test_main() {}\n")
+        try:
+            return RookTest.from_file(f.name)
+        finally:
+            os.unlink(f.name)
+    open_test = parse("// expect-failure: boom at t.rook:3 x3+")
+    exact = parse("// expect-failure: boom at t.rook:3 x3")
+    if not open_test.failures_open or open_test.expect_failures != ["boom at t.rook:3"] * 3:
+        return f"`x3+` read wrongly: {open_test.expect_failures!r} open={open_test.failures_open}"
+    if exact.failures_open or exact.expect_failures != ["boom at t.rook:3"] * 3:
+        return f"`x3` read wrongly: {exact.expect_failures!r} open={exact.failures_open}"
     return None
 
 
@@ -1693,6 +1723,8 @@ HARNESS_TESTS = [
                 "serial output from their headers", check_bringup_stages),
     HarnessTest("harness/retries", "A test with `// retries: N` passes if any of N runs does; "
                 "without it a failure is final", check_retries),
+    HarnessTest("harness/failures_open", "`expect-failure: msg xN+` reads as N or more, `xN` as exactly N",
+                check_failures_open),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
                 "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",

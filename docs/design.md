@@ -334,7 +334,7 @@ How failure and ending look to other actors (decisions 117 to 120):
 
 ## 9. Open questions
 
-- **DMA without an IOMMU**: the approach and the interface are settled (a trusted DMA actor per driver in Raven; a buffer is an offset and length in the driver's own pool; `dma_window` checks it; decision 185). The DMA actor itself waits for the first DMA device. Still open: the bus address, cache maintenance and what happens to a transfer when the driver restarts (hardware.md item 26).
+- **DMA without an IOMMU**: the approach and the interface are settled (a trusted DMA actor per driver in Raven; a buffer is an offset and length in the driver's own pool; `dma_window` checks it; decision 185). The DMA service exists for a copy inside the driver's pool (`DmaService`, tested on QEMU's DMA controller, decision 189); moving data to and from a device waits for the first DMA device. Still open: the bus address, cache maintenance and what happens to a transfer when the driver restarts (hardware.md item 26).
 - **Mailbox sizes and fairness**: bounded mailboxes and what a full one means are
   settled (decision 112). Still open: how big a mailbox is, whether an actor can ask
   for a different size, whether one sender can fill a mailbox so that every other

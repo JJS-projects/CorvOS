@@ -1,0 +1,106 @@
+// A driver in a domain copies memory inside its own pool through the DMA service (milestone 7j, decision 189), on QEMU's
+// BCM2835 DMA controller, and bad requests are refused.
+// Worked out. Offsets are in the driver's pool; the driver's fields begin at 0x11000, so offset X is the address
+// actor_address(self) + X - 0x11000. A = 0x20000 and B = 0x30000 are in the data part. `fill` stores two words at A:
+// 0x1122334455667788 = 1234605616436508552 and 0x99AABBCCDDEEFF00 = 11072869122414935808.
+//  1. copy A to B, 16 bytes: done prints 1; B's two words print 1234605616436508552 and 11072869122414935808.
+//  2. a sentinel 0xDEAD = 57005 is put (by test_main, which may touch the control page) at pool + 0x10700. Copy A to offset
+//     0x10700 (the control page, where Raven keeps the driver's header: not a place a device may write): done prints 0 and
+//     the sentinel is still 57005.
+//  3. copy A to 0x1FFFF8, 16 bytes, one past the pool's end: 0.
+//  4. copy A to A + 8, 16 bytes: the ranges overlap: 0.
+//  5. copy A to B, 0 bytes: 0.
+//  6. copy from offset 0x2000 (the stack) to B: 0.
+// expect: 1
+// expect: 1234605616436508552
+// expect: 11072869122414935808
+// expect: 0
+// expect: 57005
+// expect: 0
+// expect: 0
+// expect: 0
+// expect: 0
+
+import actors: run_until_idle
+import assembly: domain_pool_base_of
+import devices: Mmio
+import dma: DmaDone, DmaService
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Driver: DmaDone {
+    printer: Printer
+
+    new(printer: Printer) {
+        .printer = printer
+    }
+
+    lossy on fill() {
+        unsafe {
+            store64(actor_address(self) + 0x20000 - 0x11000, 0x1122334455667788)
+            store64(actor_address(self) + 0x20008 - 0x11000, 0x99AABBCCDDEEFF00)
+        }
+    }
+
+    // the service is made for this driver after it, so it is handed to the driver in the request
+    lossy on go(dma: DmaService, src: u64, dst: u64, length: u64) {
+        dma.transfer(src, dst, length, narrow(self, DmaDone))
+    }
+
+    lossy on done(ok: bool) {
+        if ok {
+            .printer.show(1)
+        } else {
+            .printer.show(0)
+        }
+    }
+
+    lossy on look(offset: u64) {
+        unsafe {
+            .printer.show(load64(actor_address(self) + offset - 0x11000))
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    driver: Driver = spawn Driver(printer)
+    dma: DmaService = spawn DmaService(driver_address(driver), peripherals.part(0x007000, 0x100),
+                                       peripherals.part(0x007F00, 0x100), 0)
+    pool: u64 = domain_pool_base_of(1, 1)
+    unsafe {
+        store64(pool + 0x10700, 57005)
+    }
+    driver.fill()
+    run_until_idle()
+    driver.go(dma, 0x20000, 0x30000, 16)
+    run_until_idle()
+    driver.look(0x30000)
+    run_until_idle()
+    driver.look(0x30008)
+    run_until_idle()
+    driver.go(dma, 0x20000, 0x10700, 8)
+    run_until_idle()
+    unsafe {
+        print_u64(load64(pool + 0x10700))
+    }
+    driver.go(dma, 0x20000, 0x1FFFF8, 16)
+    run_until_idle()
+    driver.go(dma, 0x20000, 0x20008, 16)
+    run_until_idle()
+    driver.go(dma, 0x20000, 0x30000, 0)
+    run_until_idle()
+    driver.go(dma, 0x2000, 0x30000, 16)
+    run_until_idle()
+}
+
+fn driver_address(driver: Driver) -> u64 {
+    unsafe {
+        return actor_address(driver)
+    }
+}

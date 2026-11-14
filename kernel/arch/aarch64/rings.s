@@ -55,11 +55,11 @@ ring_push:
     add     x5, x5, #1
     stlr    x5, [x4]                    // the tail, with release: the slot is complete before the reader can see it
     sev
-    cbnz    x0, 2f                      // x0 is still `dst`. Core 0 sleeps in `wfi` (so that QEMU does not spin on it), which
-    ldr     x9, =0x40000080             // `sev` does not wake: raise its mailbox 0 interrupt (core 0's write-set register;
-    mov     w10, #1                     // vectors.s clears it). A core other than 0 sleeps in `wfe` and `sev` is enough.
-    str     w10, [x9]
-2:  mov     x0, #1
+    ldr     x9, =0x40000080             // x0 is still `dst`. Every core sleeps in `wfi` (QEMU spins a core in `wfe`, which cost
+    add     x9, x9, x0, lsl #4          // four busy threads for each test: decision 191), which `sev` does not wake: raise its
+    mov     w10, #1                     // mailbox 0 interrupt (its write-set register, 16 bytes on for each core; vectors.s
+    str     w10, [x9]                   // clears it). `sev` is kept for a core that is still in a `wfe` of the boot code.
+    mov     x0, #1
     ret
 1:  mov     x0, #0
     ret
@@ -271,3 +271,20 @@ pending_messages:
     .space  64
 next_core:
     .space  8
+
+    .section .text
+
+// void cache_flush_range(addr, len): cleans and invalidates the data cache lines of [addr, addr + len) to the point of
+// coherency (`dc civac`): what a device is about to read from memory is written back, and what it has written is not
+// hidden by a stale line (decision 189). The Cortex-A53's lines are 64 bytes. Nothing here can be seen in QEMU.
+    .global cache_flush_range
+cache_flush_range:
+    cbz     x1, 2f
+    add     x1, x0, x1                  // end
+    bic     x0, x0, #63                 // start of the first line
+1:  dc      civac, x0
+    add     x0, x0, #64
+    cmp     x0, x1
+    b.lo    1b
+    dsb     sy                          // the maintenance is complete before the device is started
+2:  ret
