@@ -1297,6 +1297,20 @@ def check_dump_threads():
     return None
 
 
+def check_model_check():
+    """tools/modelcheck.py: each protocol model gives the verdict it must (decision 195): the old forms that had a real bug
+    show a counterexample, the current forms are verified. A model that stops finding the old bug is as wrong as a design
+    in which the checker finds a new one."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("modelcheck", os.path.join(ROOT, "tools", "modelcheck.py"))
+    model = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(model)
+    for (name, mode), (kind, detail) in model.run_all().items():
+        if kind != model.EXPECTED[(name, mode)]:
+            return f"{name}/{mode}: expected {model.EXPECTED[(name, mode)]}, the checker says {kind}"
+    return None
+
+
 def check_icount_schedules():
     """Under QEMU's instruction counter (ICOUNT, decision 195) the cores take turns in a fixed pattern: a program whose result
     the schedule decides (the number of messages a flood drops) prints the same on every run at one shift."""
@@ -1836,6 +1850,8 @@ HARNESS_TESTS = [
                 check_failures_open),
     HarnessTest("harness/dump_threads", "The dump of bodies annotates for the thread that asked and no other",
                 check_dump_threads),
+    HarnessTest("harness/model_check", "The protocol models between cores: the old forms show their bug, the current "
+                "forms are verified", check_model_check),
     HarnessTest("harness/icount_schedules", "Under QEMU's instruction counter a schedule-dependent result repeats "
                 "exactly", check_icount_schedules),
     HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
