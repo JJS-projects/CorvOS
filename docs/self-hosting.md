@@ -322,3 +322,7 @@ loop; the other six hosted programs are not.
 - Everything is QEMU. The compiler is not run on a Pi.
 - A hosted program is slow (QEMU, one byte at a time over the UART); the tests keep inputs small.
 - Bytes 2, 3 and 4 cannot appear in input or output.
+
+## The last full check (milestone 7)
+
+`make selfhost-check` was run in full after milestone 7 (decision 194): about 47 minutes on 4 CPUs; the lexer, parser, expansion and declarations stages agree with Fledgling on every file (1119, 1119, 660, 660), and so does the bodies stage (660) once the reference's thread-safety bug is fixed (before it, one file in 660 differed in every run, a different one each time: the reference was wrong, not the Rook compiler). The assembly stage was not rerun after that fix; it passed in the full run. It is not part of `make test` or CI.
