@@ -1249,6 +1249,40 @@ def check_failures_open():
     return None
 
 
+def check_dump_threads():
+    """The dump of bodies annotates nodes with what the checker found, for the thread that asked and no other (decision 194):
+    a flag shared by threads once put one dump's notes into another's reference, 1 file in 600 of `make selfhost-check`."""
+    import threading
+    from fledgling import dump
+    seen = {}
+    dump._state.on = True
+    try:
+        worker = threading.Thread(target=lambda: seen.setdefault("other", dump._annotating()))
+        worker.start()
+        worker.join()
+        mine = dump._annotating()
+    finally:
+        dump._state.on = False
+    if seen.get("other") is not False:
+        return "a thread that did not ask for annotations sees them"
+    if mine is not True or dump._annotating():
+        return "the thread that asked sees its own setting wrongly"
+    stream = dump.make_stream([("a.rook", False, "fn f() {\n    x: u64 = 1\n}\n")])
+    first = dump.dump_bodies(stream, ownership=True, actors=True, bodies="all")
+    results = []
+
+    def again():
+        results.append(dump.dump_bodies(stream, ownership=True, actors=True, bodies="all"))
+    threads = [threading.Thread(target=again) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if any(r != first for r in results):
+        return "dump_bodies gives different answers in different threads"
+    return None
+
+
 def check_soak_tool():
     """tools/soak.py expands names and prefixes to the tests they name (each once), and counts the failing runs of a test with
     the first reason."""
@@ -1754,6 +1788,8 @@ HARNESS_TESTS = [
                 "without it a failure is final", check_retries),
     HarnessTest("harness/failures_open", "`expect-failure: msg xN+` reads as N or more, `xN` as exactly N",
                 check_failures_open),
+    HarnessTest("harness/dump_threads", "The dump of bodies annotates for the thread that asked and no other",
+                check_dump_threads),
     HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
                 check_soak_tool),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "

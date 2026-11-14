@@ -68,6 +68,13 @@ def main(argv):
             if not result[0]:
                 bad += 1
                 print(f"DIFFERS  {test.name}: {result[1]}", flush=True)
+                # keep the whole output of the run that differed: a difference that comes and goes cannot be looked at again
+                kept = os.path.join(ROOT, "build", "selfhost-diffs")
+                os.makedirs(kept, exist_ok=True)
+                name = test.name.replace("/", "_").replace(":", "_")
+                with open(os.path.join(kept, name + ".txt"), "w") as f:
+                    f.write(result[2] if len(result) > 2 else "")
+                print(f"         whole output kept in build/selfhost-diffs/{name}.txt", flush=True)
     print(f"\n{len(tests) - bad}/{len(tests)} files give the same output as Fledgling")
     return 1 if bad else 0
 
