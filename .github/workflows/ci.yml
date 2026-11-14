@@ -23,9 +23,6 @@ jobs:
       - name: Differential testing of arithmetic (fixed seed)
         run: make difftest
 
-      - name: Compiler coverage (report only)
-        run: make coverage
-
       - name: Upload kernel and test logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -36,3 +33,13 @@ jobs:
             build/test-logs/
             build/rook-tests/*.s
           if-no-files-found: ignore
+
+  # Its own job so that it runs beside the tests and does not add its minutes to them (decision 192). It needs only
+  # Python: the compiler's lines are counted while it compiles every test program.
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compiler coverage
+        run: make coverage

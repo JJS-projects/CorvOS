@@ -29,7 +29,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `make test` | Build and run every test (about 4 minutes on 4 CPUs, decision 191). Quiet: failures, `slowest:` and a summary. Rook and error tests run in parallel (`-j N` / `JOBS=N`) |
 | `make quick [T="rook/restart"]` | Only the tests named in T (names or prefixes); default every Rook and error test (~15 s). Not a substitute for `make test` before a push |
 | `python3 tests/run_tests.py [-v] PREFIX...` | Run tests by name or prefix (`rook/restart`, `error/`); `-v` lists every test. Needs images from a `make test` |
-| `make coverage` | Must exit 0 (compiler lines no test reaches, except `tools/coverage-gaps.txt`) |
+| `make coverage` | Must exit 0 (compiler lines no test reaches, except `tools/coverage-gaps.txt`). About 5 minutes on 4 CPUs: it splits the work over `JOBS` processes (decision 192) |
 | `python3 tools/selfhost-stage2.py` | The Rook compiler compiles itself, the result is built into an image that compiles it again; the two outputs must be identical (also a test, `selfhost/stage2`) |
 | `make bootstrap` / `make rook-kernel` / `make rook-compilers` | The stage-2 compiler image; Raven's kernel and the compiler programs built by it (`tools/rookc.py`, cache in `build/cache/`) |
 | `make selfhost-check` | Each self-hosted compiler stage against Fledgling on every Rook file (slow; not in `make test`) |
