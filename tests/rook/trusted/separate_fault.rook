@@ -1,7 +1,11 @@
 // A `separate` actor that touches Raven's memory faults, and is restarted like any actor that fails.
-// Worked out: the counter starts at 100; poke() stores into the actor arena (Raven's memory, which a domain does not
-// map): a data abort, so domain 1 faulted. Raven restarts the actor: its `new` runs again (total 100) and its mailbox
-// is emptied (add(1) and the first report, sent behind poke(), are lost). After run_until_idle a new report prints 100.
+// Worked out: the counter starts at 100; add(5) makes 105. poke() stores into the actor arena (Raven's memory, which a domain
+// does not map): a data abort, so domain 1 faulted. Raven restarts the actor: its `new` runs again, so the total is 100 again,
+// not 105. After run_until_idle (so that the restart is over) a report prints 100.
+// (A first version sent add(1) and a report behind poke() and expected the restart to empty the mailbox of them. The actor is
+// on another core, so whether they reached its mailbox before the restart or after it depended on timing: about 2 runs in 40
+// printed 101 or 100 twice. A message that arrives after the restart is delivered, as it should be; the loss of queued
+// messages in a restart is tested for actors on the same core in restart_basic.)
 // expect-failure: domain 1 faulted
 // expect: 100
 
@@ -42,8 +46,6 @@ fn test_main() {
     counter: Counter = spawn Counter(100)
     counter.add(5)
     counter.poke()
-    counter.add(1)
-    counter.report(printer)
     run_until_idle()
     counter.report(printer)
     run_until_idle()
