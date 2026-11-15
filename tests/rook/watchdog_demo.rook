@@ -4,7 +4,10 @@
 // Worked out: a `Feeder` arms a timer for itself at 10 ms and, at each of its ticks, feeds the watchdog and arms the next, four
 // times (at about 10, 20, 30 and 40 ms) and then stops. The watchdog (60 ms, armed at 0) is renewed by every beat, so it does
 // not expire at 60 ms, which is when the first, stale, timeout is due; it expires 60 ms after the last beat: not before 40 + 60 =
-// 100 ms. The owner prints how many times it was told (1, once: the stale ticks do not count) and 1 if at least 100 ms had gone.
+// 100 ms. The owner prints how many times it was told (1, once: the stale ticks do not count) and 1 if at least 100 ms had gone
+// since it was made. (Made, not "since a message told it to begin": that message is handled after the Watchdog and the Feeder
+// are spawned, about 2 ms later, and measured from there the expiry came at 99.6 to 100.4 ms, so which side of 100 it fell
+// on depended on the machine. From the owner's `new` it is 102 to 103.5 ms, and cannot be less: a tick is never early.)
 // expect: 1
 // expect: 1
 // retries: 3
@@ -21,10 +24,6 @@ actor Owner: Expired {
 
     new() {
         .told = 0
-        .started = 0
-    }
-
-    pub lossy on began() {
         .started = read_counter()
     }
 
@@ -62,7 +61,6 @@ actor Feeder: Tick {
 
 fn test_main(peripherals: Mmio) {
     owner: Owner = spawn Owner()
-    owner.began()
     dog: Watchdog = spawn Watchdog(make_timer(peripherals), narrow(owner, Expired), 60)
     feeder: Feeder = spawn Feeder(make_timer(peripherals), narrow(dog, Heartbeat))
     run_until_idle()
