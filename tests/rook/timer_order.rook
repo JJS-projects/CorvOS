@@ -1,7 +1,8 @@
 // A timer sends `tick(token)` after the time asked, the earliest first (milestone 8b, decision 196).
-// Worked out: three timers are armed in this order: token 1 after 6 ms, token 2 after 2 ms, token 3 after 2 ms. `run_until_idle`
-// waits for them. They are due in the order 2 and 3 (equal times: the order they were armed), then 1. The handler prints the
-// token; for token 1 it also prints 1 if at least 6 ms of the clock have gone since it was armed (a tick is never early), else 0.
+// Worked out: three timers are armed in this order: token 1 after 40 ms, token 2 after 2 ms, token 3 after 2 ms. `run_until_idle`
+// waits for them. They are due in the order 2 and 3 (equal times: the order they were armed), then 1. (40 ms and not a few: the three `after` calls are made one after the other, and a host that stalls
+// for longer than the gap between them, which a loaded machine does now and then, would turn the order round.) The handler prints the
+// token; for token 1 it also prints 1 if at least 40 ms of the clock have gone since it was armed (a tick is never early), else 0.
 // expect: 2
 // expect: 3
 // expect: 1
@@ -23,7 +24,7 @@ actor Clock: Tick {
 
     pub lossy on start() {
         .armed_at = read_counter()
-        discard .timer.after(6, narrow(self, Tick), 1)
+        discard .timer.after(40, narrow(self, Tick), 1)
         discard .timer.after(2, narrow(self, Tick), 2)
         discard .timer.after(2, narrow(self, Tick), 3)
     }
@@ -31,7 +32,7 @@ actor Clock: Tick {
     lossy on tick(token: u64) {
         print_u64(token)
         if token == 1 {
-            if read_counter() - .armed_at >= 6 * (counter_frequency() / 1000) {
+            if read_counter() - .armed_at >= 40 * (counter_frequency() / 1000) {
                 print_u64(1)
             } else {
                 print_u64(0)
