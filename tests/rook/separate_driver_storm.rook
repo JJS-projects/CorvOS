@@ -1,21 +1,23 @@
 // A driver in a domain that fails on every interrupt is a restart storm, and a supervisor ends it (milestone 7, the case
 // decision 184 listed as untested). The driver panics each time `fired` runs without reading the UART, so the receive
 // interrupt asserts again at once and every restart is followed by another failure. The `Guard`, a plain actor, watches it
-// and, after more restarts than its limit, stops it; the system carries on and the guard writes "done" through the UART's
+// and, when its restart budget (two restarts, one more every second: decision 193) is used up, stops it; the system carries on and the guard writes "done" through the UART's
 // writer, which the harness reads.
 // Worked out: the harness types "xy" (two bytes: the receive interrupt asks for 2 at its level). The driver is restarted
-// at each failure: the guard counts restarts 1 and 2 (within its limit of 2), and the third failure makes it 3 > 2: it
-// stops the driver. At least 3 failures happen, and more can: the driver restarts at full speed on its own core while the
+// at each failure: the guard's budget allows the first two restarts (it holds two and gets one more only each second, and
+// the failures come within milliseconds) and refuses the third: it stops the driver. At least 3 failures happen, and more can: the driver restarts at full speed on its own core while the
 // stop is on its way (`x3+`). The guard writes "done" when it is told the driver has stopped (`stopped`), after which no
 // failure report can be printed, so the lines do not mix (an earlier version printed from `restarted` and the reports of
 // core 1 landed inside the line of core 0: decision 184's two writers to one device).
 // input: xy
 // expect-echo: done
-// expect-failure: driver storm at separate_driver_storm.rook:34 x3+
+// expect-failure: driver storm at separate_driver_storm.rook:36 x3+
 
 import actors: Interrupt, Irq, make_irq, run_forever
 import devices: Mmio
+import hardware: counter_frequency, read_counter
 import pl011: ByteSink, Pl011, UartWriter
+import restart_budget: RestartBudget
 
 interface Lifecycle {
     lossy on restarted()
@@ -38,22 +40,19 @@ separate actor StormDriver: Interrupt {
 actor Guard: Lifecycle {
     driver: StormDriver
     out: ByteSink
-    limit: u64
-    mut restarts: u64
+    mut budget: iso RestartBudget
 
     // The guard spawns the driver: only the spawner can stop an actor (decision 119). It also routes the interrupt.
-    new(regs: val Mmio, irq: val Irq, out: ByteSink, limit: u64) {
+    new(regs: val Mmio, irq: val Irq, out: ByteSink) {
         .driver = spawn StormDriver(regs)
         .out = out
-        .limit = limit
-        .restarts = 0
+        .budget = RestartBudget(capacity: 2, ticks_per_restart: counter_frequency(), now: read_counter())
         watch(.driver, narrow(self, Lifecycle))
         irq.route(narrow(.driver, Interrupt))
     }
 
     lossy on restarted() {
-        .restarts += 1
-        if .restarts > .limit {
+        if not .budget.allow(read_counter()) {
             stop(.driver)
         }
     }
@@ -71,6 +70,6 @@ fn test_main(peripherals: Mmio) {
     console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
     writer: UartWriter = spawn UartWriter(console)
     guard: Guard = spawn Guard(peripherals.part(0x201000, 0x1000), make_irq(peripherals, 57),
-                               narrow(writer, ByteSink), 2)
+                               narrow(writer, ByteSink))
     run_forever()
 }
