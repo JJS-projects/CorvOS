@@ -243,6 +243,66 @@ def recycle(mode):
 
 
 # What each form must give: "ok" (verified) or the kind of counterexample ("stuck", "invariant").
+# ---- retire: giving a domain back while a stale reference is in use or a record is in flight (decision 197) ----------------
+
+def retire(mode):
+    # state: (step, gen, ended, queued_dead)
+    # The first tenant's reference holds generation 0. Raven ends the tenant, bumps the generation, and wipes the pool, which
+    # holds the header (its generation and its ENDED flag) and the mailbox. A holder (another core) may send at any moment, and
+    # a send to a place that is not ended and has the generation it holds is queued: into a mailbox nobody will ever run.
+    # "wipe_all": the wipe zeroes the header too, and Raven writes it again afterwards, so for a while the generation is 0
+    # again and the flag is clear. "keep_header": the generation and the flag are written first and the wipe leaves those two
+    # words alone.
+    def step(s):
+        at, gen, ended, dead = s
+        if at == "ending":
+            yield "Raven marks the place ended and bumps its generation", ("bumped", 1, True, dead)
+        elif at == "bumped":
+            if mode == "wipe_all":
+                yield "Raven wipes the whole pool, header included", ("wiped", 0, False, dead)
+            else:
+                yield "Raven wipes the pool except the header's two words", ("wiped", gen, ended, dead)
+        elif at == "wiped":
+            yield "Raven writes the header again and frees the domain", ("done", 1, True, dead)
+        if at != "ending" and at != "done":
+            if gen == 0 and not ended:
+                yield "the holder sends with generation 0: it passes both checks and is queued", (at, gen, ended, True)
+            else:
+                yield "the holder sends: refused", (at, gen, ended, dead)
+
+    def finished(s):
+        return s[0] == "done"
+
+    def invariant(s):
+        return not s[3]             # a message was queued in a place that is not an actor
+
+    return explore(("ending", 0, False, False), step, finished, invariant)
+
+
+def inflight(mode):
+    # state: (step, record_in_ring, tenant, delivered_to)
+    # A record for the first tenant is in a ring (sent by a third core) while the first tenant ends, its domain is given back
+    # and a second tenant starts. The core that takes the record puts the message in the mailbox of whoever lives there then,
+    # unless the record carries the generation and the core compares it.
+    def step(s):
+        at, in_ring, tenant, delivered = s
+        if at == "first":
+            yield "the first tenant ends and its domain is given back", ("second", in_ring, "second", delivered)
+        if in_ring:
+            if mode == "checked" and tenant != "first":
+                yield "the core takes the record: its generation is stale, it is dropped", (at, False, tenant, delivered)
+            else:
+                yield "the core takes the record and queues it", (at, False, tenant, tenant)
+
+    def finished(s):
+        return not s[1] and s[0] == "second"
+
+    def invariant(s):
+        return s[3] != "second"     # a message for the first tenant reached the second
+
+    return explore(("first", True, "first", None), step, finished, invariant)
+
+
 EXPECTED = {
     ("flood", "unbounded"): "stuck",
     ("flood", "bounded"): "ok",
@@ -254,10 +314,14 @@ EXPECTED = {
     ("reuse", "generation"): "ok",
     ("recycle", "no_tlb"): "invariant",
     ("recycle", "tlbi"): "ok",
+    ("retire", "wipe_all"): "invariant",
+    ("retire", "keep_header"): "ok",
+    ("inflight", "plain"): "invariant",
+    ("inflight", "checked"): "ok",
     ("start", "no_flag"): "invariant",
     ("start", "flag"): "ok",
 }
-SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle}
+SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight}
 
 
 def run_all():

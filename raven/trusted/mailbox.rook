@@ -6,7 +6,7 @@
 //
 // Everything lives in one fixed arena (kernel/arch/aarch64/actors.s), so this
 // code keeps no global variables: Raven's own tables are at the start of the
-// arena. Actors are never freed (decision 119).
+// arena. An actor that ends gives its memory back to a list by size (decision 197; before, nothing was freed, decision 119).
 //
 // An actor's memory, in 8-byte words, with its reference pointing at the fields:
 //     [ header: 8 ][ mailbox: 16 slots of 9 ][ the actor's fields ... ]
@@ -487,8 +487,8 @@ fn clear_mailbox(rt_who: u64) {
 
 /// An actor ends: its mailbox is emptied and sends to it are refused from now on (a `reliable`
 /// send answers `Gone`), and so are those of everything it spawned. Its watchers that asked
-/// for it are told `stopped`, and what it watched is forgotten. Its place stays, as a tombstone, because a
-/// reference to it may still exist (decision 148).
+/// for it are told `stopped`, and what it watched is forgotten. Its place is given back (`retire`: a new generation, so a
+/// reference to it that is still held is stale, and the memory is used again).
 fn end_actor(rt_who: u64) {
     unsafe {
         rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
@@ -1361,8 +1361,8 @@ pub fn core_of_actor(dm_actor: u64) -> u64 {
     }
 }
 
-/// The first domain with no actor on core `dm_core`, 1 to 3. A domain is never given back (an ended actor stays as a
-/// tombstone, like those in the arena), so a program can have three `separate` actors on a core, twelve in all, for now.
+/// The first domain with no actor on core `dm_core`, 1 to 3. A domain is given back when its actor ends (`retire_domain`,
+/// decision 197), so a program can have three `separate` actors alive on a core, twelve at once.
 fn free_domain(dm_core: u64) -> u64 {
     mut dm_found: u64 = 0
     unsafe {

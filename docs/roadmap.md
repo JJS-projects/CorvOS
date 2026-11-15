@@ -185,5 +185,5 @@ as a library.
 preemption points; work stealing and actor migration; attestation; power states; mitigations for speculation and side channels
 (the write-up states the limit); a proof of the trusted core.
 
-**Order.** (1) Test and verification infrastructure: done in 8a. (2) Timers as messages and the watchdog (done in 8b, decision 196: the API form was the owner's choice). (3) Handle tables with generations, modelled first. (4) Quotas in the capability (a language-level
+**Order.** (1) Test and verification infrastructure: done in 8a. (2) Timers as messages and the watchdog (done in 8b, decision 196: the API form was the owner's choice). (3) Handle tables with generations, modelled first (done in 8c, decision 197). (4) Quotas in the capability (a language-level
 question first). (5) Bounce-buffer DMA, generics over actors, and the decision on moving actor scheduling into the domains.

@@ -29,7 +29,7 @@ is current). Open the full entry for the alternatives and the principle that set
 def build():
     lines = []
     for row in open(SOURCE).read().splitlines():
-        m = re.match(r"\| (\d+)\s+\| (.*?)\s+\| (.*?)\s+\| .*", row)
+        m = re.match(r"\| (\d+)\s+\| (.*?)\s+\| (.*?)\s+\|(?: .*)?$", row)
         if not m:
             continue
         number, title, choice = m.groups()

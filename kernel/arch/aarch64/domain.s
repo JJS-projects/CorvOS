@@ -174,8 +174,8 @@ domains_init:
 // into domain d of core `core`, read/write at EL0, as Device memory, at the same virtual address (so an `Mmio` over it
 // works unchanged). A domain has room for the pages of one 2 MB block of the peripherals (one device L3 table; the UART
 // and the GPIO are in the same block). Returns 0, 1 if `address` is not in the peripherals, 2 if the domain already has
-// pages in another block. Raven calls it before the domain's actor starts; a domain is never given back, so a
-// mapping is never undone. Nothing here invalidates the TLB: a translation that faulted is not cached.
+// pages in another block. Raven calls it before the domain's actor starts. A mapping is undone when the actor ends
+// (domain_unmap_devices_of, decision 197); nothing here invalidates the TLB, because a translation that faulted is not cached.
     .global domain_map_device_of
 domain_map_device_of:
     ldr     x3, =domain_l1

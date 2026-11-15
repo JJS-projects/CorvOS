@@ -17,6 +17,10 @@ where nothing can happen and the work is not finished. It finds the shortest cou
 | | a reference carries the slot's generation, checked on a send | verified | the design of the handle tables (decision 197) |
 | recycle: a domain is given to a new tenant | the old tenant's translations may remain in the TLB | **invariant broken** (4 steps: a device the new tenant was never given is reached) | QEMU flushes its TLB on every TTBR0 write and cannot show it |
 | | the domain's ASID is invalidated before the new tenant runs | verified | the design of domain reuse |
+| retire: a domain is wiped while a holder still has the old reference | the wipe zeroes the header, which is written again afterwards | **invariant broken** (3 steps: a message is queued in a place nobody runs) | found while designing decision 197: the generation would be 0 again for a moment |
+| | the generation and the ENDED flag are written first and the wipe leaves them alone | verified | the order in `retire_domain` |
+| inflight: a record for the first tenant is in a ring while the domain gets a second | the record carries the address only | **invariant broken** (2 steps) | a send from a third core overtaking the end of the actor |
+| | the record carries the whole reference, and the core that takes it compares the generation | verified | `handle_record` |
 | start: a message can overtake the record that starts its actor | the message is handled when it arrives | **invariant broken** (4 steps) | the first form of decision 181 (a handler ran on zeroed fields) |
 | | the actor is marked STARTING | verified | decision 181 |
 

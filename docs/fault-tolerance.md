@@ -83,8 +83,9 @@ actor Guard: Lifecycle {
   (milestone 6 adds the MMU), and a panic outside any handler, or a CPU fault, still halts.
 - **Restarts are not free.** A failed actor loses its mailbox (counted), and an actor that fails
   every time restarts at full speed until its supervisor stops it.
-- **A handler-spawned child ends when its parent restarts** and its place stays as a tombstone
-  that answers `Gone`; the 64 KB actor arena has no reuse yet (decision 148).
+- **A handler-spawned child ends when its parent restarts** and its place is given back (decision 197): references
+  to it answer `Gone` from then on, even after a new actor has the place, because a reference carries the generation of
+  the place and the new actor has the next one.
 - **Not tested on hardware.** The demo is a QEMU program; killing a real driver mid-use needs the
   drivers-as-actors work of milestone 7's other half and a Pi.
 
