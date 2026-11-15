@@ -1,0 +1,86 @@
+// A reference is one word: the address in the low 32 bits and the generation of the actor's place in the high 32
+// (decision 197). Nothing has been reused yet, so every generation is 0: the whole word is the address. `self` is
+// a call into Raven (`raven_self`) that returns the same word the spawner got, for an actor in Raven's own domain and for
+// a `separate` one (which cannot read its header and asks by `svc`). A reference with another generation names
+// an actor that is not there: a lossy send is dropped, a reliable one answers `Gone`, `stop` does nothing.
+// Worked out: plain: reference == address (1), self matches (1), generation 1: reliable Gone (2), lossy dropped
+// (nothing printed), generation 0: delivered (7). separate: self matches (1), a stale reliable send is Gone (2).
+// expect: 1
+// expect: 1
+// expect: 2
+// expect: 7
+// expect: 1
+// expect: 2
+
+import actors: Sent, run_until_idle
+import mailbox: raven_send, send_reliable_impl
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Probe {
+    lossy on whoami(expected: u64, to: Printer) {
+        unsafe {
+            if actor_reference(self) == expected {
+                to.show(1)
+            } else {
+                to.show(0)
+            }
+        }
+    }
+
+    lossy on ping() {
+        print_u64(7)
+    }
+}
+
+separate actor Far {
+    lossy on whoami(expected: u64, to: Printer) {
+        unsafe {
+            if actor_reference(self) == expected {
+                to.show(1)
+            } else {
+                to.show(0)
+            }
+        }
+    }
+}
+
+fn report(result: Sent, to: Printer) {
+    match result {
+        Delivered => to.show(0)
+        MailboxFull => to.show(1)
+        Gone => to.show(2)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    probe: Probe = spawn Probe()
+    far: Far = spawn Far()
+    unsafe {
+        address: u64 = actor_address(probe)
+        stale: u64 = address or (1 shl 32)
+        if actor_reference(probe) == address {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+        probe.whoami(actor_reference(probe), printer)
+        run_until_idle()
+        report(send_reliable_impl(stale, handler_number("ping"), 0, 0), printer)
+        run_until_idle()
+        raven_send(stale, handler_number("ping"), 0, 0)
+        run_until_idle()
+        raven_send(address, handler_number("ping"), 0, 0)
+        run_until_idle()
+        far.whoami(actor_reference(far), printer)
+        run_until_idle()
+        report(send_reliable_impl(actor_address(far) or (1 shl 32), handler_number("whoami"), 0, 0), printer)
+        run_until_idle()
+    }
+}

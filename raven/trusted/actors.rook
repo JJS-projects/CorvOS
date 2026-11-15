@@ -101,7 +101,7 @@ pub struct Timer {
     /// and the handler tells them apart. Periodic work is `after` again in `tick`.
     pub fn after(ms: u64, to: Tick, token: u64) -> bool {
         unsafe {
-            return raven_timer_after(actor_address(to), handler_number("tick"), ms, token) != 0
+            return raven_timer_after(actor_reference(to), handler_number("tick"), ms, token) != 0
         }
     }
 } Timer
@@ -131,7 +131,7 @@ pub struct Irq {
     pub fn route(to: Interrupt) {
         unsafe {
             rt_slot: u64 = actor_arena_base() + ACTOR_IRQ_ROUTES + (.line - ACTOR_IRQ_FIRST) * 16
-            store64(rt_slot, actor_address(to))
+            store64(rt_slot, actor_reference(to))
             store64(rt_slot + 8, handler_number("fired"))
         }
         irq_enable_source(.line)

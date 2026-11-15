@@ -174,8 +174,8 @@ domains_init:
 // into domain d of core `core`, read/write at EL0, as Device memory, at the same virtual address (so an `Mmio` over it
 // works unchanged). A domain has room for the pages of one 2 MB block of the peripherals (one device L3 table; the UART
 // and the GPIO are in the same block). Returns 0, 1 if `address` is not in the peripherals, 2 if the domain already has
-// pages in another block. Raven calls it before the domain's actor starts; a domain is never given back, so a
-// mapping is never undone. Nothing here invalidates the TLB: a translation that faulted is not cached.
+// pages in another block. Raven calls it before the domain's actor starts. A mapping is undone when the actor ends
+// (domain_unmap_devices_of, decision 197); nothing here invalidates the TLB, because a translation that faulted is not cached.
     .global domain_map_device_of
 domain_map_device_of:
     ldr     x3, =domain_l1
@@ -212,6 +212,38 @@ domain_map_device_of:
 8:  mov     x0, #1
     ret
 9:  mov     x0, #2
+    ret
+
+// void domain_unmap_devices_of(core, d): takes the peripherals' registers away from domain d of core `core` (decision 197): its
+// L2 entries for the peripherals and its device L3 table are cleared, and then every cached translation of its ASID is
+// dropped on every core (`tlbi aside1is`, the `dsb` that completes it and an `isb`): without that a core that used the domain
+// before could go on reaching a register through a translation it kept. Raven calls it when the domain's actor has ended and
+// before the domain is given to another. (QEMU's TLB is flushed on every write of TTBR0 and cannot show the difference: this
+// is hardware.md item 27.)
+    .global domain_unmap_devices_of
+domain_unmap_devices_of:
+    ldr     x3, =domain_l1
+    mov     x4, #(12 << 12)
+    madd    x3, x0, x4, x3              // core's tables
+    sub     x4, x1, #1
+    add     x3, x3, x4, lsl #12         // L1 of domain d
+    add     x4, x3, #(NDOMAINS << 12)   // its L2
+    add     x5, x4, #(6 << 12)          // its device L3
+    mov     x6, #DEVICE_FIRST           // L2 entries 504 to 511 are the peripherals
+1:  str     xzr, [x4, x6, lsl #3]
+    add     x6, x6, #1
+    cmp     x6, #512
+    b.lo    1b
+    mov     x6, #0
+2:  str     xzr, [x5, x6, lsl #3]       // the device L3: 512 entries
+    add     x6, x6, #1
+    cmp     x6, #512
+    b.lo    2b
+    dsb     ishst                       // the tables are written before the translations are dropped
+    lsl     x1, x1, #48                 // the ASID is the domain number, in bits 63 to 48 of the operand
+    tlbi    aside1is, x1
+    dsb     ish                         // done on every core
+    isb
     ret
 
 // u64 domain_actor(d) / void domain_set_actor(d, actor): the actor that lives in domain d (0: free). Raven's

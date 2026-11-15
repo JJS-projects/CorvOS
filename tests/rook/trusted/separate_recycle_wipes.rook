@@ -1,0 +1,48 @@
+// What a `separate` actor left in its domain's memory is gone when the domain is given to the next one (decision 197).
+// Raven puts the `separate` actors on cores 1, 2, 3, 0, 1, ...: the fifth takes the first one's domain.
+// Worked out: the first actor stores 777 in the domain's data, 256 KB past its fields, and reads it back (777). It ends; three
+// more actors take the other cores' domains; the fifth, in the same domain, reads the same address and finds 0.
+// expect: 777
+// expect: 0
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Keeper {
+    new() {
+    }
+
+    lossy on plant() {
+        unsafe {
+            store64(actor_address(self) + 0x40000, 777)
+        }
+    }
+
+    lossy on check(to: Printer) {
+        unsafe {
+            to.show(load64(actor_address(self) + 0x40000))
+        }
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    first: Keeper = spawn Keeper()
+    first.plant()
+    first.check(printer)
+    run_until_idle()
+    stop(first)
+    run_until_idle()
+    second: Keeper = spawn Keeper()
+    third: Keeper = spawn Keeper()
+    fourth: Keeper = spawn Keeper()
+    fifth: Keeper = spawn Keeper()
+    fifth.check(printer)
+    run_until_idle()
+}

@@ -1,0 +1,37 @@
+// A timer for an actor that has ended does not reach the actor that takes its place (decision 197): the timer keeps the whole
+// reference, generation included, and a tick for a stale one is dropped when it is due.
+// Worked out: a timer is armed for the first Clock (n = 1, after 3 ms), which then ends; a second Clock (n = 2) takes its
+// place. `run_until_idle` waits for the timer, whose tick is dropped: neither Clock prints. Then the second is asked to
+// `ping`, which prints its n: 2.
+// expect: 2
+
+import actors: Tick, Timer, make_timer, run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Clock: Tick {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    lossy on tick(token: u64) {
+        print_u64(100 * .n + token)
+    }
+
+    pub lossy on ping() {
+        print_u64(.n)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    timer: Timer = make_timer(peripherals)
+    first: Clock = spawn Clock(1)
+    discard timer.after(3, narrow(first, Tick), 7)
+    stop(first)
+    second: Clock = spawn Clock(2)
+    run_until_idle()
+    second.ping()
+    run_until_idle()
+}

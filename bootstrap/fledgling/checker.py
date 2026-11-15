@@ -53,11 +53,12 @@ NEW_WORDS = 16              # words of `new` arguments Raven keeps to restart an
 LOADS = {f"load{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
 STORES = {f"store{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
 # Two more only Raven needs, to send a message of its own (an interrupt) to a
-# reference it holds: `actor_address(reference)` is the reference as a number, and
+# reference it holds: `actor_address(reference)` is the address in it (the low 32 bits) and
+# `actor_reference(reference)` the whole word, address and generation (decision 197), and
 # `handler_number("fired")` is the number messages use for the handlers of that name.
 # Both are allowed only inside `unsafe { }` in trusted files, like loads and stores.
-BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "stop", "actor_address", "handler_number",
-                                                  "store_element", "load_element", "words_of"}
+BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "stop", "actor_address", "actor_reference",
+                                                  "handler_number", "store_element", "load_element", "words_of"}
 
 ARITH = {"+", "-", "*", "/", "%"}
 LOGIC = {"and", "or", "xor"}     # logical on bool, bitwise on integers
@@ -1222,6 +1223,15 @@ class Checker:
             if not is_actor(ty):
                 raise CompileError(
                     f"`actor_address` takes an actor or interface reference, not {ty}",
+                    e.args[0].pos)
+            return U64
+        if name == "actor_reference":
+            if len(e.args) != 1:
+                raise CompileError("`actor_reference` takes one argument: a reference", e.pos)
+            ty = self.expr(e.args[0])
+            if not is_actor(ty):
+                raise CompileError(
+                    f"`actor_reference` takes an actor or interface reference, not {ty}",
                     e.args[0].pos)
             return U64
         if name == "handler_number":

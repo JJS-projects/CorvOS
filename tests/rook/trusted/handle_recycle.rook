@@ -1,0 +1,117 @@
+// A reference to an actor in a domain that was given back is stale, and the domain's next actor is not reached by it
+// (decision 197). Raven puts the `separate` actors on cores 1, 2, 3, 0, 1, ...: the fifth one takes the first one's domain
+// again (the first has ended and its domain is free by then).
+// Worked out: a is the first (core 1), then b, c, d, then e: it has a's place (print 1) with another generation (the
+// references differ: 0). a.ping() is a lossy send to the stale reference: dropped; stop(a) does nothing (e lives); e.ping()
+// prints 5. e's `self` (a call into Raven by `svc`: a domain cannot read its header) is its whole reference, generation
+// included: e.me prints 4. a.poke() is reliable: Gone (9). Then e ends too, and its domain is free: a send to a place that
+// holds no actor is refused the same way, not a request that fails the sender. A domain that holds the stale reference and
+// sends to it is told Gone and goes on: relay(a) sends `poke` from a domain; it prints 9, and the domain is still there for
+// the second relay (9).
+// expect: 1
+// expect: 0
+// expect: 5
+// expect: 4
+// expect: 9
+// expect: 9
+// expect: 9
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Probe {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on ping(to: Printer) {
+        to.show(.n)
+    }
+
+    pub lossy on me(expected: u64, to: Printer) {
+        unsafe {
+            if actor_reference(self) == expected {
+                to.show(4)
+            } else {
+                to.show(0)
+            }
+        }
+    }
+
+    pub reliable on poke() {
+    }
+}
+
+separate actor Relay {
+    new() {
+    }
+
+    lossy on relay(who: Probe, to: Printer) {
+        match who.poke() {
+            Delivered => to.show(0)
+            MailboxFull => to.show(1)
+            Gone => to.show(9)
+        }
+    }
+}
+
+fn gone(result: Sent) {
+    match result {
+        Delivered => print_u64(0)
+        MailboxFull => print_u64(1)
+        Gone => print_u64(9)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    a: Probe = spawn Probe(1)
+    mut old: u64 = 0
+    unsafe {
+        old = actor_reference(a)
+    }
+    stop(a)
+    run_until_idle()
+    b: Probe = spawn Probe(2)
+    c: Probe = spawn Probe(3)
+    d: Probe = spawn Probe(4)
+    e: Probe = spawn Probe(5)
+    unsafe {
+        if actor_address(a) == actor_address(e) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+        if old == actor_reference(e) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    a.ping(printer)
+    stop(a)
+    run_until_idle()
+    e.ping(printer)
+    run_until_idle()
+    unsafe {
+        e.me(actor_reference(e), printer)
+    }
+    run_until_idle()
+    gone(a.poke())
+    run_until_idle()
+    stop(e)
+    run_until_idle()
+    relay: Relay = spawn Relay()
+    relay.relay(a, printer)
+    run_until_idle()
+    relay.relay(a, printer)
+    run_until_idle()
+}

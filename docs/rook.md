@@ -498,9 +498,10 @@ section 11.17) and `stop`, `Gone` and `stopped` (7c, section 11.18) are built.*
   watcher itself fails, so its `new` sets it up again.
 - **An actor ends by `stop()`** in one of its own handlers, or when the actor that
   spawned it calls `stop(ref)`. No other holder of a reference can end it (from anyone
-  else `stop(ref)` is a failure), and actors are never freed automatically. A send to a
+  else `stop(ref)` is a failure). The place of an actor that ended is used again (decision 197), and a reference
+  made for it is stale from then on, also after a new actor has the place: a send to a
   stopped actor answers `Gone` from a `reliable` handler and is dropped from a `lossy`
-  one; a watcher whose interface has `lossy on stopped()` is told.
+  one, and `stop(ref)` does nothing; a watcher whose interface has `lossy on stopped()` is told.
 
 ```rook
 pub interface Restarts {
@@ -889,8 +890,8 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **Raven's actor code** is `raven/trusted/actors.rook`: one fixed 64 KB arena, a mailbox of
   16 messages per actor (a handler number and 4 words each), a run queue, and
   `run_until_idle()`, which takes turns one message at a time. A send to a full mailbox
-  is dropped and counted (`dropped_messages()`). Actors are never freed: running out
-  of arena is a panic.
+  is dropped and counted (`dropped_messages()`). The memory of an actor that ended is used
+  again by an actor of the same size (decision 197); running out of arena is a panic.
 - **Panics.** A panic in a handler reports its line, abandons the handler and restarts the
   actor (step 7a, section 11.16); a panic outside any handler halts the core.
 - **Known gaps.** No `Main`, `Boot`, `freeze` (section 11.13).

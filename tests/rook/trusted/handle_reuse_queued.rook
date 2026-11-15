@@ -1,0 +1,48 @@
+// An actor that ends while it still has an entry in the run queue keeps its place until that entry is taken (decision 197), so
+// that the queue never names a place that holds another actor.
+// Worked out: a is sent a message and stopped at once: its entry is queued and the message is lost. b, spawned next, does not get
+// a's place (print 0). `run_until_idle` takes the entry and gives the place back; c, spawned then, has it (print 1), and
+// c.ping() prints 3.
+// expect: 0
+// expect: 1
+// expect: 3
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Probe {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on ping() {
+        print_u64(.n)
+    }
+}
+
+fn test_main() {
+    a: Probe = spawn Probe(1)
+    a.ping()
+    stop(a)
+    b: Probe = spawn Probe(2)
+    unsafe {
+        if actor_address(a) == actor_address(b) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    run_until_idle()
+    c: Probe = spawn Probe(3)
+    unsafe {
+        if actor_address(a) == actor_address(c) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    c.ping()
+    run_until_idle()
+}

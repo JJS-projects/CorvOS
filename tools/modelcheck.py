@@ -180,7 +180,129 @@ def start(mode):
     return explore((0, 0, 0, 0, 0, 0, 0), step, finished, invariant)
 
 
+# ---- reuse: a stale reference must not reach a new actor ---------------------------------------------------------------------
+
+def reuse(mode):
+    # state: (stage, generation, holder_gen, delivered_to)
+    # stage: "alive" (actor A lives in the slot) | "ended" (A ended, the holder still has its reference) | "reused" (a new
+    # actor B lives in the slot) | "sent". The holder keeps the reference it was given when A was made: the slot's generation
+    # then. `delivered_to` is who got the holder's message: None, "A" (while it lived) or "B".
+    def step(s):
+        stage, gen, held, delivered = s
+        if stage == "alive":
+            yield "A ends", ("ended", gen, held, delivered)
+            yield "the holder sends to A", ("alive", gen, held, "A")
+        elif stage == "ended":
+            yield "the slot is given to a new actor B", ("reused", gen + 1 if mode == "generation" else gen, held, delivered)
+            yield "the holder sends: A has ended, the send is refused", ("ended", gen, held, delivered)
+        elif stage == "reused":
+            if mode == "generation" and held != gen:
+                yield "the holder sends with a stale generation: refused", ("reused", gen, held, delivered)
+            else:
+                yield "the holder sends", ("reused", gen, held, "B")
+
+    def finished(s):
+        return s[0] in ("alive", "ended", "reused")
+
+    def invariant(s):
+        return s[3] != "B"          # a message meant for A reached B
+
+    return explore(("alive", 0, 0, None), step, finished, invariant)
+
+
+# ---- recycle: a new tenant of a domain must not see the old one's memory ---------------------------------------------------
+
+def recycle(mode):
+    # state: (tenant, wiped, tlb_has_old, new_reads_old)
+    # The old tenant's translations may still be in the TLB, tagged with the domain's ASID. Raven removes the old tenant's device
+    # pages from the domain's table before the new tenant starts, but a stale translation still points at the device, so the
+    # new tenant, who was never given it, reaches it. The table must be right and the TLB must be told.
+    def step(s):
+        tenant, tlb_old, device_unmapped, reads_device = s
+        if tenant == "old":
+            yield "the old tenant ends", ("gap", tlb_old, device_unmapped, reads_device)
+        elif tenant == "gap":
+            if not device_unmapped:
+                yield "Raven removes the old tenant's device pages from the table", ("gap", tlb_old, True, reads_device)
+            if mode == "tlbi" and tlb_old:
+                yield "Raven invalidates the domain's ASID in the TLB", ("gap", False, device_unmapped, reads_device)
+            if device_unmapped and (mode == "no_tlb" or not tlb_old):
+                yield "the new tenant starts", ("new", tlb_old, device_unmapped, reads_device)
+        elif tenant == "new":
+            if tlb_old:
+                yield "the new tenant touches the device: the stale translation answers", ("new", tlb_old, device_unmapped, True)
+            yield "the new tenant runs", ("new", tlb_old, device_unmapped, reads_device)
+
+    def finished(s):
+        return s[0] == "new"
+
+    def invariant(s):
+        return not s[3]             # the new tenant reached the old tenant's device
+
+    return explore(("old", True, False, False), step, finished, invariant)
+
+
 # What each form must give: "ok" (verified) or the kind of counterexample ("stuck", "invariant").
+# ---- retire: giving a domain back while a stale reference is in use or a record is in flight (decision 197) ----------------
+
+def retire(mode):
+    # state: (step, gen, ended, queued_dead)
+    # The first tenant's reference holds generation 0. Raven ends the tenant, bumps the generation, and wipes the pool, which
+    # holds the header (its generation and its ENDED flag) and the mailbox. A holder (another core) may send at any moment, and
+    # a send to a place that is not ended and has the generation it holds is queued: into a mailbox nobody will ever run.
+    # "wipe_all": the wipe zeroes the header too, and Raven writes it again afterwards, so for a while the generation is 0
+    # again and the flag is clear. "keep_header": the generation and the flag are written first and the wipe leaves those two
+    # words alone.
+    def step(s):
+        at, gen, ended, dead = s
+        if at == "ending":
+            yield "Raven marks the place ended and bumps its generation", ("bumped", 1, True, dead)
+        elif at == "bumped":
+            if mode == "wipe_all":
+                yield "Raven wipes the whole pool, header included", ("wiped", 0, False, dead)
+            else:
+                yield "Raven wipes the pool except the header's two words", ("wiped", gen, ended, dead)
+        elif at == "wiped":
+            yield "Raven writes the header again and frees the domain", ("done", 1, True, dead)
+        if at != "ending" and at != "done":
+            if gen == 0 and not ended:
+                yield "the holder sends with generation 0: it passes both checks and is queued", (at, gen, ended, True)
+            else:
+                yield "the holder sends: refused", (at, gen, ended, dead)
+
+    def finished(s):
+        return s[0] == "done"
+
+    def invariant(s):
+        return not s[3]             # a message was queued in a place that is not an actor
+
+    return explore(("ending", 0, False, False), step, finished, invariant)
+
+
+def inflight(mode):
+    # state: (step, record_in_ring, tenant, delivered_to)
+    # A record for the first tenant is in a ring (sent by a third core) while the first tenant ends, its domain is given back
+    # and a second tenant starts. The core that takes the record puts the message in the mailbox of whoever lives there then,
+    # unless the record carries the generation and the core compares it.
+    def step(s):
+        at, in_ring, tenant, delivered = s
+        if at == "first":
+            yield "the first tenant ends and its domain is given back", ("second", in_ring, "second", delivered)
+        if in_ring:
+            if mode == "checked" and tenant != "first":
+                yield "the core takes the record: its generation is stale, it is dropped", (at, False, tenant, delivered)
+            else:
+                yield "the core takes the record and queues it", (at, False, tenant, tenant)
+
+    def finished(s):
+        return not s[1] and s[0] == "second"
+
+    def invariant(s):
+        return s[3] != "second"     # a message for the first tenant reached the second
+
+    return explore(("first", True, "first", None), step, finished, invariant)
+
+
 EXPECTED = {
     ("flood", "unbounded"): "stuck",
     ("flood", "bounded"): "ok",
@@ -188,10 +310,18 @@ EXPECTED = {
     ("wake", "ipi_misses"): "stuck",
     ("wake", "ipi"): "ok",
     ("wake", "ipi_timer"): "ok",
+    ("reuse", "none"): "invariant",
+    ("reuse", "generation"): "ok",
+    ("recycle", "no_tlb"): "invariant",
+    ("recycle", "tlbi"): "ok",
+    ("retire", "wipe_all"): "invariant",
+    ("retire", "keep_header"): "ok",
+    ("inflight", "plain"): "invariant",
+    ("inflight", "checked"): "ok",
     ("start", "no_flag"): "invariant",
     ("start", "flag"): "ok",
 }
-SCENARIOS = {"flood": flood, "wake": wake, "start": start}
+SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight}
 
 
 def run_all():
