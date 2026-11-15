@@ -3,12 +3,15 @@
 // again (the first has ended and its domain is free by then).
 // Worked out: a is the first (core 1), then b, c, d, then e: it has a's place (print 1) with another generation (the
 // references differ: 0). a.ping() is a lossy send to the stale reference: dropped; stop(a) does nothing (e lives); e.ping()
-// prints 5. a.poke() is reliable: Gone (9). A domain that holds the stale reference and sends to it is refused the same way,
-// and is not failed for it: relay(old) sends `poke` from a domain; it prints 9 (the reply it was told: Gone), and the domain
-// goes on (the second relay prints 9 again).
+// prints 5. e's `self` (a call into Raven by `svc`: a domain cannot read its header) is its whole reference, generation
+// included: e.me prints 4. a.poke() is reliable: Gone (9). Then e ends too, and its domain is free: a send to a place that
+// holds no actor is refused the same way, not a request that fails the sender. A domain that holds the stale reference and
+// sends to it is told Gone and goes on: relay(a) sends `poke` from a domain; it prints 9, and the domain is still there for
+// the second relay (9).
 // expect: 1
 // expect: 0
 // expect: 5
+// expect: 4
 // expect: 9
 // expect: 9
 // expect: 9
@@ -31,6 +34,16 @@ separate actor Probe {
 
     pub lossy on ping(to: Printer) {
         to.show(.n)
+    }
+
+    pub lossy on me(expected: u64, to: Printer) {
+        unsafe {
+            if actor_reference(self) == expected {
+                to.show(4)
+            } else {
+                to.show(0)
+            }
+        }
     }
 
     pub reliable on poke() {
@@ -88,7 +101,13 @@ fn test_main() {
     run_until_idle()
     e.ping(printer)
     run_until_idle()
+    unsafe {
+        e.me(actor_reference(e), printer)
+    }
+    run_until_idle()
     gone(a.poke())
+    run_until_idle()
+    stop(e)
     run_until_idle()
     relay: Relay = spawn Relay()
     relay.relay(a, printer)

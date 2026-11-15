@@ -2,10 +2,12 @@
 // for the actor that ended is stale, and nothing that is done with it reaches the new one.
 // Worked out: a (Probe 1) is stopped, b (Probe 2) is spawned and gets the same place (print 1: the same address) but not the
 // same reference (0). a.ping() is a lossy send to a stale reference: dropped, nothing printed; stop(a) does nothing (b lives);
-// b.ping() prints 2. a.poke() is a reliable send to it: Gone (9); the same by number: Gone (9). b.poke() is delivered (0 from `gone`, then the handler's 3).
+// b.ping() prints 2. b's `self` is the reference it was spawned with, generation and all (4: the call into Raven adds the
+// generation of b's place, not 0). a.poke() is a reliable send to it: Gone (9); the same by number: Gone (9). b.poke() is delivered (0 from `gone`, then the handler's 3).
 // expect: 1
 // expect: 0
 // expect: 2
+// expect: 4
 // expect: 9
 // expect: 9
 // expect: 0
@@ -24,6 +26,16 @@ actor Probe {
 
     pub lossy on ping() {
         print_u64(.n)
+    }
+
+    pub lossy on me(expected: u64) {
+        unsafe {
+            if actor_reference(self) == expected {
+                print_u64(4)
+            } else {
+                print_u64(0)
+            }
+        }
     }
 
     pub reliable on poke() {
@@ -63,6 +75,10 @@ fn test_main() {
     stop(a)
     run_until_idle()
     b.ping()
+    run_until_idle()
+    unsafe {
+        b.me(actor_reference(b))
+    }
     run_until_idle()
     gone(a.poke())
     unsafe {
