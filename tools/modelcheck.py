@@ -180,6 +180,68 @@ def start(mode):
     return explore((0, 0, 0, 0, 0, 0, 0), step, finished, invariant)
 
 
+# ---- reuse: a stale reference must not reach a new actor ---------------------------------------------------------------------
+
+def reuse(mode):
+    # state: (stage, generation, holder_gen, delivered_to)
+    # stage: "alive" (actor A lives in the slot) | "ended" (A ended, the holder still has its reference) | "reused" (a new
+    # actor B lives in the slot) | "sent". The holder keeps the reference it was given when A was made: the slot's generation
+    # then. `delivered_to` is who got the holder's message: None, "A" (while it lived) or "B".
+    def step(s):
+        stage, gen, held, delivered = s
+        if stage == "alive":
+            yield "A ends", ("ended", gen, held, delivered)
+            yield "the holder sends to A", ("alive", gen, held, "A")
+        elif stage == "ended":
+            yield "the slot is given to a new actor B", ("reused", gen + 1 if mode == "generation" else gen, held, delivered)
+            yield "the holder sends: A has ended, the send is refused", ("ended", gen, held, delivered)
+        elif stage == "reused":
+            if mode == "generation" and held != gen:
+                yield "the holder sends with a stale generation: refused", ("reused", gen, held, delivered)
+            else:
+                yield "the holder sends", ("reused", gen, held, "B")
+
+    def finished(s):
+        return s[0] in ("alive", "ended", "reused")
+
+    def invariant(s):
+        return s[3] != "B"          # a message meant for A reached B
+
+    return explore(("alive", 0, 0, None), step, finished, invariant)
+
+
+# ---- recycle: a new tenant of a domain must not see the old one's memory ---------------------------------------------------
+
+def recycle(mode):
+    # state: (tenant, wiped, tlb_has_old, new_reads_old)
+    # The old tenant's translations may still be in the TLB, tagged with the domain's ASID. Raven removes the old tenant's device
+    # pages from the domain's table before the new tenant starts, but a stale translation still points at the device, so the
+    # new tenant, who was never given it, reaches it. The table must be right and the TLB must be told.
+    def step(s):
+        tenant, tlb_old, device_unmapped, reads_device = s
+        if tenant == "old":
+            yield "the old tenant ends", ("gap", tlb_old, device_unmapped, reads_device)
+        elif tenant == "gap":
+            if not device_unmapped:
+                yield "Raven removes the old tenant's device pages from the table", ("gap", tlb_old, True, reads_device)
+            if mode == "tlbi" and tlb_old:
+                yield "Raven invalidates the domain's ASID in the TLB", ("gap", False, device_unmapped, reads_device)
+            if device_unmapped and (mode == "no_tlb" or not tlb_old):
+                yield "the new tenant starts", ("new", tlb_old, device_unmapped, reads_device)
+        elif tenant == "new":
+            if tlb_old:
+                yield "the new tenant touches the device: the stale translation answers", ("new", tlb_old, device_unmapped, True)
+            yield "the new tenant runs", ("new", tlb_old, device_unmapped, reads_device)
+
+    def finished(s):
+        return s[0] == "new"
+
+    def invariant(s):
+        return not s[3]             # the new tenant reached the old tenant's device
+
+    return explore(("old", True, False, False), step, finished, invariant)
+
+
 # What each form must give: "ok" (verified) or the kind of counterexample ("stuck", "invariant").
 EXPECTED = {
     ("flood", "unbounded"): "stuck",
@@ -188,10 +250,14 @@ EXPECTED = {
     ("wake", "ipi_misses"): "stuck",
     ("wake", "ipi"): "ok",
     ("wake", "ipi_timer"): "ok",
+    ("reuse", "none"): "invariant",
+    ("reuse", "generation"): "ok",
+    ("recycle", "no_tlb"): "invariant",
+    ("recycle", "tlbi"): "ok",
     ("start", "no_flag"): "invariant",
     ("start", "flag"): "ok",
 }
-SCENARIOS = {"flood": flood, "wake": wake, "start": start}
+SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle}
 
 
 def run_all():
