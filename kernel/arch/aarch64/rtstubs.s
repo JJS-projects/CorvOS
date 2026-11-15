@@ -27,13 +27,14 @@ rt_stubs:
     stub    raven_stop, stop_impl                   // 6
     stub    raven_stop_self, stop_self_impl         // 7
     stub    rook_panic, rook_panic_impl             // 8
+    stub    raven_timer_after, timer_after_impl     // 9
     .org    4096                                    // the page is exactly 4 KB
 
     .section .text.rtgate, "ax"
     .balign 4096
     .global rt_gate
 rt_gate:
-    .irp n, 1,2,3,4,5,6,7,8
+    .irp n, 1,2,3,4,5,6,7,8,9
     svc     #\n
     ret
     .balign 16

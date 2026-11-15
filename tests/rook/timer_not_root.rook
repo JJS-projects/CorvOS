@@ -1,0 +1,9 @@
+// A `Timer` is made from the whole peripherals, as an `Irq` is: a part of them cannot make one (decision 196).
+// expect-panic: a Timer is made from the whole peripherals at actors.rook:*
+
+import actors: make_timer
+import devices: Mmio
+
+fn test_main(peripherals: Mmio) {
+    discard make_timer(peripherals.part(0x201000, 0x1000))
+}

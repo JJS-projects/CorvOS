@@ -63,6 +63,7 @@ Long commands go in the background. `make test` once per change, not per edit.
 - `hosted/PROGRAM/CASE` = `tests/hosted/PROGRAM/CASE.in` fed to `compiler/PROGRAM.rook` on the UART
   (ended by byte 4; or a file listed in `PROGRAM/live.txt`, with Fledgling's output as the expectation); its output between `Hosted: begin`/`Hosted: end` must equal `CASE.out`
   ([self-hosting.md](self-hosting.md)).
+- Timers (decision 196): `import actors: Tick, Timer, make_timer`; an actor that implements `Tick` (`lossy on tick(token: u64)`) is sent `tick` by `timer.after(ms, narrow(self, Tick), token)`; `val Timer` goes in `new`. `watchdog: Watchdog` is a deadman built on it.
 - `// retries: N` in a header lets a test of a timing race pass if one of up to N runs does (decision 188); a test whose handlers wait on ring room can be held past the 100 ms budget on a loaded machine. Do not use it to hide a failure.
 - `boot/` and `harness/` tests are Python in `run_tests.py`.
 - A panic expectation `at file.rook:N` is an exact line for the test's own file. For a

@@ -1,0 +1,56 @@
+// A renewed timeout is told from the old ones by its token: a deadman (milestone 8b, decision 196).
+// Worked out: `set_duty` is called three times in a row; each call counts up `watching` (1, 2, 3) and arms a timeout of 20 ms
+// with it as the token. All three ticks arrive, in that order. A tick whose token is not `watching` is stale and only counted:
+// ticks 1 and 2 are stale (stale = 2); tick 3 is the live one: the motor brakes (duty 0), and the handler prints 100. `report`
+// then prints the stale count (2) and the duty (0). With no tokens the first tick would have braked the motor at once.
+// expect: 100
+// expect: 2
+// expect: 0
+
+import actors: Tick, Timer, make_timer, run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Motor: Tick {
+    timer: val Timer
+    mut duty: u64
+    mut watching: u64
+    mut stale: u64
+
+    new(timer: val Timer) {
+        .timer = timer
+        .duty = 0
+        .watching = 0
+        .stale = 0
+    }
+
+    pub lossy on set_duty(d: u64) {
+        .duty = d
+        .watching += 1
+        discard .timer.after(20, narrow(self, Tick), .watching)
+    }
+
+    lossy on tick(token: u64) {
+        if token == .watching {
+            .duty = 0
+            print_u64(100)
+        } else {
+            .stale += 1
+        }
+    }
+
+    pub lossy on report() {
+        print_u64(.stale)
+        print_u64(.duty)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    motor: Motor = spawn Motor(make_timer(peripherals))
+    motor.set_duty(5)
+    motor.set_duty(6)
+    motor.set_duty(7)
+    run_until_idle()
+    motor.report()
+    run_until_idle()
+}

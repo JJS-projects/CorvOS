@@ -1173,7 +1173,7 @@ pub struct Checker {
                 .say(" is already a plain value")
                 return 0
             }
-            mmio_ok: bool = is_new and modifier == 2 and .is_mmio(ty)      // a device's registers, mapped into the domain
+            mmio_ok: bool = is_new and modifier == 2 and (.is_mmio(ty) or .is_timer(ty))    // a device's registers, mapped into the domain; a Timer (decision 196)
             if .has_word(.nodes.get(.types.get(owner).decl).text, "separate") and .is_aggregate(ty) and not mmio_ok {
                 .fail_node(type_node)
                 .say_text(what)
@@ -2902,6 +2902,12 @@ pub struct Checker {
     /// Is `ty` the struct `Mmio`? One of those in the `new` of a `separate` actor is given to its domain (decision 182).
     pub fn is_mmio(ty: u64) -> bool {
         return ty != 0 and .named_aggregate("Mmio", CHK_STRUCT) == ty
+    }
+
+    /// Is `ty` the struct `Timer`? A `val Timer` may be given to a `separate` actor's `new` too: it holds one number, and
+    /// the right to ask for timer messages (decision 196).
+    pub fn is_timer(ty: u64) -> bool {
+        return ty != 0 and .named_aggregate("Timer", CHK_STRUCT) == ty
     }
 
     pub fn is_separate(act: u64) -> bool {

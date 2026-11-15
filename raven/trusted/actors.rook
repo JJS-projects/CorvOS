@@ -9,7 +9,7 @@ module public
 import assembly: actor_arena_base, core_online_mark, idle_until_interrupt, irq_enable_source
 import devices: Mmio
 import hardware: irq_init
-import mailbox: ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, drain_rings, run_one_turn, unfinished_messages, wait_for_other_cores
+import mailbox: raven_timer_after, deliver_timers, ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, drain_rings, run_one_turn, unfinished_messages, wait_for_other_cores
 
 /// What a send to a `reliable` handler tells the sender (decisions 126 and 150).
 pub enum Sent {
@@ -48,6 +48,7 @@ pub fn run_until_idle() {
     scheduling: loop {
         drain_rings()
         deliver_interrupts()
+        deliver_timers()
         if actors_waiting() != 0 {
             run_one_turn()
         } else if unfinished_messages() != 0 {
@@ -64,6 +65,7 @@ pub fn run_forever() {
     scheduling: loop true {
         drain_rings()
         deliver_interrupts()
+        deliver_timers()
         if actors_waiting() != 0 {
             run_one_turn()
         } else {
@@ -81,6 +83,35 @@ fn raven_secondary(core: u64) {
     }
     irq_init()
     run_forever()
+}
+
+/// What a timer becomes: a message to the handler `tick` of the actor that asked, carrying the token it gave (decision 196).
+pub interface Tick {
+    lossy on tick(token: u64)
+}
+
+/// The right to ask for timer messages, made only from the peripherals (`make_timer`), as an `Irq` is. Whoever holds it can
+/// send `tick` to any actor it holds a reference to; the resolution is a millisecond, and 32 timers can be armed at once
+/// for the whole system.
+pub struct Timer {
+    id: u64
+
+    /// After `ms` milliseconds (at most an hour) the actor `to` is sent `tick(token)`, once. False if all the timers are in
+    /// use. A timeout that is renewed is a new `after` with a new token; the old one's tick arrives too, with the old token,
+    /// and the handler tells them apart. Periodic work is `after` again in `tick`.
+    pub fn after(ms: u64, to: Tick, token: u64) -> bool {
+        unsafe {
+            return raven_timer_after(actor_address(to), handler_number("tick"), ms, token) != 0
+        }
+    }
+} Timer
+
+/// A `Timer`. Only the whole peripherals can make one, like an `Irq`.
+pub fn make_timer(peripherals: Mmio) -> Timer {
+    if not peripherals.is_root() {
+        panic("a Timer is made from the whole peripherals")
+    }
+    return Timer(id: 0)
 }
 
 /// What an interrupt becomes: a message to the handler `fired` of the actor that

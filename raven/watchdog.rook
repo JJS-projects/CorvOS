@@ -1,0 +1,43 @@
+// A watchdog: tells its owner when it has not been fed for a time (decision 196). Written on the timer's tokens, in ordinary
+// Rook: every `beat` is a new timeout with a new token, and only the newest one counts when its tick arrives. What happens
+// on expiry is the owner's decision, so the watchdog needs to know nothing about the actor it watches (a supervisor can stop
+// it, a motor can brake). It arms itself when it is made, so an actor that never feeds it expires after `ms`.
+
+import actors: Tick, Timer
+
+/// Whom a watchdog tells.
+pub interface Expired {
+    lossy on expired()
+}
+
+/// What feeds a watchdog.
+pub interface Heartbeat {
+    lossy on beat()
+}
+
+pub actor Watchdog: Tick, Heartbeat {
+    timer: val Timer
+    owner: Expired
+    ms: u64
+    mut watching: u64
+
+    /// A watchdog of `ms` milliseconds, armed now.
+    new(timer: val Timer, owner: Expired, ms: u64) {
+        .timer = timer
+        .owner = owner
+        .ms = ms
+        .watching = 1
+        discard timer.after(ms, narrow(self, Tick), 1)
+    }
+
+    lossy on beat() {
+        .watching += 1
+        discard .timer.after(.ms, narrow(self, Tick), .watching)
+    }
+
+    lossy on tick(token: u64) {
+        if token == .watching {
+            .owner.expired()
+        }
+    }
+}

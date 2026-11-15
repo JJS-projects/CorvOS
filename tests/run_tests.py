@@ -1311,6 +1311,23 @@ def check_model_check():
     return None
 
 
+def check_coverage_worker_error():
+    """A program that fails to compile under tools/coverage.py is reported by name, as text: a CompileError cannot be sent back
+    from a worker process (it needs a position to be built), and the tool once died with a TypeError that hid which program broke."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("coverage_tool", os.path.join(ROOT, "tools", "coverage.py"))
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+
+    def broken(shard, shards):
+        raise CompileError("tests/rook/x.rook: `Watchdog` is already defined", None)
+    tool.compile_everything = broken
+    answer = tool.run_shard((0, 1))
+    if not (isinstance(answer, str) and answer.startswith("shard 0 failed") and "already defined" in answer):
+        return f"a failing shard answered {answer!r}"
+    return None
+
+
 def check_icount_schedules():
     """Under QEMU's instruction counter (ICOUNT, decision 195) the cores take turns in a fixed pattern: a program whose result
     the schedule decides (the number of messages a flood drops) prints the same on every run at one shift."""
@@ -1852,6 +1869,8 @@ HARNESS_TESTS = [
                 check_dump_threads),
     HarnessTest("harness/model_check", "The protocol models between cores: the old forms show their bug, the current "
                 "forms are verified", check_model_check),
+    HarnessTest("harness/coverage_worker_error", "A program that does not compile is named by the sharded coverage tool",
+                check_coverage_worker_error),
     HarnessTest("harness/icount_schedules", "Under QEMU's instruction counter a schedule-dependent result repeats "
                 "exactly", check_icount_schedules),
     HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
