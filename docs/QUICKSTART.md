@@ -36,6 +36,8 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `python3 -m fledgling FILES [--trusted DIR] --dump-tokens\|--dump-tree\|--dump-expanded\|--dump-declarations\|--dump-bodies [--no-bodies] [--all-bodies] [--ownership] [--actors]\|--dump-asm` | The text each self-hosted stage must print for the same input |
 | `python3 -m fledgling FILES --report-copies` | Every send to a `separate` actor (it copies its message), with the size (decision 173) |
 | `make difftest` | Random arithmetic against a Python model |
+| `python3 tools/modelcheck.py [--trace]` | Model checker for the protocols between cores (full rings, waking a sleeping core, starting an actor): old forms must show their bug, current forms are verified (decision 195, [protocols.md](protocols.md)) |
+| `ICOUNT=N python3 tests/run_tests.py TEST` | Run under QEMU's instruction counter: the cores take turns in a fixed pattern, so a race found by chance repeats exactly; another N, another schedule |
 | `tools/soak.py [-n RUNS] [-j JOBS] TEST...` | Runs each test (names or prefixes) many times, different tests side by side, and lists those that failed at least once: how a race shows (decisions 178 to 191). `--list` shows what a prefix names |
 | `tools/bringup-stages.py` | First-boot stage images for a board (after `make test`) in `build/sdcard/stages/`, with the serial output to expect (decision 187) |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |

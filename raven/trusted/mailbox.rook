@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -70,6 +70,11 @@ ACTOR_S_CURRENT_ACTOR: u64 = 1096   // the actor whose handler or `new` is runni
 ACTOR_S_IN_NEW: u64 = 1104          // 1 while that actor's `new` is running
 pub ACTOR_S_LOST: u64 = 1112            // messages lost because the actor they were for failed or ended
 pub ACTOR_S_RESTARTS: u64 = 1120        // actors restarted so far
+// Fault injection (a test sets it), in words of the core's block (assembly core_block): fail the handler that is run this many
+// handlers after it was armed (0: off) ...
+CORE_INJECT_NEXT: u64 = 200
+CORE_INJECT_PERIOD: u64 = 208       // ... and then every this many (0: only once)
+CORE_INJECT_COUNT: u64 = 216        // handlers run since it was armed
 ACTOR_WATCHES: u64 = 1824           // who watches whom: 14 records of (actor watched, watcher | 1 if it wants `stopped`)
 ACTOR_WATCH_MAX: u64 = 14           // ends at 2048, where the actors start (decision 149)
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
@@ -948,7 +953,12 @@ pub fn run_one_turn() {
             domain_budget_begin()
         }
         timer_arm(budget_ticks())
-        rt_failed: u64 = invoke(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
+        mut rt_failed: u64 = 0
+        if inject_now() {
+            rt_failed = 1                       // fault injection: this handler fails before it runs (decision 195)
+        } else {
+            rt_failed = invoke(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
+        }
         timer_disarm()
         domain_budget_end()
         store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
@@ -961,6 +971,39 @@ pub fn run_one_turn() {
             }
         }
         pending_sub(1)                          // the message is handled
+    }
+}
+
+/// Fault injection for tests (decision 195): after `inject_failures(core, first, period)` the `first`-th handler that core
+/// runs fails as if it had panicked (it is reported as "injected failure", its message is lost, the actor is restarted or
+/// stopped as for any failure), and then every `period`-th handler after it (0: only that one). This is how a test fails a
+/// supervised system at a chosen point, again and again, without a program that panics on purpose.
+pub fn inject_failures(fi_core: u64, fi_first: u64, fi_period: u64) {
+    unsafe {
+        rt_there: u64 = core_block(fi_core)
+        store64(rt_there + CORE_INJECT_COUNT, 0)
+        store64(rt_there + CORE_INJECT_PERIOD, fi_period)
+        store64(rt_there + CORE_INJECT_NEXT, fi_first)
+    }
+}
+
+/// Is the handler about to run the one a test has asked to fail? Counts handlers while armed.
+fn inject_now() -> bool {
+    unsafe {
+        rt_there: u64 = core_block(core_id())
+        rt_next: u64 = load64(rt_there + CORE_INJECT_NEXT)
+        if rt_next == 0 {
+            return false
+        }
+        rt_count: u64 = load64(rt_there + CORE_INJECT_COUNT) + 1
+        store64(rt_there + CORE_INJECT_COUNT, rt_count)
+        if rt_count < rt_next {
+            return false
+        }
+        rt_period: u64 = load64(rt_there + CORE_INJECT_PERIOD)
+        store64(rt_there + CORE_INJECT_NEXT, if rt_period == 0 { 0 } else { rt_count + rt_period })
+        domain_report("injected failure")
+        return true
     }
 }
 

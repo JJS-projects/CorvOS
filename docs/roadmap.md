@@ -158,3 +158,33 @@ and a domain cannot read another's memory.
 - Boot on a real Pi Zero 2 W from an SD card.
 - Write up what was learned against all four claims: security, fault tolerance,
   simplicity, concurrency safety.
+
+## What next (agreed ranking, milestone 8 and after)
+
+A MoSCoW ranking of the options for the rest of the project, agreed with the owner (2026-11-14). The criterion: does the
+research claim, and the write-up against the four claims, hold up without it? Anything that is only a performance or a
+convenience gain counts against it. Decision 195 starts it.
+
+**M, must have.** (1) Reclaimable actors and domains, by handle tables with generations (a handle is one word, an index and a
+generation, so neither compiler changes). (2) Capacity limits that live in the capability (credits carried by a reference,
+no sender identity needed). (3) Timers as messages (a `Timer` capability). Outside the list: boot the stages on the board
+([tools/bringup-stages.py](../tools/bringup-stages.py)) and the final write-up ([writeup.md](writeup.md)).
+
+**S, should have.** Raven schedules domains and the actor runtime moves into each domain (after the handle tables); real
+revocation through the handle table; model-checking the protocols between cores ([protocols.md](protocols.md), done as a
+start); deterministic multicore scheduling in QEMU (`ICOUNT`, done); fault injection in the test harness (done: `inject_failures`);
+a watchdog actor (after timers); bounce-buffer DMA; generics over actors.
+
+**C, could have.** Zero-copy `val` and `iso`; page-granular ownership; CPU time as a capability; typestate or session types;
+effect annotations; declarative supervision trees; checkpoint and restore; message priorities; copy-on-write snapshots;
+driver generation from register descriptions; per-core interrupt routing; a second QEMU target; trace viewer, audit log,
+record and replay of messages, property-based compiler tests; incremental compilation and test impact analysis; publish-subscribe
+as a library.
+
+**W, won't have (this phase).** Remote references; hot code upgrade; persistent mailboxes; selective receive; cooperative
+preemption points; work stealing and actor migration; attestation; power states; mitigations for speculation and side channels
+(the write-up states the limit); a proof of the trusted core.
+
+**Order.** (1) Test and verification infrastructure: done in 8a. (2) Timers as messages and the watchdog (a design question about
+the API form first). (3) Handle tables with generations, modelled first. (4) Quotas in the capability (a language-level
+question first). (5) Bounce-buffer DMA, generics over actors, and the decision on moving actor scheduling into the domains.
