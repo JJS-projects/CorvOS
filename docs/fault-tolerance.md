@@ -97,3 +97,7 @@ actor Guard: Lifecycle {
 ## A restart budget (decision 193)
 
 `RestartBudget` (raven/restart_budget.rook) is the policy a supervisor can use instead of counting restarts for ever: it holds up to `capacity` restarts and gains one every `ticks_per_restart` ticks of the clock. In `restarted()` the supervisor asks `.budget.allow(read_counter())` and stops the actor when the answer is false; a driver that fails once a day is never stopped, one that fails every millisecond is stopped after `capacity` failures. See `tests/rook/separate_driver_storm.rook` for a guard that uses it and `tests/rook/budget_policy.rook` for the arithmetic.
+
+## Timeouts and a watchdog (decision 196)
+
+A timeout is a message: `timer.after(ms, narrow(self, Tick), token)` sends `tick(token)` once. A renewed timeout is a new `after` with a new token and the handler ignores the ticks whose token is not the newest (`tests/rook/timer_deadman.rook`: a motor that brakes unless the controller keeps setting its duty). `Watchdog` (raven/watchdog.rook) packages that: it is fed with `beat`, and tells its owner `expired` when no beat came for its time; the owner decides (a supervisor stops the actor, a motor brakes). The resolution is a millisecond and a tick may be late, never early: not a hard real-time guarantee.

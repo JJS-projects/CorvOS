@@ -1,0 +1,69 @@
+// A watchdog expires only when it has not been fed for its time (milestone 8b, decision 196). Timing: the margins are wide
+// (a beat 10 ms apart, a watchdog of 60 ms) and the check is only that a tick is never early; `retries: 3` is for a machine so
+// loaded that a beat is held up for 50 ms.
+// Worked out: a `Feeder` arms a timer for itself at 10 ms and, at each of its ticks, feeds the watchdog and arms the next, four
+// times (at about 10, 20, 30 and 40 ms) and then stops. The watchdog (60 ms, armed at 0) is renewed by every beat, so it does
+// not expire at 60 ms, which is when the first, stale, timeout is due; it expires 60 ms after the last beat: not before 40 + 60 =
+// 100 ms. The owner prints how many times it was told (1, once: the stale ticks do not count) and 1 if at least 100 ms had gone.
+// expect: 1
+// expect: 1
+// retries: 3
+
+import actors: Tick, Timer, make_timer, run_until_idle
+import devices: Mmio
+import hardware: counter_frequency, read_counter
+import print: print_u64
+import watchdog: Expired, Heartbeat, Watchdog
+
+actor Owner: Expired {
+    mut told: u64
+    mut started: u64
+
+    new() {
+        .told = 0
+        .started = 0
+    }
+
+    pub lossy on began() {
+        .started = read_counter()
+    }
+
+    lossy on expired() {
+        .told += 1
+        print_u64(.told)
+        if read_counter() - .started >= 100 * (counter_frequency() / 1000) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+}
+
+actor Feeder: Tick {
+    timer: val Timer
+    dog: Heartbeat
+    mut fed: u64
+
+    new(timer: val Timer, dog: Heartbeat) {
+        .timer = timer
+        .dog = dog
+        .fed = 0
+        discard timer.after(10, narrow(self, Tick), 0)
+    }
+
+    lossy on tick(token: u64) {
+        .dog.beat()
+        .fed += 1
+        if .fed < 4 {
+            discard .timer.after(10, narrow(self, Tick), 0)
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    owner: Owner = spawn Owner()
+    owner.began()
+    dog: Watchdog = spawn Watchdog(make_timer(peripherals), narrow(owner, Expired), 60)
+    feeder: Feeder = spawn Feeder(make_timer(peripherals), narrow(dog, Heartbeat))
+    run_until_idle()
+}

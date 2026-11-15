@@ -1,0 +1,57 @@
+// Only 32 timers can be armed at once; the 33rd is refused (milestone 8b, decision 196).
+// Worked out: 33 timers of 50 ms are armed in a row (far more than the loop takes, so none is due yet): `after` answers true 32
+// times and false once. Printed: how many were armed (32). `run_until_idle` waits for the timers; each sends a tick to the
+// counter, all due together, and a mailbox holds 16: a `tick` is `lossy`, so what does not fit is dropped and counted. Every
+// tick is either handled or dropped, so the ticks handled plus the messages dropped is 32 (how many of each depends on how the
+// handler keeps up, so only the sum is checked).
+// expect: 32
+// expect: 32
+
+import actors: Tick, Timer, dropped_messages, make_timer, run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Counter: Tick {
+    mut ticks: u64
+
+    new() {
+        .ticks = 0
+    }
+
+    lossy on tick(token: u64) {
+        .ticks += 1
+    }
+
+    pub lossy on report() {
+        print_u64(.ticks + dropped_messages())
+    }
+}
+
+actor Arming {
+    timer: val Timer
+    counter: Counter
+
+    new(timer: val Timer, counter: Counter) {
+        .timer = timer
+        .counter = counter
+    }
+
+    pub lossy on go() {
+        mut armed: u64 = 0
+        arming: loop i: u64 in 0..33 {
+            if .timer.after(50, narrow(.counter, Tick), i) {
+                armed += 1
+            }
+        }
+        print_u64(armed)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    counter: Counter = spawn Counter()
+    arming: Arming = spawn Arming(make_timer(peripherals), counter)
+    arming.go()
+    run_until_idle()
+    counter.report()
+    run_until_idle()
+}
