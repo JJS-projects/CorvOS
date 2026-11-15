@@ -643,7 +643,7 @@ pub struct Checker {
         .builtin_types()
         .unit = .add_type(CHK_UNIT, .quoted("()"), 0)
         .fill_builtins("load8 load16 load32 load64 store8 store16 store32 store64 panic watch stop actor_address")
-        .fill_builtins("handler_number store_element load_element words_of")
+        .fill_builtins("handler_number store_element load_element words_of actor_reference")
         .imports.push(TextMap(region: .region))
         .exports.push(TextMap(region: .region))
         filling: loop k: u64 in 0..(.files.len()) {
@@ -4272,6 +4272,24 @@ pub struct Checker {
             if not .is_actor(ty) {
                 .fail_node(args.get(0))
                 .say("`actor_address` takes an actor or interface reference, not ")
+                .say_type(ty)
+                return 0
+            }
+            return .u64_type
+        }
+        if name.same_as("actor_reference") {
+            if args.len() != 1 {
+                .fail_node(e)
+                .say("`actor_reference` takes one argument: a reference")
+                return 0
+            }
+            ty: u64 = .expr(args.get(0), 0, 0)
+            if .failed {
+                return 0
+            }
+            if not .is_actor(ty) {
+                .fail_node(args.get(0))
+                .say("`actor_reference` takes an actor or interface reference, not ")
                 .say_type(ty)
                 return 0
             }

@@ -42,8 +42,11 @@ ACTOR_H_PENDING: u64 = 80           // during a restart: children not yet matche
 ACTOR_H_FLAGS: u64 = 88             // see ACTOR_F_*
 ACTOR_H_ARGS: u64 = 96              // address of the kept `new` arguments
 ACTOR_H_DOMAIN: u64 = 104           // the protection domain it lives in (bits 0 to 3, 0: Raven's own) and the core (bits 4
-                                    // to 7); for an actor in the arena the bytes it takes, shifted left 8 (the walk that
-                                    // finds actors)
+                                    // to 7); for an actor in the arena the bytes it takes (bits 8 to 31: the walk that
+                                    // finds actors); its generation (bits 32 to 63, decision 197)
+REF_ADDRESS_MASK: u64 = 0xFFFFFFFF  // a reference is one word: the address of the actor's fields in the low 32 bits ...
+REF_GENERATION_SHIFT: u64 = 32      // ... and the generation of the actor's place in the high 32 (decision 197)
+ACTOR_SIZE_MASK: u64 = 0xFFFFFF     // bits 8 to 31 of the domain word, once shifted right 8
 ACTOR_F_IN_NEW: u64 = 1             // it was spawned by its spawner's `new`: kept across restarts
 ACTOR_F_ENDED: u64 = 2              // it has ended: sends to it are refused
 ACTOR_F_STARTING: u64 = 4           // its `new` has not run yet (on another core): messages wait, it is not scheduled
@@ -115,6 +118,31 @@ SVC_SEND: u64 = 1                   // the calls (rtstubs.s)
 SVC_SEND_RELIABLE: u64 = 2
 SVC_PANIC: u64 = 8
 SVC_TIMER: u64 = 9                  // raven_timer_after (rtstubs.s)
+SVC_SELF: u64 = 10                  // raven_self (rtstubs.s)
+
+/// The generation of an actor's place (decision 197): it changes each time the place is given to a new actor, so a
+/// reference made for the old one no longer matches.
+fn generation_of(g_actor: u64) -> u64 {
+    unsafe {
+        return load64(g_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN) shr REF_GENERATION_SHIFT
+    }
+}
+
+/// The reference to the actor whose fields are at `r_actor`, as it is now: address and generation in one word.
+fn reference_to(r_actor: u64) -> u64 {
+    return r_actor or (generation_of(r_actor) shl REF_GENERATION_SHIFT)
+}
+
+/// Does the reference `r_ref` name the actor that is in its place now, and not one that was there before?
+fn is_current(r_ref: u64) -> bool {
+    return generation_of(r_ref and REF_ADDRESS_MASK) == (r_ref shr REF_GENERATION_SHIFT)
+}
+
+/// `self`, which the compiler turns into a call of this with the address of the actor's fields (the stub `raven_self`;
+/// a domain asks by `svc`, because it cannot read its own header): the actor's whole reference.
+pub fn self_impl(sf_actor: u64) -> u64 {
+    return reference_to(sf_actor)
+}
 
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
 /// arguments (copied from `args`, and kept so the actor can be restarted), then runs its
@@ -256,7 +284,7 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
                 store64(rt_rec + REC_PAYLOAD + rt_v * 8, load64(rt_args + rt_v * 8))
             }
             push_record(core_of_actor(rt_actor), rt_rec)
-            return rt_actor
+            return reference_to(rt_actor)
         }
         rt_kept: u64 = load64(rt_header + ACTOR_H_ARGS)
         copying: loop rt_w: u64 in 0..rt_args_words {
@@ -277,7 +305,7 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
         if rt_reused {
             notify_restarted(rt_actor)         // restarted in place with its parent
         }
-        return rt_actor
+        return reference_to(rt_actor)
     }
 }
 
@@ -436,7 +464,12 @@ fn restart_actor(rt_who: u64) {
 /// `watcher` is sent its handler number `number` (`restarted`) each time `watched` restarts.
 /// Watching twice is the same as once. A watch ends when the watcher restarts or ends,
 /// so its `new` sets it up again. The table is small (14); one more panics.
-pub fn watch_impl(watched: u64, watcher: u64, number: u64, stopped_plus_one: u64) {
+pub fn watch_impl(watched_ref: u64, watcher_ref: u64, number: u64, stopped_plus_one: u64) {
+    if not is_current(watched_ref) {
+        return                                  // it is not there any more: nothing to watch
+    }
+    watched: u64 = watched_ref and REF_ADDRESS_MASK
+    watcher: u64 = watcher_ref and REF_ADDRESS_MASK
     unsafe {
         rt_core: u64 = core_of_actor(watched)
         if rt_core != core_id() {
@@ -523,7 +556,7 @@ fn notify_restarted(rt_who: u64) {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
             if load64(rt_record) == rt_who {
                 rt_watcher: u64 = watcher_of(load64(rt_record + 8))
-                discard route_message(rt_watcher, rt_number, 0, 0, true)
+                discard route_message(reference_to(rt_watcher), rt_number, 0, 0, true)
             }
         }
     }
@@ -541,7 +574,7 @@ fn notify_stopped(rt_who: u64) {
                 rt_tag: u64 = load64(rt_record + 8)
                 rt_watcher: u64 = watcher_of(rt_tag)
                 if (rt_tag and 1) != 0 {
-                    discard route_message(rt_watcher, rt_number, 0, 0, true)
+                    discard route_message(reference_to(rt_watcher), rt_number, 0, 0, true)
                 }
                 store64(rt_record, 0)
                 store64(rt_record + 8, 0)
@@ -564,8 +597,12 @@ pub fn stop_self_impl() {
 /// any actor, such as `test_main`, is the spawner of what it spawns); from anyone else it is a
 /// failure like any bug (decision 147). Stopping an actor that has ended does nothing; stopping
 /// oneself is `stop()`.
-pub fn stop_impl(target: u64) {
+pub fn stop_impl(target_ref: u64) {
     rt_base: u64 = actor_arena_base()
+    if not is_current(target_ref) {
+        return                                  // it has ended already
+    }
+    target: u64 = target_ref and REF_ADDRESS_MASK
     unsafe {
         rt_caller: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
         if target == rt_caller {
@@ -600,19 +637,24 @@ pub fn send_reliable_impl(target: u64, handler: u64, payload: u64, words: u64) -
         return Delivered                        // (to an actor on another core: queued in the ring for it)
     }
     unsafe {
-        if (load64(target - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
+        if not is_current(target) or (load64((target and REF_ADDRESS_MASK) - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
             return Gone
         }
     }
     return MailboxFull
 }
 
-/// Sends a message from this core. To an actor on this core it goes into the mailbox; to one on another core, into the
+/// Sends a message from this core to the actor `rt_ref` names (a whole reference: a stale one is refused, as a send to an
+/// actor that has ended is). To an actor on this core it goes into the mailbox; to one on another core, into the
 /// ring to that core, which puts it in the mailbox (REC_SEND). True if it was accepted: for another core the ring is all
 /// the sender can know of, so a full mailbox there is a drop on that core's count, and a `reliable` sender is told
 /// `Delivered` all the same (decision 181). With `absorb`, a message for a handler already waiting is dropped, as
 /// Raven's own notifications are.
-fn route_message(target: u64, handler: u64, payload: u64, words: u64, absorb: bool) -> bool {
+fn route_message(rt_ref: u64, handler: u64, payload: u64, words: u64, absorb: bool) -> bool {
+    target: u64 = rt_ref and REF_ADDRESS_MASK
+    if not is_current(rt_ref) {
+        return false
+    }
     rt_core: u64 = core_of_actor(target)
     unsafe {
         if rt_core == core_id() {
@@ -626,7 +668,7 @@ fn route_message(target: u64, handler: u64, payload: u64, words: u64, absorb: bo
         }
         rt_rec: u64 = ring_scratch(0)
         store64(rt_rec, REC_SEND)
-        store64(rt_rec + 8, target)
+        store64(rt_rec + 8, rt_ref)             // the whole reference: the core that gets it checks the generation too
         store64(rt_rec + 16, handler)
         store64(rt_rec + 24, words)
         store64(rt_rec + 120, if absorb { 1 } else { 0 })
@@ -673,7 +715,11 @@ fn push_record_bounded(core: u64, rec: u64) -> bool {
 /// is waiting. To an actor on another core it is a ring record, which that core drops if a `fired` is waiting; and unlike
 /// every other send it does not wait if the ring is full, it is dropped: this runs in core 0's scheduler, which must go
 /// on draining its own rings, and a source that still asserts fires again (it is switched back on after this).
-fn route_interrupt(target: u64, handler: u64) {
+fn route_interrupt(rt_ref: u64, handler: u64) {
+    target: u64 = rt_ref and REF_ADDRESS_MASK
+    if not is_current(rt_ref) {
+        return                                  // the actor it was routed to has gone
+    }
     rt_core: u64 = core_of_actor(target)
     unsafe {
         if rt_core == core_id() {
@@ -690,7 +736,7 @@ fn route_interrupt(target: u64, handler: u64) {
         }
         rt_rec: u64 = ring_scratch(0)
         store64(rt_rec, REC_SEND)
-        store64(rt_rec + 8, target)
+        store64(rt_rec + 8, rt_ref)
         store64(rt_rec + 16, handler)
         store64(rt_rec + 24, 0)
         store64(rt_rec + 120, 1)
@@ -731,10 +777,16 @@ fn handle_record(rt_rec: u64) {
         rt_kind: u64 = load64(rt_rec)
         rt_who: u64 = load64(rt_rec + 8)
         if rt_kind == REC_SEND {
-            if load64(rt_rec + 120) != 0 and rt_queued(rt_who, load64(rt_rec + 16)) {
+            rt_target: u64 = rt_who and REF_ADDRESS_MASK
+            if not is_current(rt_who) {
+                rt_stale: u64 = actor_arena_base()
+                store64(rt_stale + ACTOR_S_DROPPED, load64(rt_stale + ACTOR_S_DROPPED) + 1)     // for an actor that is not there any more
                 return
             }
-            if not rt_enqueue(rt_who, load64(rt_rec + 16), rt_rec + REC_PAYLOAD, load64(rt_rec + 24)) {
+            if load64(rt_rec + 120) != 0 and rt_queued(rt_target, load64(rt_rec + 16)) {
+                return
+            }
+            if not rt_enqueue(rt_target, load64(rt_rec + 16), rt_rec + REC_PAYLOAD, load64(rt_rec + 24)) {
                 rt_base: u64 = actor_arena_base()
                 store64(rt_base + ACTOR_S_DROPPED, load64(rt_base + ACTOR_S_DROPPED) + 1)
             }
@@ -1240,7 +1292,7 @@ fn service_call(dm_pool: u64) -> u64 {
             if dm_words > 0 and not pool_readable(dm_pool, dm_payload, dm_words * 8) {
                 return REASON_BAD
             }
-            if not valid_actor(dm_target) or not valid_handler(dm_target, dm_handler) {
+            if not valid_actor(dm_target and REF_ADDRESS_MASK) or not valid_handler(dm_target and REF_ADDRESS_MASK, dm_handler) {
                 return REASON_BAD
             }
             if dm_number == SVC_SEND {
@@ -1263,10 +1315,17 @@ fn service_call(dm_pool: u64) -> u64 {
         if dm_number == SVC_TIMER {
             dm_t_target: u64 = domain_saved_x(0)
             dm_t_handler: u64 = domain_saved_x(1)
-            if not valid_actor(dm_t_target) or not valid_handler(dm_t_target, dm_t_handler) or domain_saved_x(2) > TIMER_MAX_MS {
+            if not valid_actor(dm_t_target and REF_ADDRESS_MASK) or not valid_handler(dm_t_target and REF_ADDRESS_MASK, dm_t_handler) or domain_saved_x(2) > TIMER_MAX_MS {
                 return REASON_BAD
             }
             return domain_resume(timer_after_impl(dm_t_target, dm_t_handler, domain_saved_x(2), domain_saved_x(3)))
+        }
+        if dm_number == SVC_SELF {
+            dm_who: u64 = domain_saved_x(0)
+            if dm_who != dm_pool + DOMAIN_FIELDS {
+                return REASON_BAD               // a domain's `self` is the actor that lives in it
+            }
+            return domain_resume(self_impl(dm_who))
         }
         if dm_number == SVC_PANIC {
             dm_message: u64 = domain_saved_x(0)
@@ -1325,7 +1384,7 @@ fn valid_actor(dm_target: u64) -> bool {
             if dm_at + ACTOR_BEFORE_FIELDS == dm_target {
                 return true
             }
-            dm_size: u64 = load64(dm_at + ACTOR_H_DOMAIN) shr 8
+            dm_size: u64 = (load64(dm_at + ACTOR_H_DOMAIN) shr 8) and ACTOR_SIZE_MASK
             if dm_size == 0 {
                 return false
             }

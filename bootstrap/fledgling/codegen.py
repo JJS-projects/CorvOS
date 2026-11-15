@@ -566,7 +566,10 @@ class Gen:
             else:
                 self.emit("bl raven_stop_self")
         elif isinstance(e, S.Call) and e.callee == "actor_address":
-            self.expr(e.args[0])                    # a reference already is its address
+            self.expr(e.args[0])                    # a reference: the address is its low 32 bits, the generation the high
+            self.emit("mov w0, w0")
+        elif isinstance(e, S.Call) and e.callee == "actor_reference":
+            self.expr(e.args[0])                    # the whole word: address and generation (decision 197)
         elif isinstance(e, S.Call) and e.callee == "handler_number":
             self.emit(f"mov x0, #{e.number}")
         elif isinstance(e, S.Call) and e.callee in STORE_INSNS:
@@ -586,7 +589,8 @@ class Gen:
         elif isinstance(e, S.SelfValue):
             self.load_slot(self.fn.self_slot)
         elif isinstance(e, S.SelfRef):
-            self.load_slot(self.fn.self_slot)       # the actor's reference is its fields' address
+            self.load_slot(self.fn.self_slot)       # the actor's fields' address ...
+            self.emit("bl raven_self")              # ... and Raven adds the generation (decision 197)
         elif isinstance(e, S.Narrow):
             self.expr(e.value)                      # the same reference
         elif isinstance(e, S.Spawn):

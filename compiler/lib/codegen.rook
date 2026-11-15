@@ -1135,8 +1135,11 @@ pub struct Codegen {
             .ob(":\n")
         } else if kind.same_as("Call") {
             .expr_call(e)
-        } else if kind.same_as("SelfValue") or kind.same_as("SelfRef") {
-            .load_slot(.self_slot)          // the actor's reference is its fields' address
+        } else if kind.same_as("SelfValue") {
+            .load_slot(.self_slot)          // the actor's fields' address
+        } else if kind.same_as("SelfRef") {
+            .load_slot(.self_slot)          // the actor's fields' address ...
+            .emit("bl raven_self")          // ... and Raven adds the generation (decision 197)
         } else if kind.same_as("Narrow") {
             .expr(.kid(e, 0))               // the same reference
         } else if kind.same_as("Spawn") {
@@ -1251,7 +1254,10 @@ pub struct Codegen {
                 .emit("bl raven_stop_self")
             }
         } else if callee.same_as("actor_address") {
-            .expr(args.get(0))              // a reference already is its address
+            .expr(args.get(0))              // a reference: the address is its low 32 bits, the generation the high
+            .emit("mov w0, w0")
+        } else if callee.same_as("actor_reference") {
+            .expr(args.get(0))              // the whole word: address and generation (decision 197)
         } else if callee.same_as("handler_number") {
             .o4()
             .ob("mov x0, #")
