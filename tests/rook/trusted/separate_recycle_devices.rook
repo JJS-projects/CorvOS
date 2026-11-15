@@ -1,0 +1,64 @@
+// The registers a domain was given are taken away when its actor ends, before the domain is given to another (decision 197).
+// Raven puts the `separate` actors on cores 1, 2, 3, 0, 1, ...: the fifth one takes the first one's domain (domain 1 of core 1).
+// Worked out: the first actor is given the UART page (0x3F201000), whose PeriphID0 register (offset 0xFE0) reads 0x11 = 17:
+// peek prints 17. It ends; three more actors take the other cores' domains; the fifth, in the same domain as the first and given
+// no registers, peeks at the same address: the page is not in its table any more and the read faults ("domain 1 faulted"). The
+// domain restarts (its `new` runs again) and the sixth actor, in domain 1 of core 2, is given the page and reads 17 again.
+// (QEMU flushes its TLB on every write of TTBR0, so it cannot show a translation that stays cached: hardware.md item 27 has
+// that part. This shows the tables.)
+// expect: 17
+// expect-failure: domain 1 faulted
+// expect: 17
+
+import actors: run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Probe {
+    regs: val Mmio
+
+    new(regs: val Mmio) {
+        .regs = regs
+    }
+
+    lossy on peek(address: u64, to: Printer) {
+        unsafe {
+            to.show(load32(address) as u64)
+        }
+    }
+}
+
+separate actor Bare {
+    new() {
+    }
+
+    lossy on peek(address: u64, to: Printer) {
+        unsafe {
+            to.show(load32(address) as u64)
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    first: Probe = spawn Probe(peripherals.part(0x201000, 0x1000))
+    first.peek(0x3F201FE0, printer)
+    run_until_idle()
+    stop(first)
+    run_until_idle()
+    second: Bare = spawn Bare()
+    third: Bare = spawn Bare()
+    fourth: Bare = spawn Bare()
+    fifth: Bare = spawn Bare()
+    fifth.peek(0x3F201FE0, printer)
+    run_until_idle()
+    sixth: Probe = spawn Probe(peripherals.part(0x201000, 0x1000))
+    sixth.peek(0x3F201FE0, printer)
+    run_until_idle()
+}

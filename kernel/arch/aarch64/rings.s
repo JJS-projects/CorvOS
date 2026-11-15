@@ -231,6 +231,16 @@ pool_wipe:
     b.lo    1b
     ret
 
+// void pool_wipe_range(start, bytes): zeroes `bytes` (a multiple of 16) from `start`.
+    .global pool_wipe_range
+pool_wipe_range:
+    add     x1, x0, x1
+1:  cmp     x0, x1
+    b.hs    2f
+    stp     xzr, xzr, [x0], #16
+    b       1b
+2:  ret
+
 // u64 domain_pools_start(void), u64 domain_pools_end(void): the physical range of every core's domain pools.
     .global domain_pools_start
 domain_pools_start:

@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -103,6 +103,8 @@ DOMAINS: u64 = 3
 DOMAIN_FIELDS: u64 = 0x11000        // where an actor in a domain keeps its fields: its reference points here ...
 DOMAIN_INBOX: u64 = 0x1FF000        // ... and the message it is handling is copied here
 DOMAIN_POOL_BYTES: u64 = 0x200000
+DOMAIN_CONTROL: u64 = 0x10000       // the control page: the actor's header and mailbox are at its end
+DOMAIN_CLEAN: u64 = 0x5EC0C1EA9ED0C0DE  // the first word of the control page of a pool that was wiped when its actor ended
 DOMAIN_STACK_FIRST: u64 = 0x1000    // the stack: [0x1000, 0x10000); then the control page; then the data
 DOMAIN_STACK_END: u64 = 0x10000
 REASON_DONE: u64 = 0                // why domain_enter returned (domain.s)
@@ -117,6 +119,7 @@ REC_WATCH: u64 = 3                  // watch_impl: 2 watcher, 3 handler `restart
 REC_STOP: u64 = 4                   // end the actor
 REC_DROP_WATCHES: u64 = 5           // a watcher ended or restarted: forget its watches
 REC_TIMER: u64 = 6                  // arm a timer on core 0 (decision 196): 2 handler number, 3 deadline, 4 token
+REC_RETIRE: u64 = 7                 // an actor in a domain has ended (decision 197): core 0 gives its domain back
 REC_PAYLOAD: u64 = 48               // byte offset of the message words in a record
 SVC_SEND: u64 = 1                   // the calls (rtstubs.s)
 SVC_SEND_RELIABLE: u64 = 2
@@ -193,18 +196,15 @@ fn unlink_from(ul_head: u64, ul_child: u64) -> bool {
     return false
 }
 
-/// An actor in the arena has ended and nothing of Raven's points to it any more (decision 197): its place gets a new
-/// generation, so every reference made for it is stale; it leaves the list of its parent; and its memory is given back, at once,
-/// or when its entry in the run queue is taken if it has one.
-fn retire(rt_who: u64) {
+/// Takes `ul_who` out of the lists of its parent, if it has one (decision 197). Only core 0 does this: the lists are its.
+/// (A parent that ends or restarts sets the parent word of each child it ends to 0 and clears its lists itself.)
+fn unlink_from_parent(ul_who: u64) {
     unsafe {
-        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
-        store64(rt_header + ACTOR_H_DOMAIN, load64(rt_header + ACTOR_H_DOMAIN) + (1 shl REF_GENERATION_SHIFT))
+        rt_header: u64 = ul_who - ACTOR_BEFORE_FIELDS
         rt_parent: u64 = load64(rt_header + ACTOR_H_PARENT)
         if rt_parent != 0 {
-            // (a parent that ends or restarts sets this to 0 in each child it ends, and clears its lists itself)
             rt_parent_header: u64 = rt_parent - ACTOR_BEFORE_FIELDS
-            if unlink_from(rt_parent_header + ACTOR_H_FIRST_CHILD, rt_who) {
+            if unlink_from(rt_parent_header + ACTOR_H_FIRST_CHILD, ul_who) {
                 mut rt_last: u64 = 0
                 mut rt_at: u64 = load64(rt_parent_header + ACTOR_H_FIRST_CHILD)
                 finding: loop rt_at != 0 {
@@ -213,16 +213,79 @@ fn retire(rt_who: u64) {
                 }
                 store64(rt_parent_header + ACTOR_H_LAST_CHILD, rt_last)
             } else {
-                discard unlink_from(rt_parent_header + ACTOR_H_PENDING, rt_who)
+                discard unlink_from(rt_parent_header + ACTOR_H_PENDING, ul_who)
             }
             store64(rt_header + ACTOR_H_PARENT, 0)
         }
+    }
+}
+
+/// An actor has ended and nothing of Raven's points to it any more (decision 197): its place is to be given back. If it still
+/// has an entry in this core's run queue that waits until the entry is taken, so that no entry is left for an actor that is
+/// not there. Then `finish_retire`.
+fn retire(rt_who: u64) {
+    unsafe {
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
         if load64(rt_header + ACTOR_H_QUEUED) != 0 {
             store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) or ACTOR_F_RETIRING)
             return
         }
     }
-    release_block(rt_who)
+    finish_retire(rt_who)
+}
+
+/// Gives an ended actor's place back. In the arena: a new generation (every reference made for it is stale), out of its
+/// parent's list, its block on the free list. In a domain: the same things, but they are done by core 0, which owns the lists
+/// and the tables (`retire_domain`): the core the actor lived on asks it with a record.
+fn finish_retire(fr_who: u64) {
+    if domain_of(fr_who) == 0 {
+        unsafe {
+            rt_header: u64 = fr_who - ACTOR_BEFORE_FIELDS
+            store64(rt_header + ACTOR_H_DOMAIN, load64(rt_header + ACTOR_H_DOMAIN) + (1 shl REF_GENERATION_SHIFT))
+        }
+        unlink_from_parent(fr_who)
+        release_block(fr_who)
+        return
+    }
+    if core_id() == 0 {
+        retire_domain(fr_who)
+        return
+    }
+    unsafe {
+        fr_rec: u64 = ring_scratch(0)
+        store64(fr_rec, REC_RETIRE)
+        store64(fr_rec + 8, fr_who)
+        push_record(0, fr_rec)
+    }
+}
+
+/// Core 0: the actor in a domain has ended, and the domain is to be free for the next `separate` actor (decision 197). In
+/// this order: the generation changes (a stale reference is refused from now on, and the next tenant is told apart from this
+/// one); the actor leaves its parent's list; the peripherals are taken away and the domain's translations dropped on every core
+/// (domain_unmap_devices_of); the pool is wiped, except the two words of the header that say the place is ended and which
+/// generation it is, which stay so that nothing can be queued in a place that looks empty; the pool is marked as wiped, and
+/// then the domain counts as free.
+fn retire_domain(rd_who: u64) {
+    rd_core: u64 = core_of_actor(rd_who)
+    rd_domain: u64 = domain_of(rd_who)
+    rd_pool: u64 = domain_pool_base_of(rd_core, rd_domain)
+    unsafe {
+        rd_header: u64 = rd_who - ACTOR_BEFORE_FIELDS
+        store64(rd_header + ACTOR_H_FLAGS, load64(rd_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED)
+        store64(rd_header + ACTOR_H_DOMAIN, load64(rd_header + ACTOR_H_DOMAIN) + (1 shl REF_GENERATION_SHIFT))
+        unlink_from_parent(rd_who)
+        domain_unmap_devices_of(rd_core, rd_domain)
+        pool_wipe_range(rd_pool, DOMAIN_CONTROL)
+        pool_wipe_range(rd_pool + DOMAIN_FIELDS, DOMAIN_POOL_BYTES - DOMAIN_FIELDS)
+        clearing: loop rd_w: u64 in 0..(DOMAIN_FIELDS - DOMAIN_CONTROL) / 8 {
+            rd_at: u64 = rd_pool + DOMAIN_CONTROL + rd_w * 8
+            if rd_at != rd_header + ACTOR_H_DOMAIN and rd_at != rd_header + ACTOR_H_FLAGS {
+                store64(rd_at, 0)
+            }
+        }
+        store64(rd_pool + DOMAIN_CONTROL, DOMAIN_CLEAN)
+        domain_set_actor_of(rd_core, rd_domain, 0)
+    }
 }
 
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
@@ -311,11 +374,19 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
                 panic("a separate actor's fields do not fit its domain")
             }
             rt_pool: u64 = domain_pool_base_of(rt_core, rt_domain)
-            pool_wipe(rt_pool)
             rt_actor = rt_pool + DOMAIN_FIELDS
+            mut rt_domain_generation: u64 = 0
+            if load64(rt_pool + DOMAIN_CONTROL) == DOMAIN_CLEAN {
+                // wiped when its last actor ended (its place keeps the generation it was given then)
+                rt_domain_generation = load64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN) shr REF_GENERATION_SHIFT
+                store64(rt_pool + DOMAIN_CONTROL, 0)
+            } else {
+                pool_wipe(rt_pool)              // never used: nothing is known about what it holds
+            }
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DISPATCHER, dispatcher)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS, rt_actor + fields * 8)
-            store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN, rt_domain or (rt_core shl 4))
+            store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN,
+                    rt_domain or (rt_core shl 4) or (rt_domain_generation shl REF_GENERATION_SHIFT))
             domain_set_actor_of(rt_core, rt_domain, rt_actor)
             grant_devices(rt_core, rt_domain, rt_args, rt_args_words, rt_devices)
         }
@@ -434,9 +505,7 @@ fn end_actor(rt_who: u64) {
         store64(rt_header + ACTOR_H_PENDING, 0)
         notify_stopped(rt_who)
     }
-    if domain_of(rt_who) == 0 {
-        retire(rt_who)                          // (an actor in a domain keeps its place for now)
-    }
+    retire(rt_who)
 }
 
 /// Ends each actor on a list of siblings, and what they spawned.
@@ -529,7 +598,7 @@ fn rerun_end(rt_who: u64) {
 /// spawned with, with its fields cleared and its mailbox empty. References to it stay
 /// valid. If that `new` fails too, the actor ends (a restart that fails would otherwise
 /// repeat for ever).
-fn restart_actor(rt_who: u64) {
+fn restart_actor(rt_who: u64) -> bool {
     rt_base: u64 = actor_arena_base()
     unsafe {
         store64(rt_base + ACTOR_S_RESTARTS, load64(rt_base + ACTOR_S_RESTARTS) + 1)
@@ -550,12 +619,13 @@ fn restart_actor(rt_who: u64) {
             store64(rt_base + ACTOR_S_IN_NEW, 0)
             if rt_failed != 0 {
                 end_actor(rt_who)
-                return
+                return true                     // (it may be given back already: the caller must not touch it)
             }
         }
         rerun_end(rt_who)
     }
     notify_restarted(rt_who)
+    return false
 }
 
 /// `watch(watched, watcher)`, which the compiler turns into a call of this: from now on
@@ -894,6 +964,8 @@ fn handle_record(rt_rec: u64) {
             watch_here(rt_who, load64(rt_rec + 16), load64(rt_rec + 24), load64(rt_rec + 32))
         } else if rt_kind == REC_STOP {
             end_actor(rt_who)
+        } else if rt_kind == REC_RETIRE {
+            retire_domain(rt_who)
         } else if rt_kind == REC_DROP_WATCHES {
             drop_watches(rt_who)
         } else if rt_kind == REC_TIMER {
@@ -927,8 +999,9 @@ fn start_here(rt_who: u64, rt_entry: u64, rt_words: u64, rt_reuse: u64, rt_args:
             store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
             store64(rt_base + ACTOR_S_IN_NEW, 0)
             if rt_failed != 0 {
-                restart_actor(rt_who)
-                finish_start(rt_who)
+                if not restart_actor(rt_who) {
+                    finish_start(rt_who)
+                }
                 return
             }
         }
@@ -1087,7 +1160,7 @@ pub fn run_one_turn() {
         if load64(rt_header + ACTOR_H_COUNT) == 0 {
             store64(rt_header + ACTOR_H_QUEUED, 0)      // its messages were lost in a restart
             if (load64(rt_header + ACTOR_H_FLAGS) and ACTOR_F_RETIRING) != 0 {
-                release_block(rt_actor)                 // it ended while it was queued: its memory is free now
+                finish_retire(rt_actor)                 // it ended while it was queued: its place is given back now
             }
             return
         }
@@ -1131,7 +1204,7 @@ pub fn run_one_turn() {
                 store64(rt_base + ACTOR_S_STOPPING, 0)
                 end_actor(rt_actor)                 // it called stop()
             } else {
-                restart_actor(rt_actor)
+                discard restart_actor(rt_actor)
             }
         }
         pending_sub(1)                          // the message is handled
@@ -1476,8 +1549,14 @@ fn valid_actor(dm_target: u64) -> bool {
     unsafe {
         if dm_target >= domain_pools_start() and dm_target < domain_pools_end() {
             // in a domain's pool: a domain of some core that holds exactly this actor
+            // (a place in a pool: where an actor lives, or lived and has given the domain back, wiped: a stale reference
+            // to it is refused when it is used, not a request that fails the domain)
             dm_index: u64 = (dm_target - domain_pools_start()) shr 21
-            return domain_actor_of(dm_index / DOMAINS, dm_index % DOMAINS + 1) == dm_target
+            dm_there: u64 = domain_pool_base_of(dm_index / DOMAINS, dm_index % DOMAINS + 1)
+            if dm_target != dm_there + DOMAIN_FIELDS {
+                return false
+            }
+            return domain_actor_of(dm_index / DOMAINS, dm_index % DOMAINS + 1) == dm_target or load64(dm_there + DOMAIN_CONTROL) == DOMAIN_CLEAN
         }
         dm_next: u64 = load64(dm_base + ACTOR_S_NEXT)
         mut dm_at: u64 = dm_base + ACTOR_FIRST_ACTOR

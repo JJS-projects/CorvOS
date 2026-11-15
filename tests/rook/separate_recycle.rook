@@ -1,0 +1,83 @@
+// A domain is given back when its actor ends (decision 197), so a program can have 12 `separate` actors alive at once (3 on
+// each of 4 cores) and then 12 more, for ever: before, a domain was never freed and the 13th `separate` actor in the whole
+// run panicked ("out of protection domains on a core").
+// Worked out: 5 rounds. Each spawns 12 Workers (n = 1 to 12), each sends `n` to the Sum, and ends them all: a round adds
+// 1 + 2 + ... + 12 = 78, and 5 rounds make 390.
+// expect: 390
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Sum {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .total += n
+    }
+
+    pub lossy on show() {
+        print_u64(.total)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on go(to: Sum) {
+        to.add(.n)
+    }
+}
+
+fn test_main() {
+    sum: Sum = spawn Sum()
+    rounds: loop r: u64 in 0..5 {
+        w1: Worker = spawn Worker(1)
+        w2: Worker = spawn Worker(2)
+        w3: Worker = spawn Worker(3)
+        w4: Worker = spawn Worker(4)
+        w5: Worker = spawn Worker(5)
+        w6: Worker = spawn Worker(6)
+        w7: Worker = spawn Worker(7)
+        w8: Worker = spawn Worker(8)
+        w9: Worker = spawn Worker(9)
+        w10: Worker = spawn Worker(10)
+        w11: Worker = spawn Worker(11)
+        w12: Worker = spawn Worker(12)
+        w1.go(sum)
+        w2.go(sum)
+        w3.go(sum)
+        w4.go(sum)
+        w5.go(sum)
+        w6.go(sum)
+        w7.go(sum)
+        w8.go(sum)
+        w9.go(sum)
+        w10.go(sum)
+        w11.go(sum)
+        w12.go(sum)
+        run_until_idle()
+        stop(w1)
+        stop(w2)
+        stop(w3)
+        stop(w4)
+        stop(w5)
+        stop(w6)
+        stop(w7)
+        stop(w8)
+        stop(w9)
+        stop(w10)
+        stop(w11)
+        stop(w12)
+        run_until_idle()
+    }
+    sum.show()
+    run_until_idle()
+}
