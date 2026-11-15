@@ -50,6 +50,7 @@ ACTOR_SIZE_MASK: u64 = 0xFFFFFF     // bits 8 to 31 of the domain word, once shi
 ACTOR_F_IN_NEW: u64 = 1             // it was spawned by its spawner's `new`: kept across restarts
 ACTOR_F_ENDED: u64 = 2              // it has ended: sends to it are refused
 ACTOR_F_STARTING: u64 = 4           // its `new` has not run yet (on another core): messages wait, it is not scheduled
+ACTOR_F_RETIRING: u64 = 8           // it has ended but is still in the run queue: its memory is given back when that entry is taken
 
 // Raven's tables, as byte offsets from the start of the arena.
 ACTOR_S_NEXT: u64 = 0               // next free byte (0 until the first spawn)
@@ -80,6 +81,9 @@ CORE_INJECT_PERIOD: u64 = 208       // ... and then every this many (0: only onc
 CORE_INJECT_COUNT: u64 = 216        // handlers run since it was armed
 // Timers (decision 196), kept in core 0's block (assembly core_block): a count of armed timers, a sequence number, and 32
 // entries of 64 bytes: the time it is due (counter ticks), the actor, the handler, the token, the order it was armed in.
+// The actors that ended, their memory waiting to be used again (decision 197): in the block of the core whose arena they are in,
+// a list through the first word of each block, whose size is in bits 8 to 31 of its domain word.
+CORE_FREE_ACTORS: u64 = 512
 CORE_TIMER_SEQ: u64 = 1288
 CORE_TIMERS: u64 = 1536
 TIMER_SLOTS: u64 = 32
@@ -142,6 +146,83 @@ fn is_current(r_ref: u64) -> bool {
 /// a domain asks by `svc`, because it cannot read its own header): the actor's whole reference.
 pub fn self_impl(sf_actor: u64) -> u64 {
     return reference_to(sf_actor)
+}
+
+/// The first free block of exactly `tf_size` bytes in this core's arena, taken off the list (its address, the address of its
+/// header); 0 if there is none.
+fn take_free_block(tf_size: u64) -> u64 {
+    unsafe {
+        mut tf_link: u64 = core_block(core_id()) + CORE_FREE_ACTORS    // the word that points at the block looked at
+        mut tf_block: u64 = load64(tf_link)
+        scanning: loop tf_block != 0 {
+            if ((load64(tf_block + ACTOR_H_DOMAIN) shr 8) and ACTOR_SIZE_MASK) == tf_size {
+                store64(tf_link, load64(tf_block + ACTOR_H_DISPATCHER))
+                return tf_block
+            }
+            tf_link = tf_block + ACTOR_H_DISPATCHER
+            tf_block = load64(tf_link)
+        }
+    }
+    return 0
+}
+
+/// Gives the memory of an ended actor back: its block goes on this core's list, ready for an actor of the same size.
+fn release_block(rb_actor: u64) {
+    unsafe {
+        rb_block: u64 = rb_actor - ACTOR_BEFORE_FIELDS
+        rb_head: u64 = core_block(core_id()) + CORE_FREE_ACTORS
+        store64(rb_block + ACTOR_H_DISPATCHER, load64(rb_head))
+        store64(rb_head, rb_block)
+    }
+}
+
+/// Takes `ul_child` out of the list of siblings whose first one is kept in the word at `ul_head`. True if it was there.
+fn unlink_from(ul_head: u64, ul_child: u64) -> bool {
+    unsafe {
+        mut ul_link: u64 = ul_head
+        mut ul_at: u64 = load64(ul_link)
+        walking: loop ul_at != 0 {
+            if ul_at == ul_child {
+                store64(ul_link, load64(ul_at - ACTOR_BEFORE_FIELDS + ACTOR_H_NEXT_SIBLING))
+                return true
+            }
+            ul_link = ul_at - ACTOR_BEFORE_FIELDS + ACTOR_H_NEXT_SIBLING
+            ul_at = load64(ul_link)
+        }
+    }
+    return false
+}
+
+/// An actor in the arena has ended and nothing of Raven's points to it any more (decision 197): its place gets a new
+/// generation, so every reference made for it is stale; it leaves the list of its parent; and its memory is given back, at once,
+/// or when its entry in the run queue is taken if it has one.
+fn retire(rt_who: u64) {
+    unsafe {
+        rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
+        store64(rt_header + ACTOR_H_DOMAIN, load64(rt_header + ACTOR_H_DOMAIN) + (1 shl REF_GENERATION_SHIFT))
+        rt_parent: u64 = load64(rt_header + ACTOR_H_PARENT)
+        if rt_parent != 0 {
+            // (a parent that ends or restarts sets this to 0 in each child it ends, and clears its lists itself)
+            rt_parent_header: u64 = rt_parent - ACTOR_BEFORE_FIELDS
+            if unlink_from(rt_parent_header + ACTOR_H_FIRST_CHILD, rt_who) {
+                mut rt_last: u64 = 0
+                mut rt_at: u64 = load64(rt_parent_header + ACTOR_H_FIRST_CHILD)
+                finding: loop rt_at != 0 {
+                    rt_last = rt_at
+                    rt_at = load64(rt_at - ACTOR_BEFORE_FIELDS + ACTOR_H_NEXT_SIBLING)
+                }
+                store64(rt_parent_header + ACTOR_H_LAST_CHILD, rt_last)
+            } else {
+                discard unlink_from(rt_parent_header + ACTOR_H_PENDING, rt_who)
+            }
+            store64(rt_header + ACTOR_H_PARENT, 0)
+        }
+        if load64(rt_header + ACTOR_H_QUEUED) != 0 {
+            store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) or ACTOR_F_RETIRING)
+            return
+        }
+    }
+    release_block(rt_who)
 }
 
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
@@ -218,6 +299,7 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
                         rerun_begin(rt_actor)   // (one on another core is rerun by that core, in REC_START)
                     }
                 } else {
+                    store64(rt_old_header + ACTOR_H_PARENT, 0)
                     end_actor_anywhere(rt_old)  // a different kind of actor is spawned here now
                 }
             }
@@ -243,14 +325,25 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
                 rt_next = rt_base + ACTOR_FIRST_ACTOR
             }
             rt_size: u64 = ACTOR_BEFORE_FIELDS + (fields + rt_args_words) * 8
-            if rt_next + rt_size > actor_arena_limit() {
-                panic("out of memory for actors")
+            mut rt_generation: u64 = 0
+            rt_free: u64 = take_free_block(rt_size)
+            if rt_free != 0 {
+                // The memory of an actor that ended, the same size: cleared, and with the generation its place has now.
+                rt_generation = load64(rt_free + ACTOR_H_DOMAIN) shr REF_GENERATION_SHIFT
+                rt_next = rt_free
+                clearing_block: loop rt_c: u64 in 0..(rt_size / 8) {
+                    store64(rt_next + rt_c * 8, 0)
+                }
+            } else {
+                if rt_next + rt_size > actor_arena_limit() {
+                    panic("out of memory for actors")
+                }
+                store64(rt_base + ACTOR_S_NEXT, rt_next + rt_size)
             }
-            store64(rt_base + ACTOR_S_NEXT, rt_next + rt_size)
             rt_actor = rt_next + ACTOR_BEFORE_FIELDS
             store64(rt_next + ACTOR_H_DISPATCHER, dispatcher)
             store64(rt_next + ACTOR_H_ARGS, rt_actor + fields * 8)
-            store64(rt_next + ACTOR_H_DOMAIN, rt_size shl 8)
+            store64(rt_next + ACTOR_H_DOMAIN, (rt_size shl 8) or (rt_generation shl REF_GENERATION_SHIFT))
         }
         rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
         store64(rt_header + ACTOR_H_START, rt_entry)
@@ -341,6 +434,9 @@ fn end_actor(rt_who: u64) {
         store64(rt_header + ACTOR_H_PENDING, 0)
         notify_stopped(rt_who)
     }
+    if domain_of(rt_who) == 0 {
+        retire(rt_who)                          // (an actor in a domain keeps its place for now)
+    }
 }
 
 /// Ends each actor on a list of siblings, and what they spawned.
@@ -349,6 +445,7 @@ fn end_list(rt_list: u64) {
     walking: loop rt_child != 0 {
         unsafe {
             rt_next: u64 = load64(rt_child - ACTOR_BEFORE_FIELDS + ACTOR_H_NEXT_SIBLING)
+            store64(rt_child - ACTOR_BEFORE_FIELDS + ACTOR_H_PARENT, 0)     // the list is going away, not each child's place in it
             end_actor_anywhere(rt_child)
             rt_child = rt_next
         }
@@ -377,6 +474,7 @@ fn rerun_begin(rt_who: u64) {
                 }
                 rt_tail = rt_child
             } else {
+                store64(rt_child_header + ACTOR_H_PARENT, 0)
                 end_actor_anywhere(rt_child)
             }
             rt_child = rt_after
@@ -988,6 +1086,9 @@ pub fn run_one_turn() {
         rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
         if load64(rt_header + ACTOR_H_COUNT) == 0 {
             store64(rt_header + ACTOR_H_QUEUED, 0)      // its messages were lost in a restart
+            if (load64(rt_header + ACTOR_H_FLAGS) and ACTOR_F_RETIRING) != 0 {
+                release_block(rt_actor)                 // it ended while it was queued: its memory is free now
+            }
             return
         }
         rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)

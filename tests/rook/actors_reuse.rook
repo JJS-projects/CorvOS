@@ -1,0 +1,97 @@
+// The memory of an actor that ended is used again (decision 197), so a program can spawn and stop actors for ever.
+// An actor takes at least 1264 bytes of the 64 KB arena, so 1000 of them (more than a megabyte) would not fit without it.
+// Worked out: 1. test_main spawns a Worker(i) for i in 0..1000, sends it `add`, runs it and stops it: the sum is
+// 0 + 1 + ... + 999 = 499500. 2. A Boss spawns a Worker in its `new` (it holds 5) and, in `cycle`, 20 workers that it sends a
+// message and stops before the message is handled (their entries are still in the run queue: the memory is given back when
+// they are taken): 10 cycles, sum unchanged; `kid_add` adds the kid's 5: 499505. 3. The Boss fails and restarts: the kid it
+// spawns in `new` is the same actor again, its list of children still whole after 200 spawns and stops: `kid_add` adds 5
+// again (499510), and cycles still work.
+// expect: 499500
+// expect: 499505
+// expect-failure: boss crash at actors_reuse.rook:67
+// expect: 499510
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Sum {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .total += n
+    }
+
+    pub lossy on show() {
+        print_u64(.total)
+    }
+}
+
+actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on add(to: Sum) {
+        to.add(.n)
+    }
+}
+
+actor Boss {
+    sum: Sum
+    kid: Worker
+
+    new(sum: Sum) {
+        .sum = sum
+        .kid = spawn Worker(5)
+    }
+
+    pub lossy on cycle(count: u64) {
+        spinning: loop i: u64 in 0..count {
+            w: Worker = spawn Worker(100)
+            w.add(.sum)
+            stop(w)
+        }
+    }
+
+    pub lossy on kid_add() {
+        .kid.add(.sum)
+    }
+
+    pub lossy on crash() {
+        panic("boss crash")
+    }
+}
+
+fn test_main() {
+    sum: Sum = spawn Sum()
+    rounds: loop i: u64 in 0..1000 {
+        w: Worker = spawn Worker(i)
+        w.add(sum)
+        run_until_idle()
+        stop(w)
+    }
+    sum.show()
+    run_until_idle()
+    boss: Boss = spawn Boss(sum)
+    cycles: loop c: u64 in 0..10 {
+        boss.cycle(20)
+        run_until_idle()
+    }
+    boss.kid_add()
+    run_until_idle()
+    sum.show()
+    run_until_idle()
+    boss.crash()
+    run_until_idle()
+    boss.kid_add()
+    boss.cycle(20)
+    run_until_idle()
+    sum.show()
+    run_until_idle()
+}
