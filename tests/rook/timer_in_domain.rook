@@ -15,7 +15,7 @@ actor Printer {
     }
 }
 
-separate actor Watchdog: Tick {
+separate actor Alarm: Tick {
     timer: val Timer
     printer: Printer
 
@@ -35,7 +35,7 @@ separate actor Watchdog: Tick {
 
 fn test_main(peripherals: Mmio) {
     printer: Printer = spawn Printer()
-    dog: Watchdog = spawn Watchdog(make_timer(peripherals), printer)
+    dog: Alarm = spawn Alarm(make_timer(peripherals), printer)
     dog.arm()
     run_until_idle()
 }
