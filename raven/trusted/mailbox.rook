@@ -1466,8 +1466,11 @@ fn service_call(dm_pool: u64) -> u64 {
             if dm_words > 0 and not pool_readable(dm_pool, dm_payload, dm_words * 8) {
                 return REASON_BAD
             }
-            if not valid_actor(dm_target and REF_ADDRESS_MASK) or not valid_handler(dm_target and REF_ADDRESS_MASK, dm_handler) {
+            if not valid_actor(dm_target and REF_ADDRESS_MASK) {
                 return REASON_BAD
+            }
+            if is_current(dm_target) and not valid_handler(dm_target and REF_ADDRESS_MASK, dm_handler) {
+                return REASON_BAD               // (a stale reference names no actor, so no handler: it is refused below, softly)
             }
             if dm_number == SVC_SEND {
                 send_impl(dm_target, dm_handler, dm_payload, dm_words)
@@ -1489,7 +1492,10 @@ fn service_call(dm_pool: u64) -> u64 {
         if dm_number == SVC_TIMER {
             dm_t_target: u64 = domain_saved_x(0)
             dm_t_handler: u64 = domain_saved_x(1)
-            if not valid_actor(dm_t_target and REF_ADDRESS_MASK) or not valid_handler(dm_t_target and REF_ADDRESS_MASK, dm_t_handler) or domain_saved_x(2) > TIMER_MAX_MS {
+            if not valid_actor(dm_t_target and REF_ADDRESS_MASK) or domain_saved_x(2) > TIMER_MAX_MS {
+                return REASON_BAD
+            }
+            if is_current(dm_t_target) and not valid_handler(dm_t_target and REF_ADDRESS_MASK, dm_t_handler) {
                 return REASON_BAD
             }
             return domain_resume(timer_after_impl(dm_t_target, dm_t_handler, domain_saved_x(2), domain_saved_x(3)))
