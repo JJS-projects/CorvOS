@@ -1,0 +1,47 @@
+// A quota that lives in the capability (decision 198): a proxy that forwards bytes to a `ByteSink` for as long as its budget
+// lasts, so whoever holds only the `ByteSink` side (narrowed from it) can send no more than the budget allows, however fast it
+// sends, and cannot raise it. The holder needs no identity: the limit is in the reference it was given, as revocation is in
+// the reference a `Valve` hands out (valve.rook). Like the valve it is an ordinary actor, not a language feature.
+//
+// The budget is a token bucket on the clock (`RestartBudget`, decision 193): `capacity` bytes at the start, one more every
+// `ticks_per_byte` ticks of the clock, never more than `capacity`. With `ticks_per_byte` very large it is a fixed budget. A
+// byte over the budget is dropped, which a `lossy` handler allows. The owner is told once each time the budget runs out
+// (`overdrawn`), not for every byte, so a flood does not become a flood of reports.
+//
+// One proxy forwards one interface: Rook cannot yet write a proxy for any interface (generics over actors are on the
+// roadmap), so there is one of these for each interface that needs a quota. This is the one for bytes.
+
+import hardware: read_counter
+import pl011: ByteSink
+import restart_budget: RestartBudget
+
+/// Whom a `Metered` tells when its budget has run out.
+pub interface Overdrawn {
+    lossy on overdrawn()
+}
+
+/// Forwards each byte it is sent to `target` while its budget has one, and drops the rest.
+pub actor Metered: ByteSink {
+    target: ByteSink
+    owner: Overdrawn
+    mut budget: iso RestartBudget
+    mut told: bool                  // the owner knows the budget is out: true from the first refusal until a byte passes again
+
+    /// A proxy that lets `capacity` bytes through at once and one more every `ticks_per_byte` ticks.
+    new(target: ByteSink, owner: Overdrawn, capacity: u64, ticks_per_byte: u64) {
+        .target = target
+        .owner = owner
+        .budget = RestartBudget(capacity: capacity, ticks_per_restart: ticks_per_byte, now: read_counter())
+        .told = false
+    }
+
+    lossy on byte(b: u8) {
+        if .budget.allow(read_counter()) {
+            .told = false
+            .target.byte(b)
+        } else if not .told {
+            .told = true
+            .owner.overdrawn()
+        }
+    }
+}

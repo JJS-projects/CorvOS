@@ -1,0 +1,71 @@
+// The budget of a `Metered` fills up again with time, up to its capacity and no more (decision 198; the bucket is the
+// restart budget of decision 193).
+// Worked out: capacity 2, one more byte every 50 ms. At the start the Driver sends 4 bytes: 2 pass, 2 are refused, and the owner
+// is told once. It arms a timer for 120 ms, which is more than the 100 ms that fill the budget again from empty (a timer is never
+// early; a late one only finds the budget full, and it never holds more than 2). Its tick sends 4 more: again 2 pass and 2 are
+// refused, and the owner is told again (it was told once for each time the budget ran out). Tally prints the bytes it got (4) and
+// the times it was told (2).
+// expect: 4
+// expect: 2
+
+import actors: Tick, Timer, make_timer, run_until_idle
+import devices: Mmio
+import hardware: counter_frequency
+import meter: Metered, Overdrawn
+import pl011: ByteSink
+import print: print_u64
+
+actor Tally: ByteSink, Overdrawn {
+    mut bytes: u64
+    mut told: u64
+
+    new() {
+        .bytes = 0
+        .told = 0
+    }
+
+    lossy on byte(b: u8) {
+        .bytes += 1
+    }
+
+    lossy on overdrawn() {
+        .told += 1
+    }
+
+    pub lossy on show() {
+        print_u64(.bytes)
+        print_u64(.told)
+    }
+}
+
+fn four(out: ByteSink) {
+    out.byte(1)
+    out.byte(2)
+    out.byte(3)
+    out.byte(4)
+}
+
+actor Driver: Tick {
+    timer: val Timer
+    out: ByteSink
+
+    new(timer: val Timer, out: ByteSink) {
+        .timer = timer
+        .out = out
+        four(out)
+        discard timer.after(120, narrow(self, Tick), 0)
+    }
+
+    lossy on tick(token: u64) {
+        four(.out)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    tally: Tally = spawn Tally()
+    proxy: Metered = spawn Metered(narrow(tally, ByteSink), narrow(tally, Overdrawn), 2, counter_frequency() / 20)
+    driver: Driver = spawn Driver(make_timer(peripherals), narrow(proxy, ByteSink))
+    run_until_idle()
+    tally.show()
+    run_until_idle()
+}

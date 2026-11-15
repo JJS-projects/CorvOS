@@ -609,6 +609,9 @@ actor Client: Reply<u64> {
 - **Revocation** is not a language feature (`raven/valve.rook` is the working example,
   decision 146): a proxy actor implementing the same
   interface, which can be told to stop forwarding, is ordinary library code.
+- **Quotas** are the same (`raven/meter.rook`, decision 198): a proxy actor that forwards while a budget lasts. A
+  reference is a value that is copied, so a count cannot be carried in it; it lives in the proxy, which is the
+  capability that is handed out.
 
 ## 7. Reference capabilities
 
