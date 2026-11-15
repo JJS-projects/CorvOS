@@ -1,0 +1,41 @@
+// An actor in a protection domain on another core arms a timer and is sent the tick (milestone 8b, decision 196).
+// Worked out: the first `separate` actor is on core 1. It holds a `val Timer` (handed to its `new`, like a `val Mmio`); its
+// `arm` handler calls `after(3, self, 77)`, which goes to Raven as a request, over a ring to core 0, which keeps the timers; 3 ms
+// later core 0 sends `tick(77)` through the ring to the actor, whose handler tells the printer: 77. `run_until_idle` waits for
+// the timer, the tick and the message to the printer.
+// expect: 77
+
+import actors: Tick, Timer, make_timer, run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Alarm: Tick {
+    timer: val Timer
+    printer: Printer
+
+    new(timer: val Timer, printer: Printer) {
+        .timer = timer
+        .printer = printer
+    }
+
+    lossy on arm() {
+        discard .timer.after(3, narrow(self, Tick), 77)
+    }
+
+    lossy on tick(token: u64) {
+        .printer.show(token)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    dog: Alarm = spawn Alarm(make_timer(peripherals), printer)
+    dog.arm()
+    run_until_idle()
+}

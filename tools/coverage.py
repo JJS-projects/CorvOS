@@ -169,7 +169,10 @@ def run_shard(arguments):
     """One worker: its share of compile_everything under a tracer of its own; the lines that ran, as (path, line)."""
     shard, shards = arguments
     tracer = trace.Trace(count=1, trace=0)
-    tracer.runfunc(compile_everything, shard, shards)
+    try:
+        tracer.runfunc(compile_everything, shard, shards)
+    except Exception as error:      # (as text: a CompileError cannot be sent back from a worker, and hid which program broke)
+        return f"shard {shard} failed: {type(error).__name__}: {error}"
     return {(os.path.realpath(path), line) for (path, line), _ in tracer.results().counts.items()}
 
 
@@ -187,6 +190,8 @@ def main(argv):
         results = [run_shard((0, 1))]
     ran = {}
     for lines in results:
+        if isinstance(lines, str):
+            sys.exit(lines)
         for path, line in lines:
             ran.setdefault(path, set()).add(line)
 

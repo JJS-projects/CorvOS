@@ -274,6 +274,14 @@ next_core:
 
     .section .text
 
+// u64 core_block(core): the address of core `core`'s block (its domain_tramp page: domain.s has the layout). Words 200, 208
+// and 216 of it are free: Raven's fault injection keeps its state there (decision 195).
+    .global core_block
+core_block:
+    ldr     x1, =domain_tramp
+    add     x0, x1, x0, lsl #12
+    ret
+
 // void cache_flush_range(addr, len): cleans and invalidates the data cache lines of [addr, addr + len) to the point of
 // coherency (`dc civac`): what a device is about to read from memory is written back, and what it has written is not
 // hidden by a stale line (decision 189). The Cortex-A53's lines are 64 bytes. Nothing here can be seen in QEMU.

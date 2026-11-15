@@ -1,0 +1,43 @@
+// How many messages a flood loses is decided by the schedule of the cores, so the number is not checked here (`expect-any`):
+// 3000 messages from core 0 to an actor on core 1 that passes each on to a plain actor on core 0, and the count of messages
+// dropped in full mailboxes and rings is printed. What the test is for is `harness/icount_schedules`: under QEMU's instruction
+// counter (`ICOUNT=0`) the same image prints the same number every time, and without it the number differs from run to run
+// (decision 195). It also shows the system settling after a flood.
+// expect-any: 1
+
+import actors: dropped_messages, run_until_idle
+import print: print_u64
+
+actor Sink {
+    mut heard: u64
+
+    new() {
+        .heard = 0
+    }
+
+    lossy on take(n: u64) {
+        .heard += 1
+    }
+}
+
+separate actor Bounce {
+    sink: Sink
+
+    new(sink: Sink) {
+        .sink = sink
+    }
+
+    lossy on bounce(n: u64) {
+        .sink.take(n)
+    }
+}
+
+fn test_main() {
+    sink: Sink = spawn Sink()
+    bounce: Bounce = spawn Bounce(sink)
+    sending: loop i: u64 in 0..3000 {
+        bounce.bounce(i)
+    }
+    run_until_idle()
+    print_u64(dropped_messages())
+}

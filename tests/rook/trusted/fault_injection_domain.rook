@@ -1,0 +1,50 @@
+// Fault injection reaches an actor in a protection domain on another core (decision 195): the 3rd handler core 1 runs fails
+// once. Worked out: the first `separate` actor is on core 1. After `inject_failures(1, 3, 0)` each add is sent and let settle
+// (so the order is fixed): h = 1, 2 add (total 2); h = 3 FAILS: the domain restarts (total 0); h = 4, 5 add: total 2. `report`
+// is h = 6 and prints 2. One failure is reported.
+// expect-failure: injected failure
+// expect: 2
+
+import actors: run_until_idle
+import mailbox: inject_failures
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    lossy on add(n: u64) {
+        .total += n
+    }
+
+    lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    counter: Counter = spawn Counter()
+    inject_failures(1, 3, 0)
+    counter.add(1)
+    run_until_idle()
+    counter.add(1)
+    run_until_idle()
+    counter.add(1)
+    run_until_idle()
+    counter.add(1)
+    run_until_idle()
+    counter.add(1)
+    run_until_idle()
+    counter.report(printer)
+    run_until_idle()
+}

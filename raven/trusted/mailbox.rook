@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -70,6 +70,18 @@ ACTOR_S_CURRENT_ACTOR: u64 = 1096   // the actor whose handler or `new` is runni
 ACTOR_S_IN_NEW: u64 = 1104          // 1 while that actor's `new` is running
 pub ACTOR_S_LOST: u64 = 1112            // messages lost because the actor they were for failed or ended
 pub ACTOR_S_RESTARTS: u64 = 1120        // actors restarted so far
+// Fault injection (a test sets it), in words of the core's block (assembly core_block): fail the handler that is run this many
+// handlers after it was armed (0: off) ...
+CORE_INJECT_NEXT: u64 = 200
+CORE_INJECT_PERIOD: u64 = 208       // ... and then every this many (0: only once)
+CORE_INJECT_COUNT: u64 = 216        // handlers run since it was armed
+// Timers (decision 196), kept in core 0's block (assembly core_block): a count of armed timers, a sequence number, and 32
+// entries of 64 bytes: the time it is due (counter ticks), the actor, the handler, the token, the order it was armed in.
+CORE_TIMER_SEQ: u64 = 1288
+CORE_TIMERS: u64 = 1536
+TIMER_SLOTS: u64 = 32
+TIMER_ENTRY: u64 = 64
+TIMER_MAX_MS: u64 = 3600000         // an hour: more is a mistake, and keeps the arithmetic from overflowing
 ACTOR_WATCHES: u64 = 1824           // who watches whom: 14 records of (actor watched, watcher | 1 if it wants `stopped`)
 ACTOR_WATCH_MAX: u64 = 14           // ends at 2048, where the actors start (decision 149)
 ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
@@ -97,10 +109,12 @@ REC_START: u64 = 2                  // run `new`: 2 its start stub, 3 argument w
 REC_WATCH: u64 = 3                  // watch_impl: 2 watcher, 3 handler `restarted`, 4 handler `stopped` plus one
 REC_STOP: u64 = 4                   // end the actor
 REC_DROP_WATCHES: u64 = 5           // a watcher ended or restarted: forget its watches
+REC_TIMER: u64 = 6                  // arm a timer on core 0 (decision 196): 2 handler number, 3 deadline, 4 token
 REC_PAYLOAD: u64 = 48               // byte offset of the message words in a record
 SVC_SEND: u64 = 1                   // the calls (rtstubs.s)
 SVC_SEND_RELIABLE: u64 = 2
 SVC_PANIC: u64 = 8
+SVC_TIMER: u64 = 9                  // raven_timer_after (rtstubs.s)
 
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
 /// arguments (copied from `args`, and kept so the actor can be restarted), then runs its
@@ -732,6 +746,8 @@ fn handle_record(rt_rec: u64) {
             end_actor(rt_who)
         } else if rt_kind == REC_DROP_WATCHES {
             drop_watches(rt_who)
+        } else if rt_kind == REC_TIMER {
+            discard timer_arm_here(load64(rt_rec + 24), rt_who, load64(rt_rec + 16), load64(rt_rec + 32))
         }
     }
 }
@@ -948,7 +964,12 @@ pub fn run_one_turn() {
             domain_budget_begin()
         }
         timer_arm(budget_ticks())
-        rt_failed: u64 = invoke(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
+        mut rt_failed: u64 = 0
+        if inject_now() {
+            rt_failed = 1                       // fault injection: this handler fails before it runs (decision 195)
+        } else {
+            rt_failed = invoke(rt_dispatcher, rt_actor, rt_handler, rt_buffer)
+        }
         timer_disarm()
         domain_budget_end()
         store64(rt_base + ACTOR_S_CURRENT_ACTOR, 0)
@@ -961,6 +982,137 @@ pub fn run_one_turn() {
             }
         }
         pending_sub(1)                          // the message is handled
+    }
+}
+
+/// Fault injection for tests (decision 195): after `inject_failures(core, first, period)` the `first`-th handler that core
+/// runs fails as if it had panicked (it is reported as "injected failure", its message is lost, the actor is restarted or
+/// stopped as for any failure), and then every `period`-th handler after it (0: only that one). This is how a test fails a
+/// supervised system at a chosen point, again and again, without a program that panics on purpose.
+pub fn inject_failures(fi_core: u64, fi_first: u64, fi_period: u64) {
+    unsafe {
+        rt_there: u64 = core_block(fi_core)
+        store64(rt_there + CORE_INJECT_COUNT, 0)
+        store64(rt_there + CORE_INJECT_PERIOD, fi_period)
+        store64(rt_there + CORE_INJECT_NEXT, fi_first)
+    }
+}
+
+/// Is the handler about to run the one a test has asked to fail? Counts handlers while armed.
+fn inject_now() -> bool {
+    unsafe {
+        rt_there: u64 = core_block(core_id())
+        rt_next: u64 = load64(rt_there + CORE_INJECT_NEXT)
+        if rt_next == 0 {
+            return false
+        }
+        rt_count: u64 = load64(rt_there + CORE_INJECT_COUNT) + 1
+        store64(rt_there + CORE_INJECT_COUNT, rt_count)
+        if rt_count < rt_next {
+            return false
+        }
+        rt_period: u64 = load64(rt_there + CORE_INJECT_PERIOD)
+        store64(rt_there + CORE_INJECT_NEXT, if rt_period == 0 { 0 } else { rt_count + rt_period })
+        domain_report("injected failure")
+        return true
+    }
+}
+
+// ---- timers (decision 196) --------------------------------------------------------------------------------------------
+// A timer is a request that a message `tick(token)` reach an actor after a number of milliseconds. Core 0 keeps all of them
+// (a request from another core travels as a record) and its scheduler turns the ones that are due into messages, in the
+// order they are due (equal times: the order they were armed). An armed timer counts as a message in flight, so
+// `run_until_idle` waits for it. The resolution is that of a sleeping core waking: 1 ms (decision 191).
+
+pub extern fn raven_timer_after(target: u64, handler: u64, ms: u64, token: u64) -> u64
+
+/// Arms a timer: `tick`-handler number `handler` of the actor `target` is sent `token` after `ms` milliseconds. 1 if it was
+/// armed (from another core: if the request was queued), 0 if all 32 timers are in use.
+pub fn timer_after_impl(target: u64, handler: u64, ms: u64, token: u64) -> u64 {
+    mut tm_hz: u64 = counter_frequency()
+    if tm_hz == 0 {
+        tm_hz = BUDGET_DEFAULT_HZ
+    }
+    tm_deadline: u64 = read_counter() + ms * (tm_hz / 1000)
+    unsafe {
+        if core_id() == 0 {
+            if timer_arm_here(tm_deadline, target, handler, token) {
+                return 1
+            }
+            return 0
+        }
+        tm_rec: u64 = ring_scratch(0)
+        store64(tm_rec, REC_TIMER)
+        store64(tm_rec + 8, target)
+        store64(tm_rec + 16, handler)
+        store64(tm_rec + 24, tm_deadline)
+        store64(tm_rec + 32, token)
+        push_record(0, tm_rec)
+    }
+    return 1
+}
+
+/// Puts a timer in a free slot of core 0's table. False if there is none.
+fn timer_arm_here(tm_deadline: u64, tm_target: u64, tm_handler: u64, tm_token: u64) -> bool {
+    unsafe {
+        tm_block: u64 = core_block(0)
+        searching: loop tm_i: u64 in 0..TIMER_SLOTS {
+            tm_entry: u64 = tm_block + CORE_TIMERS + tm_i * TIMER_ENTRY
+            if load64(tm_entry + 8) == 0 {
+                tm_seq: u64 = load64(tm_block + CORE_TIMER_SEQ) + 1
+                store64(tm_block + CORE_TIMER_SEQ, tm_seq)
+                store64(tm_entry, tm_deadline)
+                store64(tm_entry + 16, tm_handler)
+                store64(tm_entry + 24, tm_token)
+                store64(tm_entry + 32, tm_seq)
+                store64(tm_entry + 8, tm_target)        // last: a slot with a target is in use
+                pending_add(1)
+                return true
+            }
+        }
+    }
+    return false
+}
+
+/// Core 0's scheduler, between turns: sends `tick(token)` for every timer that is due, the earliest first.
+pub fn deliver_timers() {
+    if core_id() != 0 {
+        return
+    }
+    unsafe {
+        tm_block: u64 = core_block(0)
+        tm_now: u64 = read_counter()
+        delivering: loop true {
+            mut tm_best: u64 = TIMER_SLOTS
+            mut tm_best_deadline: u64 = 0
+            mut tm_best_seq: u64 = 0
+            looking: loop tm_i: u64 in 0..TIMER_SLOTS {
+                tm_entry: u64 = tm_block + CORE_TIMERS + tm_i * TIMER_ENTRY
+                if load64(tm_entry + 8) != 0 and load64(tm_entry) <= tm_now {
+                    tm_deadline: u64 = load64(tm_entry)
+                    tm_seq: u64 = load64(tm_entry + 32)
+                    if tm_best == TIMER_SLOTS or tm_deadline < tm_best_deadline or (tm_deadline == tm_best_deadline and tm_seq < tm_best_seq) {
+                        tm_best = tm_i
+                        tm_best_deadline = tm_deadline
+                        tm_best_seq = tm_seq
+                    }
+                }
+            }
+            if tm_best == TIMER_SLOTS {
+                return
+            }
+            tm_entry: u64 = tm_block + CORE_TIMERS + tm_best * TIMER_ENTRY
+            tm_target: u64 = load64(tm_entry + 8)
+            tm_handler: u64 = load64(tm_entry + 16)
+            tm_token: u64 = tm_block + CORE_TIMER_SEQ + 8       // the token goes through a word of the block that nothing else uses
+            store64(tm_token, load64(tm_entry + 24))
+            store64(tm_entry + 8, 0)                            // the slot is free
+            if not route_message(tm_target, tm_handler, tm_token, 1, false) {
+                tm_base: u64 = actor_arena_base()
+                store64(tm_base + ACTOR_S_DROPPED, load64(tm_base + ACTOR_S_DROPPED) + 1)       // a lossy message: dropped and counted
+            }
+            pending_sub(1)                                      // the timer is over; the message has its own count
+        }
     }
 }
 
@@ -1107,6 +1259,14 @@ fn service_call(dm_pool: u64) -> u64 {
             }
             store64(dm_result, dm_tag)
             return domain_resume(0)
+        }
+        if dm_number == SVC_TIMER {
+            dm_t_target: u64 = domain_saved_x(0)
+            dm_t_handler: u64 = domain_saved_x(1)
+            if not valid_actor(dm_t_target) or not valid_handler(dm_t_target, dm_t_handler) or domain_saved_x(2) > TIMER_MAX_MS {
+                return REASON_BAD
+            }
+            return domain_resume(timer_after_impl(dm_t_target, dm_t_handler, domain_saved_x(2), domain_saved_x(3)))
         }
         if dm_number == SVC_PANIC {
             dm_message: u64 = domain_saved_x(0)

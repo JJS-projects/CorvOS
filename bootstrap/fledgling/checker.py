@@ -455,7 +455,7 @@ class Checker:
                 raise CompileError(
                     f"`iso` is for structs and enums; {ty} is already a plain value", p.type.pos)
             if (getattr(actor.decl, "separate", False) and is_aggregate(ty)
-                    and not (what == "`new`" and p.type.val and ty.name == "Mmio")):
+                    and not (what == "`new`" and p.type.val and ty.name in ("Mmio", "Timer"))):
                 raise CompileError(
                     f"{what} of a `separate` actor takes numbers, bools, chars and actor references for now: "
                     f"{ty} would have to be copied between domains", p.type.pos)
