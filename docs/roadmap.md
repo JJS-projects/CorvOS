@@ -175,6 +175,11 @@ revocation through the handle table; model-checking the protocols between cores 
 start); deterministic multicore scheduling in QEMU (`ICOUNT`, done); fault injection in the test harness (done: `inject_failures`);
 a watchdog actor (after timers); bounce-buffer DMA; generics over actors (generic interfaces and actors done in 8f, decision 200).
 
+**Plan of the domain work (decision 201; the scope and the `Domain` capability are the owner's).** 9a design and model (done); 9b several actors
+in a domain, Raven still keeping the mailboxes: `Domain`, `new_domain`, `spawn ... in d`, `stop(d)`, the table, restart of a group, in both
+compilers; 9c the runtime inside the domain: the inbound ring, local mailboxes, the fast path, Raven scheduling domains, and the
+measurement of a send inside a domain against one across; 9d limits and write-up.
+
 **C, could have.** Zero-copy `val` and `iso`; page-granular ownership; CPU time as a capability; typestate or session types;
 effect annotations; declarative supervision trees; checkpoint and restore; message priorities; copy-on-write snapshots;
 driver generation from register descriptions; per-core interrupt routing; a second QEMU target; trace viewer, audit log,

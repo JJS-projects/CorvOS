@@ -248,6 +248,23 @@ to retrofit. All four cores come up with a Raven of their own since milestone 6d
 between them go through rings, one for each ordered pair of cores (milestone 6d-2, decision 181), and Raven puts each
 `separate` actor on the next core in turn (decision 180).
 
+### 6.3b Several actors in a domain, and the runtime inside it (decision 201, designed in 9a, not built)
+
+Today a `separate` actor has a domain to itself, and Raven keeps its mailbox. The design below (decision 201) lets actors share a domain,
+as section 5 allows, and moves the actors' runtime into the domain; the fast path of section 6.2 is its result.
+
+- **A `Domain` capability places actors.** `d: Domain = new_domain()`, `spawn X() in d`, `stop(d)`. The right to put an actor in a domain
+  is a value of its own: a reference to an actor in `d` gives the right to send to it and nothing else (chosen by the owner, among a
+  `beside ref` clause and a declared group, because a mere holder of a reference could otherwise put its own code in a driver's domain).
+- **Raven keeps a table of the domain's actors in the control page (EL1 only)**: the place of each, its generation, its start stub and
+  the arguments of its `new`. The domain's data holds the inbound ring, every actor's mailbox and fields and the domain's run queue.
+- **A send across domains** is checked by Raven against that table and copied as one record into the target's inbound ring. **A send
+  inside a domain** needs no call into Raven. A domain is scheduled as a whole: one message a turn, with the time budget of a handler.
+- **A fault, a panic or an overrun fails the whole domain**, which restarts as a unit with its memory wiped; Raven runs each actor's `new`
+  again in order, so references stay valid. The ring indices are set back with it (model `restart_ring`).
+- **Raven never lets a domain decide where it writes**: the write index of the ring is in the control page (model `inbound`).
+- Built in steps 9b (actors share a domain, Raven still keeps the mailboxes) and 9c (the runtime in the domain); see decision 201.
+
 ### 6.3a What application code can reach
 
 Application code gets authority only from references it was handed. Raven's own code has
