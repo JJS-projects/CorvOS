@@ -1442,6 +1442,12 @@ pub struct Parser {
                 return 0
             }
             .positional_args(name.text, n)
+            if .at("in") {
+                discard .advance()
+                inside: u64 = .group("In")          // `spawn Name(...) in d`: the domain, the last child (decision 201)
+                .add(inside, .expr())
+                .add(n, inside)
+            }
             return n
         }
         if t.kind.same_as("self") {

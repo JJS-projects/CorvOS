@@ -149,6 +149,7 @@ class Spawn(Expr):
     name: str
     args: list
     type_args: list = field(default_factory=list)    # `spawn Name<A, B>(...)`: [TypeRef], rewritten away by generics.py
+    domain: object = None       # `spawn Name(...) in d`: the `Domain` the actor is placed in (decision 201), or None
 
     def __post_init__(self):
         super().__post_init__()

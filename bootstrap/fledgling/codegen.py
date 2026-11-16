@@ -561,8 +561,12 @@ class Gen:
             self.emit("bl raven_watch")
         elif isinstance(e, S.Call) and e.callee == "stop":
             if e.args:
-                self.expr(e.args[0])                # the actor to end
-                self.emit("bl raven_stop")
+                self.expr(e.args[0])                # the actor to end, or the domain
+                if is_aggregate(e.args[0].ty):      # a `Domain`: its handle is the word in it (decision 201)
+                    self.emit("ldr x0, [x0]")
+                    self.emit("bl raven_stop_domain")
+                else:
+                    self.emit("bl raven_stop")
             else:
                 self.emit("bl raven_stop_self")
         elif isinstance(e, S.Call) and e.callee == "actor_address":
@@ -747,6 +751,10 @@ class Gen:
         runs the actor's start stub (which runs `new`) and gives back the reference."""
         at = 0
         devices = 0                     # bit i: words i and i+1 are an `Mmio`, whose pages a domain is given (decision 182)
+        if e.domain is not None:
+            self.expr(e.domain)         # a `Domain` is a struct of one word: the address of its value
+            self.emit("ldr x0, [x0]")   # ... and the word is the domain's handle (decision 201)
+            self.push()
         for arg in e.args:
             self.expr(arg)
             n = words(arg.ty)
@@ -766,6 +774,10 @@ class Gen:
         # an actor in a domain of its own is made by a different call (decision 175)
         if e.actor.decl.separate:
             self.emit(f"mov x5, #{devices}")
+            if e.domain is not None:
+                self.pop("x6")          # the domain it goes in, or 0: a domain of its own (decision 201)
+            else:
+                self.emit("mov x6, #0")
         self.emit("bl raven_spawn_separate" if e.actor.decl.separate else "bl raven_spawn_actor")
 
     def send(self, e):

@@ -5,3 +5,4 @@ compiler/lib/lexer.rook
 tests/rook/supervisor_demo.rook
 tests/rook/text_literals.rook
 tests/rook/generic_actors.rook
+tests/rook/domain_share.rook

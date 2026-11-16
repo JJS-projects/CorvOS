@@ -1122,6 +1122,14 @@ class Checker:
                     raise CompileError(f"`{e.name}` is not an actor: `spawn` creates actors", e.pos)
                 raise CompileError(f"unknown actor `{e.name}`", e.pos)
             self.require_visible(actor.decl, actor.name, e.pos)
+            if e.domain is not None:
+                if not actor.decl.separate:
+                    raise CompileError(
+                        f"`{e.name}` is not a `separate` actor: `in` places an actor in a domain, "
+                        f"and a plain actor lives in Raven's domain", e.pos)
+                dty = self.expr(e.domain)
+                if not (is_aggregate(dty) and dty.name == "Domain"):
+                    raise CompileError(f"`in` takes a `Domain`, not {dty}", e.domain.pos)
             sig = actor.new_sig
             self.check_args(f"`spawn {e.name}`", sig.params if sig else [], e.args, e.pos,
                             sig=sig)
@@ -1304,8 +1312,8 @@ class Checker:
                                    "its handlers (not in `new`)", e.pos)
             return UNIT
         ty = self.expr(e.args[0])
-        if not is_actor(ty):
-            raise CompileError(f"`stop` takes an actor reference, not {ty}", e.args[0].pos)
+        if not is_actor(ty) and not (is_aggregate(ty) and ty.name == "Domain"):
+            raise CompileError(f"`stop` takes an actor reference or a `Domain`, not {ty}", e.args[0].pos)
         return UNIT
 
     def build_with_new(self, e, st):

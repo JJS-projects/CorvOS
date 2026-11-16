@@ -3,3 +3,4 @@
 raven/option.rook tests/rook/generics_option.rook
 raven/trusted/region.rook raven/text.rook raven/textmap.rook raven/option.rook tests/rook/support/generic_library.rook tests/rook/generics_files.rook
 tests/rook/generic_actors.rook
+tests/rook/domain_share.rook

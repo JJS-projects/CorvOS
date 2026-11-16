@@ -29,13 +29,15 @@ rt_stubs:
     stub    rook_panic, rook_panic_impl             // 8
     stub    raven_timer_after, timer_after_impl     // 9
     stub    raven_self, self_impl                   // 10: the running actor's whole reference, address and generation
+    stub    raven_new_domain, new_domain_impl       // 11: an empty domain for `spawn ... in` (decision 201); not for a domain
+    stub    raven_stop_domain, stop_domain_impl     // 12: ends the actors of a domain and gives it back (decision 201); not for a domain
     .org    4096                                    // the page is exactly 4 KB
 
     .section .text.rtgate, "ax"
     .balign 4096
     .global rt_gate
 rt_gate:
-    .irp n, 1,2,3,4,5,6,7,8,9,10
+    .irp n, 1,2,3,4,5,6,7,8,9,10,11,12
     svc     #\n
     ret
     .balign 16

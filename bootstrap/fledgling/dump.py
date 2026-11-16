@@ -235,6 +235,8 @@ def _tree(n):
         kids = [tree(a) for a in n.args]
         if n.type_args:
             kids = [("TypeArgs", None, "", [tree(a) for a in n.type_args])] + kids
+        if n.domain is not None:
+            kids = kids + [("In", None, "", [tree(n.domain)])]
         return ("Spawn", n.pos, n.name, kids)
     if isinstance(n, S.SelfRef):
         return ("SelfRef", n.pos, "", [])

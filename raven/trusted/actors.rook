@@ -9,7 +9,7 @@ module public
 import assembly: actor_arena_base, core_online_mark, idle_until_interrupt, irq_enable_source
 import devices: Mmio
 import hardware: irq_init
-import mailbox: raven_timer_after, deliver_timers, ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, drain_rings, run_one_turn, unfinished_messages, wait_for_other_cores
+import mailbox: raven_new_domain, raven_timer_after, deliver_timers, ACTOR_IRQ_FIRST, ACTOR_IRQ_ROUTES, ACTOR_S_DROPPED, ACTOR_S_LOST, ACTOR_S_RESTARTS, actors_waiting, deliver_interrupts, drain_rings, run_one_turn, unfinished_messages, wait_for_other_cores
 
 /// What a send to a `reliable` handler tells the sender (decisions 126 and 150).
 pub enum Sent {
@@ -105,6 +105,19 @@ pub struct Timer {
         }
     }
 } Timer
+
+/// The right to put actors in a domain (decision 201): made by `new_domain()`, used as `spawn Name(...) in d` and ended by
+/// `stop(d)`. It is a value of its own: a reference to an actor in the domain is the right to send to it and no more.
+pub struct Domain {
+    handle: u64
+}
+
+/// An empty domain, on the next core in turn. Actors of `separate` kinds are put in it with `spawn Name(...) in d`.
+pub fn new_domain() -> Domain {
+    unsafe {
+        return Domain(handle: raven_new_domain())
+    }
+}
 
 /// A `Timer`. Only the whole peripherals can make one, like an `Irq`.
 pub fn make_timer(peripherals: Mmio) -> Timer {

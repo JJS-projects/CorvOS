@@ -1,0 +1,28 @@
+// Two actors share a domain (decision 201): `new_domain()` makes an empty domain, `spawn Worker(...) in d` puts an actor in it.
+// Worked out: Worker(1) and Worker(2) are put in the one domain and each is asked to show its number: 1 and 2.
+// expect: 1
+// expect: 2
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on show() {
+        print_u64(.n)
+    }
+}
+
+fn test_main() {
+    d: Domain = new_domain()
+    a: Worker = spawn Worker(1) in d
+    b: Worker = spawn Worker(2) in d
+    a.show()
+    b.show()
+    run_until_idle()
+}

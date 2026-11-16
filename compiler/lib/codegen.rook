@@ -1253,8 +1253,13 @@ pub struct Codegen {
             .emit("bl raven_watch")
         } else if callee.same_as("stop") {
             if args.len() > 0 {
-                .expr(args.get(0))          // the actor to end
-                .emit("bl raven_stop")
+                .expr(args.get(0))          // the actor to end, or the domain
+                if .is_agg(.ty_of(args.get(0))) {       // a `Domain`: its handle is the word in it (decision 201)
+                    .emit("ldr x0, [x0]")
+                    .emit("bl raven_stop_domain")
+                } else {
+                    .emit("bl raven_stop")
+                }
             } else {
                 .emit("bl raven_stop_self")
             }
@@ -1544,10 +1549,15 @@ pub struct Codegen {
 
     /// `raven_spawn_actor(fields, dispatcher, start, args, args_words)`.
     mut fn gen_spawn(e: u64) {
-        node: Node = .c.node_at(e)
-        args: List<u64> = copy(node.kids)
+        args: List<u64> = .c.spawn_args(e)
+        domain: u64 = .c.spawn_domain(e)
         args_words: u64 = if .has(e, CHK_NOTE_ARGS_WORDS) { .note(e, CHK_NOTE_ARGS_WORDS) } else { 0 }
         args_slot: u64 = .note(e, CHK_NOTE_ARGS_SLOT)
+        if domain != 0 {
+            .expr(domain)                       // a `Domain` is a struct of one word: the address of its value
+            .emit("ldr x0, [x0]")               // ... and the word is the domain's handle (decision 201)
+            .push()
+        }
         mut at: u64 = 0
         mut devices: u64 = 0                    // bit i: words i and i+1 are an `Mmio`, whose pages a domain is given
         laying: loop k: u64 in 0..(args.len()) {
@@ -1594,6 +1604,11 @@ pub struct Codegen {
             .ob("mov x5, #")
             .num(devices)
             .nl()
+            if domain != 0 {
+                .pop("x6")                      // the domain it goes in, or 0: a domain of its own (decision 201)
+            } else {
+                .emit("mov x6, #0")
+            }
         }
         .emit(if .c.is_separate(act) { "bl raven_spawn_separate" } else { "bl raven_spawn_actor" })
     }
