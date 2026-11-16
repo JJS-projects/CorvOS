@@ -14,7 +14,8 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import domain_runtime: RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -310,6 +311,7 @@ fn free_domain_now(fd_core: u64, fd_d: u64) {
         }
         fd_gen: u64 = core_block(fd_core) + CORE_DOMAIN_GEN + (fd_d - 1) * 8
         store64(fd_gen, load64(fd_gen) + 1)
+        runtime_discard(fd_core, fd_d)
         domain_unmap_devices_of(fd_core, fd_d)
         domain_reset_pool_map(fd_core, fd_d)
         pool_wipe(fd_pool)
@@ -453,7 +455,7 @@ fn take_place(tp_core: u64, tp_d: u64, tp_words: u64) -> u64 {
         if tp_pages == 0 {
             tp_pages = 1
         }
-        if tp_control + 1 + tp_pages > DOMAIN_INBOX_PAGE {
+        if tp_control + 1 + tp_pages > RT_FIRST_PAGE {
             panic("a separate actor's fields do not fit its domain")
         }
         tp_table: u64 = place_table(tp_core, tp_d)
@@ -497,6 +499,330 @@ pub fn range_hits_control_page(hc_core: u64, hc_d: u64, hc_from: u64, hc_to: u64
         }
     }
     return false
+}
+
+// ---- the runtime inside a domain (decision 203) --------------------------------------------------------------------------------
+// The mailboxes of the actors of a domain and the choice of which runs are in the domain (domain_runtime.rook, at EL0); Raven writes the
+// messages for its actors into a ring in the domain's memory and runs a turn of the domain when it has work. Raven keeps, in the
+// block of the core the domain is on and so out of the domain's reach: how many records it has put in the ring, how many of them it
+// has seen the runtime take, and whether the domain is in its run queue. The runtime's own number of records taken is read as a
+// number to be clamped, never as a place to write.
+CORE_DOMAIN_RING: u64 = 3584        // for each domain d (1 to 3), 64 bytes: ...
+RING_PRODUCED: u64 = 0
+RING_SEEN: u64 = 8
+RING_QUEUED: u64 = 16               // 1 if the domain is in this core's run queue (an entry that is an odd number: 2 * d + 1)
+RING_DONE: u64 = 24                 // how many of the messages put in the ring Raven has counted as finished
+RING_DEFER: u64 = 32                // 1 while a turn that failed is being restarted: the messages lost are counted as over when it is done
+RING_DEFERRED: u64 = 40             // how many are waiting to be counted
+
+fn ring_state(rs_core: u64, rs_d: u64) -> u64 {
+    unsafe {
+        return core_block(rs_core) + CORE_DOMAIN_RING + (rs_d - 1) * 64
+    }
+}
+
+/// The place of the actor whose fields are at `pi_who` in domain `pi_d` of core `pi_core`, or RT_PLACES.
+fn place_index(pi_core: u64, pi_d: u64, pi_who: u64) -> u64 {
+    pi_table: u64 = place_table(pi_core, pi_d)
+    unsafe {
+        looking: loop pi_i: u64 in 0..RT_PLACES {
+            if load64(pi_table + pi_i * 8) == pi_who {
+                return pi_i
+            }
+        }
+    }
+    return RT_PLACES
+}
+
+/// How far has the runtime of the domain read the ring, and how many messages are over? Its own numbers, clamped to what Raven has put
+/// there (it cannot have taken more than that, nor finished more than it has taken) and never going back. A message counts as
+/// unfinished until it is over: also while it waits in a mailbox of the domain, so that a core that waits for the system to be idle
+/// waits for it. A domain that counts too low is never idle (it harms its own turns only); too high is cut at what it was given.
+fn refresh_consumed(rc_core: u64, rc_d: u64) {
+    rc_state: u64 = ring_state(rc_core, rc_d)
+    rc_pool: u64 = domain_pool_base_of(rc_core, rc_d)
+    unsafe {
+        rc_produced: u64 = load64(rc_state + RING_PRODUCED)
+        rc_seen: u64 = load64(rc_state + RING_SEEN)
+        mut rc_taken: u64 = load64(rc_pool + RT_STATE + RT_S_CONSUMED)
+        if rc_taken > rc_produced {
+            rc_taken = rc_produced
+        }
+        if rc_taken > rc_seen {
+            store64(rc_state + RING_SEEN, rc_taken)
+        } else {
+            rc_taken = rc_seen
+        }
+        mut rc_over: u64 = load64(rc_pool + RT_STATE + RT_S_FINISHED)
+        if rc_over > rc_taken {
+            rc_over = rc_taken
+        }
+        rc_done: u64 = load64(rc_state + RING_DONE)
+        if rc_over > rc_done {
+            pending_sub(rc_over - rc_done)
+            store64(rc_state + RING_DONE, rc_over)
+        }
+    }
+}
+
+/// Puts the domain in this core's run queue, unless it is in it.
+fn queue_domain(qd_core: u64, qd_d: u64) {
+    qd_state: u64 = ring_state(qd_core, qd_d)
+    unsafe {
+        if load64(qd_state + RING_QUEUED) == 0 {
+            store64(qd_state + RING_QUEUED, 1)
+            run_queue_push((qd_d shl 1) or 1)
+        }
+    }
+}
+
+/// A message for the actor of a domain, which runs on this core: a record in the ring of the domain, and the domain in the run queue.
+/// False, with nothing changed, if the actor has ended or the ring is full.
+fn domain_enqueue(de_target: u64, de_handler: u64, de_payload: u64, de_words: u64) -> bool {
+    de_core: u64 = core_of_actor(de_target)
+    de_d: u64 = domain_of(de_target)
+    de_place: u64 = place_index(de_core, de_d, de_target)
+    if de_place == RT_PLACES {
+        return false
+    }
+    unsafe {
+        if (load64(de_target - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
+            return false
+        }
+    }
+    refresh_consumed(de_core, de_d)
+    de_state: u64 = ring_state(de_core, de_d)
+    unsafe {
+        de_produced: u64 = load64(de_state + RING_PRODUCED)
+        if de_produced - load64(de_state + RING_SEEN) >= RT_RING_SLOTS {
+            return false
+        }
+        de_slot: u64 = domain_pool_base_of(de_core, de_d) + RT_RING + (de_produced % RT_RING_SLOTS) * RT_SLOT_BYTES
+        store64(de_slot, de_place)
+        store64(de_slot + 8, de_handler)
+        store64(de_slot + 16, de_words)
+        copying: loop de_w: u64 in 0..de_words {
+            store64(de_slot + 24 + de_w * 8, load64(de_payload + de_w * 8))
+        }
+        store64(de_state + RING_PRODUCED, de_produced + 1)
+        pending_add(1)                          // one more message nobody has finished with
+    }
+    queue_domain(de_core, de_d)
+    return true
+}
+
+/// Is a message for `dq_handler` of that actor already in the ring, not yet taken?
+fn domain_queued(dq_target: u64, dq_handler: u64) -> bool {
+    dq_core: u64 = core_of_actor(dq_target)
+    dq_d: u64 = domain_of(dq_target)
+    dq_place: u64 = place_index(dq_core, dq_d, dq_target)
+    refresh_consumed(dq_core, dq_d)
+    dq_state: u64 = ring_state(dq_core, dq_d)
+    dq_pool: u64 = domain_pool_base_of(dq_core, dq_d)
+    unsafe {
+        looking: loop dq_i: u64 in load64(dq_state + RING_SEEN)..load64(dq_state + RING_PRODUCED) {
+            dq_slot: u64 = dq_pool + RT_RING + (dq_i % RT_RING_SLOTS) * RT_SLOT_BYTES
+            if load64(dq_slot) == dq_place and load64(dq_slot + 8) == dq_handler {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+/// The domain's runtime is told about an actor placed in it: its address, its dispatcher, and whether its `new` has not run yet (its
+/// messages wait for that).
+fn runtime_register(rr_who: u64, rr_dispatcher: u64, rr_held: bool) {
+    rr_core: u64 = core_of_actor(rr_who)
+    rr_d: u64 = domain_of(rr_who)
+    rr_place: u64 = place_index(rr_core, rr_d, rr_who)
+    rr_pool: u64 = domain_pool_base_of(rr_core, rr_d)
+    unsafe {
+        rr_state: u64 = rr_pool + RT_STATE
+        store64(rr_state + RT_S_ACTOR + rr_place * 8, rr_who)
+        store64(rr_state + RT_S_DISPATCHER + rr_place * 8, rr_dispatcher)
+        store64(rr_state + RT_S_ENDED + rr_place * 8, 0)
+        store64(rr_state + RT_S_HELD + rr_place * 8, if rr_held { 1 } else { 0 })
+        rr_block: u64 = rt_block(rr_pool, rr_place)
+        store64(rr_block, 0)
+        store64(rr_block + 8, 0)
+        store64(rr_block + 16, 0)
+    }
+}
+
+/// Empties the mailbox of an actor in a domain (a restart, an end): what was in it counts as lost.
+fn runtime_clear(rc_who: u64) {
+    rc_core: u64 = core_of_actor(rc_who)
+    rc_d: u64 = domain_of(rc_who)
+    rc_place: u64 = place_index(rc_core, rc_d, rc_who)
+    if rc_place == RT_PLACES {
+        return
+    }
+    unsafe {
+        rc_block: u64 = rt_block(domain_pool_base_of(rc_core, rc_d), rc_place)
+        mut rc_count: u64 = load64(rc_block + 8)
+        if rc_count > ACTOR_SLOTS {
+            rc_count = ACTOR_SLOTS                  // (the domain's own number)
+        }
+        rc_base: u64 = actor_arena_base()
+        store64(rc_base + ACTOR_S_LOST, load64(rc_base + ACTOR_S_LOST) + rc_count)
+        rc_over_at: u64 = domain_pool_base_of(rc_core, rc_d) + RT_STATE + RT_S_FINISHED
+        store64(rc_over_at, load64(rc_over_at) + rc_count)       // they are over (the domain's count, as the runtime keeps it)
+        store64(rc_block, 0)
+        store64(rc_block + 8, 0)
+    }
+}
+
+/// An actor in a domain has ended: its runtime runs nothing of it any more.
+fn runtime_end(re_who: u64) {
+    re_core: u64 = core_of_actor(re_who)
+    re_d: u64 = domain_of(re_who)
+    re_place: u64 = place_index(re_core, re_d, re_who)
+    if re_place == RT_PLACES {
+        return
+    }
+    unsafe {
+        store64(domain_pool_base_of(re_core, re_d) + RT_STATE + RT_S_ENDED + re_place * 8, 1)
+    }
+    runtime_clear(re_who)
+}
+
+/// An actor's `new` has run: its runtime may run its messages, and the domain does if it has any.
+fn runtime_release(rl_who: u64) {
+    rl_core: u64 = core_of_actor(rl_who)
+    rl_d: u64 = domain_of(rl_who)
+    rl_place: u64 = place_index(rl_core, rl_d, rl_who)
+    if rl_place == RT_PLACES {
+        return
+    }
+    rl_pool: u64 = domain_pool_base_of(rl_core, rl_d)
+    unsafe {
+        store64(rl_pool + RT_STATE + RT_S_HELD + rl_place * 8, 0)
+        rl_block: u64 = rt_block(rl_pool, rl_place)
+        if load64(rl_block + 8) != 0 and load64(rl_block + 16) == 0 {
+            store64(rl_block + 16, 1)
+            rt_queue_push(rl_pool, rl_place)
+            queue_domain(rl_core, rl_d)
+        }
+    }
+}
+
+/// The records in the ring that the runtime has not taken are gone (the domain restarts, or is given back): they are over, as
+/// far as the count of unfinished messages goes, and the ring starts again.
+fn runtime_discard(rd_core: u64, rd_d: u64) {
+    rd_state: u64 = ring_state(rd_core, rd_d)
+    unsafe {
+        rd_produced: u64 = load64(rd_state + RING_PRODUCED)
+        rd_done: u64 = load64(rd_state + RING_DONE)
+        if rd_produced > rd_done {
+            if load64(rd_state + RING_DEFER) != 0 {
+                // (a failed turn: the count of unfinished messages must not reach 0 while the domain is being restarted, its `new`
+                // run and its watchers told, or a core that waits for the system to be idle goes on too soon)
+                store64(rd_state + RING_DEFERRED, load64(rd_state + RING_DEFERRED) + (rd_produced - rd_done))
+            } else {
+                pending_sub(rd_produced - rd_done)  // every message not over is over now
+            }
+            rd_base: u64 = actor_arena_base()
+            store64(rd_base + ACTOR_S_LOST, load64(rd_base + ACTOR_S_LOST) + (rd_produced - rd_done))
+        }
+        store64(rd_state + RING_PRODUCED, 0)
+        store64(rd_state + RING_SEEN, 0)
+        store64(rd_state + RING_DONE, 0)
+    }
+}
+
+/// The domain's memory has been wiped (it restarts): the runtime's tables are written again from Raven's, the ring starts again, and
+/// what was in it is lost.
+fn runtime_rebuild(rb_core: u64, rb_d: u64) {
+    runtime_discard(rb_core, rb_d)
+    rb_table: u64 = place_table(rb_core, rb_d)
+    rb_state: u64 = domain_pool_base_of(rb_core, rb_d) + RT_STATE
+    unsafe {
+        rebuilding: loop rb_i: u64 in 0..RT_PLACES {
+            rb_who: u64 = load64(rb_table + rb_i * 8)
+            if rb_who != 0 {
+                rb_header: u64 = rb_who - ACTOR_BEFORE_FIELDS
+                store64(rb_state + RT_S_ACTOR + rb_i * 8, rb_who)
+                store64(rb_state + RT_S_DISPATCHER + rb_i * 8, load64(rb_header + ACTOR_H_DISPATCHER))
+                store64(rb_state + RT_S_ENDED + rb_i * 8, if (load64(rb_header + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 { 1 } else { 0 })
+            }
+        }
+    }
+}
+
+/// The first actor of a domain that has not ended, or 0.
+fn first_live_place(fl_core: u64, fl_d: u64) -> u64 {
+    fl_table: u64 = place_table(fl_core, fl_d)
+    unsafe {
+        looking: loop fl_i: u64 in 0..DOMAIN_PLACES {
+            fl_at: u64 = load64(fl_table + fl_i * 8)
+            if fl_at != 0 {
+                if place_live(fl_at) {
+                    return fl_at
+                }
+            }
+        }
+    }
+    return 0
+}
+
+/// Enters the runtime of domain `rt_d` of this core for one turn and does what the domain asks until the turn ends: 0 if it ended with
+/// no actor having a message, 1 if some has, 2 if it failed (and Raven has said so).
+fn run_domain_turn(rt_d: u64) -> u64 {
+    rt_pool: u64 = domain_pool_base(rt_d)
+    rt_state: u64 = ring_state(core_id(), rt_d)
+    unsafe {
+        mut rt_reason: u64 = domain_enter(rt_d, domain_turn_address(), load64(rt_state + RING_PRODUCED), rt_pool, 0)
+        servicing: loop rt_reason == REASON_CALL {
+            rt_reason = service_call(rt_pool)
+        }
+        if rt_reason == REASON_DONE {
+            return domain_saved_x(0) and 1
+        }
+        report_failure(rt_d, rt_reason)
+    }
+    return 2
+}
+
+/// A turn of domain `re_d`, which was in this core's run queue.
+fn run_domain_entry(re_d: u64) {
+    re_core: u64 = core_id()
+    re_state: u64 = ring_state(re_core, re_d)
+    unsafe {
+        store64(re_state + RING_QUEUED, 0)
+        if domain_actor_of(re_core, re_d) == 0 {
+            return                              // it has been given back since
+        }
+        domain_budget_begin()
+    }
+    timer_arm(budget_ticks())
+    mut re_outcome: u64 = 2
+    if not inject_now() {
+        re_outcome = run_domain_turn(re_d)
+    }
+    timer_disarm()
+    domain_budget_end()
+    if re_outcome == 2 {
+        re_first: u64 = first_live_place(re_core, re_d)
+        unsafe {
+            store64(re_state + RING_DEFER, 1)
+        }
+        if re_first != 0 {
+            discard restart_actor(re_first)     // the domain restarts as a unit
+        }
+        unsafe {
+            store64(re_state + RING_DEFER, 0)
+            pending_sub(load64(re_state + RING_DEFERRED))   // now the messages it lost are over
+            store64(re_state + RING_DEFERRED, 0)
+        }
+        return
+    }
+    refresh_consumed(re_core, re_d)
+    unsafe {
+        if re_outcome == 1 or load64(re_state + RING_PRODUCED) > load64(re_state + RING_SEEN) {
+            queue_domain(re_core, re_d)
+        }
+    }
 }
 
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
@@ -668,6 +994,9 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
         }
         store64(rt_header + ACTOR_H_FLAGS, rt_flags)
         store64(rt_header + ACTOR_H_NEXT_SIBLING, 0)
+        if domain_of(rt_actor) != 0 {
+            runtime_register(rt_actor, dispatcher, (rt_flags and ACTOR_F_STARTING) != 0)
+        }
         if rt_parent != 0 {
             rt_parent_header: u64 = rt_parent - ACTOR_BEFORE_FIELDS
             rt_last: u64 = load64(rt_parent_header + ACTOR_H_LAST_CHILD)
@@ -717,6 +1046,10 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
 
 /// Empties an actor's mailbox, counting what was in it as lost.
 fn clear_mailbox(rt_who: u64) {
+    if domain_of(rt_who) != 0 {
+        runtime_clear(rt_who)
+        return
+    }
     unsafe {
         rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
         rt_base: u64 = actor_arena_base()
@@ -740,6 +1073,9 @@ fn end_actor(rt_who: u64) {
         store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED)
         drop_watches(rt_who)
         clear_mailbox(rt_who)
+        if domain_of(rt_who) != 0 {
+            runtime_end(rt_who)
+        }
         end_list(load64(rt_header + ACTOR_H_FIRST_CHILD))
         end_list(load64(rt_header + ACTOR_H_PENDING))
         store64(rt_header + ACTOR_H_FIRST_CHILD, 0)
@@ -831,6 +1167,7 @@ fn wipe_domain(rt_who: u64) {
         restoring: loop rt_x: u64 in 0..rt_words {
             store64(rt_kept + rt_x * 8, load64(rt_scratch + rt_x * 8))
         }
+        runtime_rebuild(core_of_actor(rt_who), domain_of(rt_who))
     }
 }
 
@@ -934,6 +1271,7 @@ fn restart_domain(rd_who: u64) -> bool {
                 }
             }
         }
+        runtime_rebuild(rd_core, rd_d)
         running: loop rd_n: u64 in 0..DOMAIN_PLACES {
             rd_at: u64 = load64(rd_table + rd_n * 8)
             if rd_at != 0 and place_live(rd_at) {
@@ -1356,7 +1694,9 @@ fn finish_start(rt_who: u64) {
     unsafe {
         rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
         store64(rt_header + ACTOR_H_FLAGS, load64(rt_header + ACTOR_H_FLAGS) and (ACTOR_F_IN_NEW or ACTOR_F_ENDED))
-        if load64(rt_header + ACTOR_H_COUNT) != 0 and load64(rt_header + ACTOR_H_QUEUED) == 0 {
+        if domain_of(rt_who) != 0 {
+            runtime_release(rt_who)
+        } else if load64(rt_header + ACTOR_H_COUNT) != 0 and load64(rt_header + ACTOR_H_QUEUED) == 0 {
             store64(rt_header + ACTOR_H_QUEUED, 1)
             run_queue_push(rt_who)
         }
@@ -1381,6 +1721,9 @@ fn end_actor_anywhere(rt_who: u64) {
 /// Puts a message in `target`'s mailbox and queues the actor to run. Returns
 /// false, changing nothing, if the mailbox is full.
 fn rt_enqueue(target: u64, handler: u64, payload: u64, words: u64) -> bool {
+    if domain_of(target) != 0 {
+        return domain_enqueue(target, handler, payload, words)      // the mailbox is in the domain (decision 203)
+    }
     rt_header: u64 = target - ACTOR_BEFORE_FIELDS
     unsafe {
         if (load64(rt_header + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 {
@@ -1436,6 +1779,9 @@ fn deliver_interrupt(line: u64) {
 
 /// Is a message for `handler` already waiting in `target`'s mailbox?
 fn rt_queued(target: u64, handler: u64) -> bool {
+    if domain_of(target) != 0 {
+        return domain_queued(target, handler)
+    }
     rt_header: u64 = target - ACTOR_BEFORE_FIELDS
     unsafe {
         rt_first: u64 = load64(rt_header + ACTOR_H_FIRST)
@@ -1492,6 +1838,10 @@ pub fn run_one_turn() {
         rt_actor: u64 = load64(rt_base + ACTOR_RUNQ_OFFSET + rt_front * 8)
         store64(rt_base + ACTOR_S_RUNQ_FIRST, (rt_front + 1) % ACTOR_RUNQ_SLOTS)
         store64(rt_base + ACTOR_S_RUNQ_COUNT, load64(rt_base + ACTOR_S_RUNQ_COUNT) - 1)
+        if (rt_actor and 1) == 1 {
+            run_domain_entry(rt_actor shr 1)    // not an actor but a domain (an odd number: 2 * d + 1): its runtime takes a turn
+            return
+        }
 
         // Take the oldest message out of the actor's mailbox.
         rt_header: u64 = rt_actor - ACTOR_BEFORE_FIELDS
@@ -1840,8 +2190,8 @@ fn service_call(dm_pool: u64) -> u64 {
         }
         if dm_number == SVC_SELF {
             dm_who: u64 = domain_saved_x(0)
-            if dm_who != load64(actor_arena_base() + ACTOR_S_CURRENT_ACTOR) {
-                return REASON_BAD               // a domain's `self` is the actor whose handler is running
+            if dm_who < dm_pool or dm_who >= dm_pool + DOMAIN_POOL_BYTES or not place_registered(dm_who) {
+                return REASON_BAD               // a domain's `self` is one of the actors placed in it (its runtime knows which runs)
             }
             return domain_resume(self_impl(dm_who))
         }

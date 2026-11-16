@@ -1,0 +1,57 @@
+// What a domain says about its own ring and mailboxes is a number Raven clamps, never one it trusts (decision 203, the model `inbound`):
+// a domain that claims to have finished more messages than it was given cannot make the count of unfinished messages go below 0,
+// and one that claims to have read more of the ring than Raven wrote cannot make Raven read or write outside it.
+// Worked out: a Liar in a domain is sent `lie`, whose handler writes huge numbers over the runtime's counters of finished messages and of the ring read, in
+// its own pool. The system settles (`run_until_idle` returns: the count did not wrap to a huge number), nothing is unfinished
+// (print 0), and a second domain's actor, which has nothing to do with it, still works: it says 5.
+// expect: 0
+// expect: 5
+
+import actors: Domain, new_domain, run_until_idle
+import domain_runtime: RT_STATE, RT_S_CONSUMED, RT_S_FINISHED
+import mailbox: unfinished_messages
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Liar {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on lie() {
+        unsafe {
+            store64(actor_address(self) - 0x11000 + RT_STATE + RT_S_FINISHED, 1152921504606846976)
+            store64(actor_address(self) - 0x11000 + RT_STATE + RT_S_CONSUMED, 1152921504606846976)
+        }
+    }
+}
+
+separate actor Honest {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    liar: Liar = spawn Liar(1)
+    honest: Honest = spawn Honest(5)
+    liar.lie()
+    run_until_idle()
+    print_u64(unfinished_messages())
+    honest.say(printer)
+    run_until_idle()
+}

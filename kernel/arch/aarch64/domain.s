@@ -246,6 +246,14 @@ domain_unmap_devices_of:
     isb
     ret
 
+// u64 domain_turn_address(void): where the actors' runtime of a domain starts (domain_runtime.rook, decision 203), the entry that
+// Raven gives domain_enter for a turn of a domain.
+    .global domain_turn_address
+domain_turn_address:
+    adrp    x0, domain_turn
+    add     x0, x0, :lo12:domain_turn
+    ret
+
 // void domain_pool_page_el1(core, d, page): makes page `page` of domain d's pool (on core `core`) a page that only EL1 reaches,
 // like the control page: it is where a later actor of the domain keeps its header and mailbox (decision 201). The domain's
 // translations are dropped on every core (as in domain_unmap_devices_of) before this returns, so the domain no longer reaches it.

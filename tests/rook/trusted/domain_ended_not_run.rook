@@ -1,0 +1,39 @@
+// An actor that has ended in a domain runs nothing (decision 203): the messages that were queued for it, in the ring and in its
+// mailbox, are over, not handled by an actor that is not there.
+// Worked out: a and b are in one domain. b is sent three `tick`s, and is stopped before the domain has run: none of them is
+// handled (no output). a is then sent one `tick`, and says 7. So the only output is 7.
+// expect: 7
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Ticker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on tick(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Ticker = spawn Ticker(7) in d
+    b: Ticker = spawn Ticker(8) in d
+    b.tick(printer)
+    b.tick(printer)
+    b.tick(printer)
+    stop(b)
+    a.tick(printer)
+    run_until_idle()
+}
