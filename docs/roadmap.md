@@ -177,8 +177,8 @@ a watchdog actor (after timers); bounce-buffer DMA; generics over actors (generi
 
 **Plan of the domain work (decision 201; the scope and the `Domain` capability are the owner's).** 9a design and model (done); 9b (done, decision 202) several actors
 in a domain, Raven still keeping the mailboxes: `Domain`, `new_domain`, `spawn ... in d`, `stop(d)`, the table, restart of a group, in both
-compilers; 9c the runtime inside the domain: the inbound ring, local mailboxes, the fast path, Raven scheduling domains, and the
-measurement of a send inside a domain against one across; 9d limits and write-up.
+compilers; 9c-1 (done, decision 203) the runtime inside the domain: the inbound ring, local mailboxes, a run queue, Raven scheduling domains; 9c-2 the fast path
+for a send inside a domain and the measurement of it against a send across; 9d limits and write-up.
 
 **C, could have.** Zero-copy `val` and `iso`; page-granular ownership; CPU time as a capability; typestate or session types;
 effect annotations; declarative supervision trees; checkpoint and restore; message priorities; copy-on-write snapshots;
