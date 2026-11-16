@@ -1,0 +1,48 @@
+// Raven does not read the page of another actor's header for a domain (decision 201): that page is in the part of the pool a request
+// may otherwise name, but only Raven reaches it.
+// Worked out: a and b are in one domain. a is asked to send the Printer a message whose payload is at the page before b's fields (b's
+// header and mailbox): a bad request, which fails the domain ("domain 1 made a request it may not"). The domain restarts, a still
+// has its reference, and says its number: 1.
+// expect-failure: domain 1 made a request it may not
+// expect: 1
+
+import actors: Domain, new_domain, run_until_idle
+import mailbox: raven_send
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on forge(address: u64, to: Printer) {
+        unsafe {
+            raven_send(actor_address(to), handler_number("show"), address, 1)
+        }
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Worker = spawn Worker(1) in d
+    b: Worker = spawn Worker(2) in d
+    unsafe {
+        a.forge(actor_address(b) - 4096, printer)
+    }
+    run_until_idle()
+    a.say(printer)
+    run_until_idle()
+}

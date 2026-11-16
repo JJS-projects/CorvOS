@@ -1,5 +1,5 @@
-// `stop` takes an actor reference.
-// error: 8:14: `stop` takes an actor reference, not u64
+// `stop` takes an actor reference or a `Domain`.
+// error: 8:14: `stop` takes an actor reference or a `Domain`, not u64
 
 actor Worker {
     new() { }

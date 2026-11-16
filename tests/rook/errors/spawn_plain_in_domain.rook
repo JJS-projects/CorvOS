@@ -1,0 +1,12 @@
+// Only a separate actor can be put in a domain.
+// alone
+// error: 11:16: `Plain` is not a `separate` actor: `in` places an actor in a domain, and a plain actor lives in Raven's domain
+
+actor Plain {
+    new() {
+    }
+}
+
+fn make(d: u64) {
+    p: Plain = spawn Plain() in d
+}

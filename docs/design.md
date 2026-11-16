@@ -263,7 +263,7 @@ as section 5 allows, and moves the actors' runtime into the domain; the fast pat
 - **A fault, a panic or an overrun fails the whole domain**, which restarts as a unit with its memory wiped; Raven runs each actor's `new`
   again in order, so references stay valid. The ring indices are set back with it (model `restart_ring`).
 - **Raven never lets a domain decide where it writes**: the write index of the ring is in the control page (model `inbound`).
-- Built in steps 9b (actors share a domain, Raven still keeps the mailboxes) and 9c (the runtime in the domain); see decision 201.
+- Built in steps 9b (actors share a domain, Raven still keeps the mailboxes: done, decision 202) and 9c (the runtime in the domain); see decision 201. In 9b an actor's header page is placed before its fields in the pool, one EL1-only page for each of up to 8 actors, and a domain given back is wiped with its table.
 
 ### 6.3a What application code can reach
 

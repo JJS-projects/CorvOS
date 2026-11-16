@@ -9,7 +9,7 @@
 import assembly: cache_flush_range, domain_pool_base_of
 import devices: Mmio
 import hardware: counter_frequency, read_counter
-import mailbox: core_of_actor, domain_of, is_current
+import mailbox: core_of_actor, domain_of, is_current, range_hits_control_page
 
 DMA_DATA_START: u64 = 0x11000       // the first byte of a pool a device may touch: after the guard page, the stack (0x1000 to
                                     // 0x10000) and the control page (0x10000 to 0x11000, the actor's header and mailbox,
@@ -34,8 +34,12 @@ pub fn dma_window(dw_owner: u64, dw_offset: u64, dw_length: u64) -> u64 {
     if dw_length == 0 or dw_offset < DMA_DATA_START or dw_offset > DMA_POOL_BYTES or dw_length > DMA_POOL_BYTES - dw_offset {
         return 0                                    // (the last two cannot overflow: the offset is at most the pool's size)
     }
+    dm_core: u64 = core_of_actor(dw_owner and DMA_ADDRESS_MASK)
+    if range_hits_control_page(dm_core, dm_domain, dw_offset, dw_offset + dw_length) {
+        return 0                                    // the page of another actor's header and mailbox in the same domain (decision 201)
+    }
     unsafe {
-        return domain_pool_base_of(core_of_actor(dw_owner and DMA_ADDRESS_MASK), dm_domain) + dw_offset
+        return domain_pool_base_of(dm_core, dm_domain) + dw_offset
     }
 }
 

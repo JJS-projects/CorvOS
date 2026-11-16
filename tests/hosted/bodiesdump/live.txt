@@ -390,3 +390,6 @@ tests/rook/errors/plain_actor_spawn_with_args.rook
 tests/rook/errors/generic_actor_missing_handler.rook
 tests/rook/errors/generic_actor_wrong_count.rook
 raven/trusted/actors.rook raven/trusted/assembly.rook raven/trusted/bytes.rook raven/trusted/devices.rook raven/trusted/hardware.rook raven/trusted/mailbox.rook raven/trusted/region.rook raven/led.rook raven/main.rook raven/option.rook raven/pl011.rook raven/text.rook raven/textmap.rook raven/time.rook raven/valve.rook raven/restart_budget.rook raven/meter.rook raven/stream.rook tests/rook/support/trusted/print.rook tests/rook/support/shell.rook tests/rook/support/generic_library.rook tests/rook/generic_actors_files.rook
+raven/trusted/actors.rook raven/trusted/assembly.rook raven/trusted/bytes.rook raven/trusted/devices.rook raven/trusted/hardware.rook raven/trusted/mailbox.rook raven/trusted/region.rook raven/led.rook raven/main.rook raven/option.rook raven/pl011.rook raven/text.rook raven/textmap.rook raven/time.rook raven/valve.rook tests/rook/support/trusted/print.rook tests/rook/support/shell.rook tests/rook/support/generic_library.rook tests/rook/domain_share.rook
+tests/rook/errors/spawn_in_needs_domain.rook
+tests/rook/errors/spawn_plain_in_domain.rook

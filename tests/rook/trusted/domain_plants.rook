@@ -1,0 +1,46 @@
+// A domain may use as data a page that is later made a page of Raven's (decision 201): the page that will hold the header and mailbox
+// of the next actor placed in it. Raven clears the page once the domain can no longer reach it, so what was planted there is gone.
+// Worked out: a is placed; its fields take one page and the next page is where the next actor's header will be. a fills that page
+// with ones (every byte 0xFF). Then b is placed there. If the page were not cleared, b's header would be garbage (a count of
+// messages, a dispatcher) and b would not run; as it is, b says its number: 2.
+// expect: 2
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on plant() {
+        unsafe {
+            planting: loop i: u64 in 0..512 {
+                store64(actor_address(self) + 4096 + i * 8, 18446744073709551615)
+            }
+        }
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Worker = spawn Worker(1) in d
+    a.plant()
+    run_until_idle()
+    b: Worker = spawn Worker(2) in d
+    b.say(printer)
+    run_until_idle()
+}

@@ -866,7 +866,11 @@ class Parser:
             if not self.at("("):
                 raise CompileError(f"write `spawn {name.text}(...)` with its arguments",
                                    self.peek().pos)
-            return S.Spawn(tok.pos, name.text, self.positional_args(name.text), type_args)
+            spawn = S.Spawn(tok.pos, name.text, self.positional_args(name.text), type_args)
+            if self.at("in"):
+                self.advance()
+                spawn.domain = self.expr()         # `spawn Name(...) in d`: the actor is placed in the domain `d` (decision 201)
+            return spawn
         if tok.kind == "self":
             self.advance()
             return S.SelfRef(tok.pos)

@@ -1,0 +1,44 @@
+// A DMA window is never a window into the page of another actor's header in the same domain (decision 201): the pages of
+// actors' headers and mailboxes are inside the part of the pool that a device may otherwise use.
+// Worked out: a and b are in one domain. The window of 64 bytes at a's fields (offset 0x11000) is the pool's address plus that, not 0
+// (print 1); the window of 64 bytes at b's header page (the page before b's fields) is refused (0); the window that starts in a's
+// fields and ends in that page is refused (0); the window of 64 bytes at b's own fields is allowed (1).
+// expect: 1
+// expect: 0
+// expect: 0
+// expect: 1
+
+import actors: Domain, new_domain
+import dma: dma_window
+import print: print_u64
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+}
+
+fn nonzero(x: u64) {
+    if x != 0 {
+        print_u64(1)
+    } else {
+        print_u64(0)
+    }
+}
+
+fn test_main() {
+    d: Domain = new_domain()
+    a: Worker = spawn Worker(1) in d
+    b: Worker = spawn Worker(2) in d
+    unsafe {
+        pool: u64 = actor_address(a) - 0x11000
+        ref_a: u64 = actor_reference(a)
+        offset_b: u64 = actor_address(b) - pool
+        nonzero(dma_window(ref_a, 0x11000, 64))
+        nonzero(dma_window(ref_a, offset_b - 4096, 64))
+        nonzero(dma_window(ref_a, offset_b - 32, 64))
+        nonzero(dma_window(ref_a, offset_b, 64))
+    }
+}

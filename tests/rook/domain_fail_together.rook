@@ -1,0 +1,71 @@
+// A domain fails and restarts as a unit, all of its actors (decision 201): one actor's failure takes the other's state with it, and
+// every reference stays valid because each actor's `new` runs again on the arguments it was spawned with.
+// Worked out: a (n = 1) and b (n = 5, which counts what it is given) are in one domain. b is given 10 and 20 and says its
+// total, 30 and its n, 5. a's `crash` panics (expect-failure): the domain restarts, so b's total is 0 again, and its n, from
+// the arguments kept for `new`, is 5; a's n is still 1 and a can be sent to with the reference it always had.
+// expect: 30
+// expect: 5
+// expect-failure: a crash at domain_fail_together.rook:30
+// expect: 0
+// expect: 5
+// expect: 1
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Crasher {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on crash() {
+        panic("a crash")
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+separate actor Counter {
+    n: u64
+    mut total: u64
+
+    new(n: u64) {
+        .n = n
+        .total = 0
+    }
+
+    pub lossy on add(k: u64) {
+        .total += k
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.total)
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Crasher = spawn Crasher(1) in d
+    b: Counter = spawn Counter(5) in d
+    b.add(10)
+    b.add(20)
+    b.report(printer)
+    run_until_idle()
+    a.crash()
+    run_until_idle()
+    b.report(printer)
+    a.say(printer)
+    run_until_idle()
+}

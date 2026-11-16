@@ -1,0 +1,36 @@
+// Two actors share a domain (decision 201): `new_domain()` makes an empty domain, `spawn Worker(...) in d` puts an actor in it.
+// Worked out: Worker(1) and Worker(2) are put in the one domain and each is asked to say its number to the Printer, a plain actor
+// (an actor in a domain cannot reach the UART): 1 and 2.
+// expect: 1
+// expect: 2
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Worker = spawn Worker(1) in d
+    b: Worker = spawn Worker(2) in d
+    a.say(printer)
+    b.say(printer)
+    run_until_idle()
+}

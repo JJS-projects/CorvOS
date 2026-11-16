@@ -1,0 +1,12 @@
+// A domain is a Domain value.
+// alone
+// error: 11:35: `in` takes a `Domain`, not u64
+
+separate actor Worker {
+    new() {
+    }
+}
+
+fn make() {
+    w: Worker = spawn Worker() in 5
+}
