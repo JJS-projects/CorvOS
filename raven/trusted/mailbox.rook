@@ -141,7 +141,7 @@ fn reference_to(r_actor: u64) -> u64 {
 }
 
 /// Does the reference `r_ref` name the actor that is in its place now, and not one that was there before?
-fn is_current(r_ref: u64) -> bool {
+pub fn is_current(r_ref: u64) -> bool {
     return generation_of(r_ref and REF_ADDRESS_MASK) == (r_ref shr REF_GENERATION_SHIFT)
 }
 

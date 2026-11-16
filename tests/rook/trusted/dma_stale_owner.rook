@@ -1,0 +1,84 @@
+// A DMA service is the authority of the driver it was made for and of no one who later has that driver's place (decision 199).
+// A domain is given back when its driver ends (decision 197), and the next `separate` actor in it has the same pool: the old
+// driver's service must not be able to move data inside that pool.
+// Raven puts the `separate` actors on cores 1, 2, 3, 0, 1, ...: the fifth takes the first one's domain.
+// Worked out: the service is made for the first driver `a`, which then ends. Three more drivers take the other cores' domains and
+// the fifth, `e`, has a's pool. `e` puts 111 at offset 0x20000 and 222 at 0x30000 of its pool. The old service is asked to copy 8
+// bytes from 0x20000 to 0x30000: it must refuse (done(false): prints 0), and `e`'s 222 is still there (prints 222). Without the
+// check the copy is done (prints 1) and `e`'s word is 111. Then a service made for `e` (whose reference has a generation
+// of its own: the place was given once) does the same copy, as it must: prints 1, and `e`'s word is 111.
+// expect: 0
+// expect: 222
+// expect: 1
+// expect: 111
+
+import actors: run_until_idle
+import devices: Mmio
+import dma: DmaDone, DmaService
+import print: print_u64
+
+actor Printer: DmaDone {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+
+    lossy on done(ok: bool) {
+        if ok {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+}
+
+separate actor Driver {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+
+    lossy on plant() {
+        unsafe {
+            store64(actor_address(self) + 0x20000 - 0x11000, 111)
+            store64(actor_address(self) + 0x30000 - 0x11000, 222)
+        }
+    }
+
+    lossy on look(offset: u64, to: Printer) {
+        unsafe {
+            to.show(load64(actor_address(self) + offset - 0x11000))
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    a: Driver = spawn Driver()
+    mut old: u64 = 0
+    unsafe {
+        old = actor_reference(a)
+    }
+    dma: DmaService = spawn DmaService(old, peripherals.part(0x007000, 0x100), peripherals.part(0x007F00, 0x100), 0)
+    stop(a)
+    run_until_idle()
+    b: Driver = spawn Driver()
+    c: Driver = spawn Driver()
+    d: Driver = spawn Driver()
+    e: Driver = spawn Driver()
+    e.plant()
+    run_until_idle()
+    dma.transfer(0x20000, 0x30000, 8, narrow(printer, DmaDone))
+    run_until_idle()
+    e.look(0x30000, printer)
+    run_until_idle()
+    mut own: u64 = 0
+    unsafe {
+        own = actor_reference(e)
+    }
+    dma2: DmaService = spawn DmaService(own, peripherals.part(0x007100, 0x100), peripherals.part(0x007F00, 0x100), 1)
+    dma2.transfer(0x20000, 0x30000, 8, narrow(printer, DmaDone))
+    run_until_idle()
+    e.look(0x30000, printer)
+    run_until_idle()
+}
