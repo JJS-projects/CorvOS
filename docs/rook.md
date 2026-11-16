@@ -715,8 +715,8 @@ later if this becomes painful.
 - **Primitive types**: `u8` to `u64`, `i8` to `i64`, `bool`.
 - **Structs**, and **enums** with data, matched with `match` (exhaustively checked).
 - **Generics** (`Result<T, E>`, `Option<T>`, `Reply<T>`), compiled to a separate copy
-  per type. Built so far (step 5c, section 11.19): generic structs and enums; generic
-  functions and generic interfaces are not yet.
+  per type. Built so far (step 5c, section 11.19; 8f, section 11.19a): generic structs, enums,
+  interfaces and actors; generic functions and constraints on a parameter are not yet.
 - **Interfaces** are the only abstraction mechanism: they narrow actor references
   and constrain generics. There is no separate trait system.
 - **Text**: `"..."` is a `Bytes`, an unchangeable run of bytes, UTF-8 by convention.
@@ -755,7 +755,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 | Imports (5a) | `import module: Name, Name`; a file uses another file's names only if it imports them | done |
 | Ownership (4b) | handlers take `iso` and `val` structs and enums; up to 8 words are copied into the message | done |
 | Reliable sends (3b) | `reliable on` handlers; a send to one returns `Sent` | done |
-| Interfaces (3c) | `interface`, `actor Name: Interface`, `narrow(x, Interface)` (not generic) | done |
+| Interfaces (3c) | `interface`, `actor Name: Interface`, `narrow(x, Interface)`; generic since 8f (decision 200) | done |
 | The echo demo (3d) | see the roadmap | planned |
 
 ### 11.1 Rules settled while building the core
@@ -872,7 +872,7 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 
 - **What is accepted.** `actor Name { fields, new(...), [pub] lossy on name(...) { } }`,
   `spawn Name(args)`, `self`, and a send `ref.handler(args)` or `self.handler(args)`.
-  Generic interfaces (`Reply<T>`), `watch` and `stop` are not accepted yet. Read-only `val` fields arrived in step 3d (11.9), the handler time budget in step 3e (11.10), and interrupts as messages in step 3f (11.11).
+  (Generic interfaces and actors came with 8f, 11.19a; `watch` and `stop` with 7b and 7c.) Read-only `val` fields arrived in step 3d (11.9), the handler time budget in step 3e (11.10), and interrupts as messages in step 3f (11.11).
 - **Fields** hold numbers, bools, actor references and (from step 3d) read-only `val` data (11.9), are private to the actor's own
   handlers (`pub` is an error) and are changed only if written `mut`.
 - **`new`** sets every field exactly once, in any order, with `=` at the top level of its
@@ -931,8 +931,8 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   interface's own handlers can be sent; the actor's others are out of reach.
 - **Handler numbers** are chosen by name, program-wide (decision 128), so a message
   carries the same number whether it was sent through an actor or an interface.
-- **Not yet.** Generic interfaces (`Reply<T>`, which wait for generics), narrowing
-  an interface to a smaller one, and `==` on references.
+- **Not yet.** Narrowing an interface to a smaller one, and `==` on references. (Generic interfaces:
+  built in 8f, 11.19a.)
 
 ### 11.9 Rules settled while building `val` fields (step 3d)
 
@@ -1157,6 +1157,22 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
 - **Not yet:** generic functions, constraints on a parameter (`T: Interface`), generic interfaces and actors.
   A generic struct with private fields cannot be built outside its file (it has no way to be built from
   there yet: how a library `List<T>` is made is the next question).
+
+### 11.19a Generic interfaces and actors (8f, decision 200)
+
+- **Declaring and writing.** `interface Sink<T> { lossy on put(item: T) }` and `actor Limit<T>: Sink<T> { ... }`; a use
+  writes the type arguments where it names the type: `Sink<u8>` as a type, `spawn Limit<u8>(...)`, `narrow(x, Sink<u8>)`,
+  `actor Total: Sink<u64>`. The rules of 11.19 hold: each distinct list makes a copy, named `Limit<u8>`, checked and compiled
+  like any actor with `T` replaced in its fields, its `new` and its handlers; every argument is written, nothing is inferred;
+  the arguments are plain types.
+- **Handler numbers** are by name, program-wide (decision 128), so `put` is one number in `Sink<u8>` and `Sink<u16>`: a send
+  through either reaches the handler of the actor behind it, which has its own parameter types.
+- **Files.** A generic actor or interface is imported by its own name (`import stream: Quota, ItemSink`), and its copy is
+  checked in the template's file, as a generic struct's is.
+- **Names.** A library's names are global to the programs that use it, so the library's `ItemSink<T>` and `Quota<T>`
+  (`raven/stream.rook`) are names a program cannot define (another reason a library takes careful names).
+- **Not yet:** a proxy written once for any interface whatever its handlers (a generic over handler sets: a different thing),
+  constraints on a parameter, generic functions.
 
 ### 11.20 Rules settled while building `new` in structs (step 5c)
 

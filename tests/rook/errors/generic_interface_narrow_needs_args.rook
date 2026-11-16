@@ -1,0 +1,23 @@
+// A generic interface is narrowed to with its type arguments.
+// alone
+// error: 22:37: `Sink` needs type arguments: write `Sink<T>` with the types
+
+interface Sink<T> {
+    lossy on put(item: T)
+}
+
+actor Limit<T>: Sink<T> {
+    target: Sink<T>
+
+    new(target: Sink<T>) {
+        .target = target
+    }
+
+    lossy on put(item: T) {
+        .target.put(item)
+    }
+}
+
+fn make(boxed: Limit<u8>) {
+    other: Sink<u8> = narrow(boxed, Sink)
+}

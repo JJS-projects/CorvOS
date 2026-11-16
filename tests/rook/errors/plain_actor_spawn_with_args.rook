@@ -1,0 +1,16 @@
+// An actor that is not generic takes no type arguments.
+// alone
+// error: 15:16: `Plain` is not generic, so it takes no type arguments
+
+interface Sink<T> {
+    lossy on put(item: T)
+}
+
+actor Plain {
+    new() {
+    }
+}
+
+fn make() {
+    p: Plain = spawn Plain<u8>()
+}

@@ -200,7 +200,14 @@ pub struct Codegen {
         if info.owner == 0 {
             return name
         }
-        owner: Text = copy(.c.types.get(info.owner).name)
+        mut out: Text = .asm_name(copy(.c.types.get(info.owner).name))
+        out.append("__")
+        out.append_text(name)
+        return out
+    }
+
+    /// A type's name as part of an assembler symbol: `Option<u64>` is `Option_L_u64_R_`.
+    fn asm_name(owner: Text) -> Text {
         mut out: Text = .c.empty()
         scanning: loop k: u64 in 0..owner.len() {
             b: u8 = owner.at(k)
@@ -214,8 +221,6 @@ pub struct Codegen {
                 out.push(b)
             }
         }
-        out.append("__")
-        out.append_text(name)
         return out
     }
 
@@ -495,10 +500,10 @@ pub struct Codegen {
         .ob(")\n")
         .o4()
         .ob(".global ")
-        .ot(name)
+        .ot(.asm_name(name))
         .ob("__Start\n")
         .emit(".balign 4")
-        .ot(name)
+        .ot(.asm_name(name))
         .ob("__Start:\n")
         if .kid(act, 2) == 0 {
             .emit("ret")
@@ -522,12 +527,12 @@ pub struct Codegen {
         .ob(")\n")
         .o4()
         .ob(".global ")
-        .ot(name)
+        .ot(.asm_name(name))
         .ob("__Dispatch\n")
         .emit(".balign 4")
-        .ot(name)
+        .ot(.asm_name(name))
         .ob("__Dispatch:\n")
-        mut symbol: Text = copy(name)
+        mut symbol: Text = .asm_name(name)
         symbol.append("__Dispatch")
         handlers: List<u64> = copy(.c.node_at(.kid(act, 3)).kids)
         walking: loop k: u64 in 0..(handlers.len()) {
@@ -1573,11 +1578,11 @@ pub struct Codegen {
         .nl()
         .o4()
         .ob("adr x1, ")
-        .ot(.c.types.get(act).name)
+        .ot(.asm_name(copy(.c.types.get(act).name)))
         .ob("__Dispatch\n")
         .o4()
         .ob("adr x2, ")
-        .ot(.c.types.get(act).name)
+        .ot(.asm_name(copy(.c.types.get(act).name)))
         .ob("__Start\n")
         .region_addr(args_slot, args_words, "x3")
         .o4()

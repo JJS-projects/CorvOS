@@ -148,6 +148,7 @@ class Spawn(Expr):
     """`spawn Counter(args)`: creates an actor, runs its `new`, gives its reference."""
     name: str
     args: list
+    type_args: list = field(default_factory=list)    # `spawn Name<A, B>(...)`: [TypeRef], rewritten away by generics.py
 
     def __post_init__(self):
         super().__post_init__()
@@ -172,6 +173,7 @@ class Narrow(Expr):
     value: Expr
     interface: str
     interface_pos: Pos
+    type_args: list = field(default_factory=list)    # `narrow(x, Name<A>)`: [TypeRef], rewritten away by generics.py
 
 
 @dataclass
@@ -372,8 +374,13 @@ class FnDecl:
 
     @property
     def symbol(self):
-        owner = self.owner and self.owner.replace("<", "_L_").replace(">", "_R_").replace(",", "_C_")
+        owner = self.owner and asm_name(self.owner)
         return f"{owner}__{self.name}" if self.owner else self.name
+
+
+def asm_name(name):
+    """A type's name as part of an assembler symbol: `Option<u64>` is `Option_L_u64_R_`."""
+    return name.replace("<", "_L_").replace(">", "_R_").replace(",", "_C_")
 
 
 @dataclass
@@ -423,8 +430,10 @@ class ActorDecl:
     handlers: list              # [FnDecl], each with `handler` set
     pos: Pos
     public: bool = False
-    implements: list = field(default_factory=list)   # [(interface name, Pos)]
+    implements: list = field(default_factory=list)   # [TypeRef]: `Interface` or `Interface<T>`
     separate: bool = False      # `separate actor`: its own protection domain (decision 172)
+    params: list = field(default_factory=list)   # `actor Name<T, U>`: the type parameters (generics.py)
+    generic_base: str = None    # set by generics.py: the generic this is an instance of
 
     def __post_init__(self):
         self.file = None
@@ -440,6 +449,8 @@ class InterfaceDecl:
     handlers: list              # [FnDecl] with no body, each with `handler` set
     pos: Pos
     public: bool = False
+    params: list = field(default_factory=list)   # `interface Name<T>`: the type parameters (generics.py)
+    generic_base: str = None    # set by generics.py: the generic this is an instance of
 
     def __post_init__(self):
         self.file = None

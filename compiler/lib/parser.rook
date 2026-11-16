@@ -515,6 +515,10 @@ pub struct Parser {
         start: Token = .expect("actor", "")
         name: Token = .expect("ident", "actor name")
         n: u64 = .mk_at("Actor", start, .words(if public { "pub" } else { "" }, if apart { "separate" } else { "" }, .empty(), name.text))
+        generic: bool = .at("<")
+        if generic {
+            .type_params(n)                         // a generic actor: the first child (decision 200)
+        }
         implements: u64 = .group("Implements")
         fields: u64 = .group("Fields")
         handlers: u64 = .group("Handlers")
@@ -529,7 +533,9 @@ pub struct Parser {
                 if .failed {
                     break naming
                 }
-                .add(implements, .mk_at("Interface", itok, itok.text))
+                iface: u64 = .mk_at("Interface", itok, itok.text)
+                .type_args(iface)
+                .add(implements, iface)
                 if not .at(",") {
                     break naming
                 }
@@ -566,7 +572,7 @@ pub struct Parser {
                 has_new = true
                 made: u64 = .actor_fn(false, false)
                 mut node: Node = .nodes.get(n)
-                node.kids.set(2, made)           // the third child: Implements, Fields, New, Handlers
+                node.kids.set(if generic { 3 } else { 2 }, made)    // the third child: Implements, Fields, New, Handlers (after TypeParams in a generic)
                 .nodes.set(n, node)
             } else if .at("lossy") or .at("reliable") or .at("on") {
                 .add(handlers, .actor_fn(true, member_public))
@@ -615,6 +621,9 @@ pub struct Parser {
         start: Token = .expect("interface", "")
         name: Token = .expect("ident", "interface name")
         n: u64 = .mk_at("Interface", start, .pub_name(public, name.text))
+        if .at("<") {
+            .type_params(n)                         // a generic interface: the first child (decision 200)
+        }
         handlers: u64 = .group("Handlers")
         .add(n, handlers)
         discard .expect("{", "")
@@ -1422,11 +1431,16 @@ pub struct Parser {
         if t.kind.same_as("spawn") {
             discard .advance()
             name: Token = .expect("ident", "an actor name")
+            n: u64 = .mk_at("Spawn", t, name.text)
+            if .at("<") {
+                targs: u64 = .group("TypeArgs")     // `spawn Name<A, B>(...)`: the first child (decision 200)
+                .add(n, targs)
+                .type_args(targs)
+            }
             if not .at("(") {
                 .fail_word(.tok(0), "write `spawn ", name.text, "(...)` with its arguments")
                 return 0
             }
-            n: u64 = .mk_at("Spawn", t, name.text)
             .positional_args(name.text, n)
             return n
         }
@@ -1444,10 +1458,12 @@ pub struct Parser {
             value: u64 = .expr()
             discard .expect(",", "`,` and the interface")
             itok: Token = .expect("ident", "an interface name")
+            iface: u64 = .mk_at("Interface", itok, itok.text)
+            .type_args(iface)
             discard .expect(")", "")
             n: u64 = .mk_at("Narrow", t, itok.text)
             .add(n, value)
-            .add(n, .mk_at("Interface", itok, itok.text))
+            .add(n, iface)
             return n
         }
         if t.kind.same_as("consume") {

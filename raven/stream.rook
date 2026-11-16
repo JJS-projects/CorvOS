@@ -1,0 +1,43 @@
+// A stream of any one kind of item, and a quota on it (decision 200). `ItemSink<T>` is the interface of anything that takes items of
+// one type, and `Quota<T>` is the proxy of meter.rook (decision 198) written once for any `T`: a holder of only the `ItemSink<T>`
+// side of a `Quota<T>` can send no more than its budget, however fast it sends.
+//
+// `Metered` (meter.rook) is the same for the bytes of a `ByteSink`, whose handler is `byte` and not `put`; a proxy for other
+// interfaces is the same idea with that interface's handlers. These are generic interfaces and actors: each type written in
+// `<>` makes a copy, checked and compiled like any actor (rook.md, 11.19).
+
+import hardware: read_counter
+import meter: Overdrawn
+import restart_budget: RestartBudget
+
+/// Anything that takes items of type `T`, one at a time. `lossy`: an item may be dropped when the receiver falls behind.
+pub interface ItemSink<T> {
+    lossy on put(item: T)
+}
+
+/// Passes each item it is sent to `target` while its budget has one, and drops the rest; the owner is told once each time the
+/// budget runs out. The budget is a token bucket on the clock (`RestartBudget`, decision 193): `capacity` items at the start, one
+/// more every `ticks_per_item` ticks of the clock, never more than `capacity`.
+pub actor Quota<T>: ItemSink<T> {
+    target: ItemSink<T>
+    owner: Overdrawn
+    mut budget: iso RestartBudget
+    mut told: bool
+
+    new(target: ItemSink<T>, owner: Overdrawn, capacity: u64, ticks_per_item: u64) {
+        .target = target
+        .owner = owner
+        .budget = RestartBudget(capacity: capacity, ticks_per_restart: ticks_per_item, now: read_counter())
+        .told = false
+    }
+
+    lossy on put(item: T) {
+        if .budget.allow(read_counter()) {
+            .told = false
+            .target.put(item)
+        } else if not .told {
+            .told = true
+            .owner.overdrawn()
+        }
+    }
+}

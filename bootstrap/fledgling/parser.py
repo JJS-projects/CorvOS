@@ -242,12 +242,13 @@ class Parser:
     def actor_decl(self, public, separate=False):
         start = self.expect("actor")
         name = self.expect("ident", "actor name").text
+        params = self.type_params()
         implements = []
         if self.at(":"):
             self.advance()
             while True:
                 itok = self.expect("ident", "an interface name")
-                implements.append((itok.text, itok.pos))
+                implements.append(S.TypeRef(itok.text, itok.pos, args=self.type_args()))
                 if not self.at(","):
                     break
                 self.advance()
@@ -292,12 +293,13 @@ class Parser:
                     f"expected a field, `new` or a handler, found {describe_tok(tok)}", tok.pos)
         self.open_blocks.pop()
         self.end_statement()
-        return S.ActorDecl(name, fields, new, handlers, start.pos, public, implements, separate)
+        return S.ActorDecl(name, fields, new, handlers, start.pos, public, implements, separate, params)
 
     def interface_decl(self, public):
         """`interface Name { [lossy|reliable] on name(params) }`: handlers with no bodies."""
         start = self.expect("interface")
         name = self.expect("ident", "interface name").text
+        type_params = self.type_params()
         self.expect("{")
         self.open_blocks.append({name})
         handlers = []
@@ -349,7 +351,7 @@ class Parser:
                                      name, kind))
         self.open_blocks.pop()
         self.end_statement()
-        return S.InterfaceDecl(name, handlers, start.pos, public)
+        return S.InterfaceDecl(name, handlers, start.pos, public, type_params)
 
     def actor_fn(self, owner, handler, public=False):
         """`new(params) { }` or `[lossy|reliable] on name(params) { }` in an actor."""
@@ -860,10 +862,11 @@ class Parser:
         if tok.kind == "spawn":
             self.advance()
             name = self.expect("ident", "an actor name")
+            type_args = self.type_args()
             if not self.at("("):
                 raise CompileError(f"write `spawn {name.text}(...)` with its arguments",
                                    self.peek().pos)
-            return S.Spawn(tok.pos, name.text, self.positional_args(name.text))
+            return S.Spawn(tok.pos, name.text, self.positional_args(name.text), type_args)
         if tok.kind == "self":
             self.advance()
             return S.SelfRef(tok.pos)
@@ -875,8 +878,9 @@ class Parser:
             value = self.expr()
             self.expect(",", "`,` and the interface")
             itok = self.expect("ident", "an interface name")
+            type_args = self.type_args()
             self.expect(")")
-            return S.Narrow(tok.pos, value, itok.text, itok.pos)
+            return S.Narrow(tok.pos, value, itok.text, itok.pos, type_args)
         if tok.kind == "consume":
             self.advance()
             if not self.at("("):

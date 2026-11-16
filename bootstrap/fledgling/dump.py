@@ -115,7 +115,7 @@ def tree(n):
         notes = _notes(n)
         if notes:
             text = f"{text} {notes}" if text else notes
-    if isinstance(n, (S.StructDecl, S.EnumDecl)) and n.generic_base is not None:
+    if isinstance(n, (S.StructDecl, S.EnumDecl, S.InterfaceDecl, S.ActorDecl)) and n.generic_base is not None:
         kids = kids + [("GenericBase", None, n.generic_base, [])]
     if getattr(n, "file", None) is not None:
         kids = kids + [("File", None, ("trusted " if n.trusted else "") + n.file, [])]
@@ -158,11 +158,18 @@ def _tree(n):
     if isinstance(n, S.VariantDecl):
         return ("Variant", n.pos, n.name, [NONE if n.fields is None else _group("Fields", n.fields)])
     if isinstance(n, S.ActorDecl):
-        implements = ("Implements", None, "", [("Interface", pos, name, []) for name, pos in n.implements])
-        return ("Actor", n.pos, _words("pub" if n.public else "", "separate" if n.separate else "", n.name),
-                [implements, _group("Fields", n.fields), _opt(n.new), _group("Handlers", n.handlers)])
+        implements = ("Implements", None, "", [("Interface", r.pos, r.name, [tree(a) for a in r.args]
+                                                + ([("VisibleIn", None, r.visible_in, [])] if r.visible_in is not None else []))
+                                               for r in n.implements])
+        kids = [implements, _group("Fields", n.fields), _opt(n.new), _group("Handlers", n.handlers)]
+        if n.params:                                    # (a generic: the others have no such child)
+            kids = [("TypeParams", None, " ".join(n.params), [])] + kids
+        return ("Actor", n.pos, _words("pub" if n.public else "", "separate" if n.separate else "", n.name), kids)
     if isinstance(n, S.InterfaceDecl):
-        return ("Interface", n.pos, _words("pub" if n.public else "", n.name), [_group("Handlers", n.handlers)])
+        kids = [_group("Handlers", n.handlers)]
+        if n.params:
+            kids = [("TypeParams", None, " ".join(n.params), [])] + kids
+        return ("Interface", n.pos, _words("pub" if n.public else "", n.name), kids)
     if isinstance(n, S.Block):
         return ("Block", n.pos, "", [tree(s) for s in n.stmts])
     if isinstance(n, S.Decl):
@@ -223,9 +230,12 @@ def _tree(n):
     if isinstance(n, S.Consume):
         return ("Consume", n.pos, "", [tree(n.value)])
     if isinstance(n, S.Narrow):
-        return ("Narrow", n.pos, n.interface, [tree(n.value), ("Interface", n.interface_pos, n.interface, [])])
+        return ("Narrow", n.pos, n.interface, [tree(n.value), ("Interface", n.interface_pos, n.interface, [tree(a) for a in n.type_args])])
     if isinstance(n, S.Spawn):
-        return ("Spawn", n.pos, n.name, [tree(a) for a in n.args])
+        kids = [tree(a) for a in n.args]
+        if n.type_args:
+            kids = [("TypeArgs", None, "", [tree(a) for a in n.type_args])] + kids
+        return ("Spawn", n.pos, n.name, kids)
     if isinstance(n, S.SelfRef):
         return ("SelfRef", n.pos, "", [])
     if isinstance(n, S.SelfValue):
