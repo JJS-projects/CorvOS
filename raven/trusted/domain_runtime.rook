@@ -1,0 +1,160 @@
+// The actors' runtime inside a protection domain (decision 203). It runs at EL0, in the domain: the part of Raven that used to keep
+// the mailboxes of the actors of a domain and choose which one runs is here, in the domain's own memory, and Raven keeps only the
+// ring through which messages reach the domain, the actors' headers (in pages the domain cannot reach) and the domain's place in
+// its run queue. A bug in this code, or in a handler, can only fail the domain: it restarts as a unit.
+//
+// The top of a pool (above the pages of the places, which end below RT_FIRST_PAGE) holds, as pool offsets:
+//     RT_STATE   the runtime's own state: how far it has read the ring, its run queue, a table of its actors, a buffer for the
+//                message being handled
+//     RT_RING    the inbound ring: RT_RING_SLOTS records of RT_SLOT_BYTES; Raven writes them, the runtime reads them
+//     RT_BLOCKS  one mailbox for each place, RT_BLOCK_BYTES each
+// A ring record: the place of the actor (0 to 7), the handler number, the number of words, up to 8 words of payload.
+// A mailbox: the slot of the oldest message, how many wait, 1 if it is in the run queue, then RT_MAILBOX_SLOTS slots of a handler
+// number and 8 words (the same as the mailbox of an actor in Raven's arena).
+//
+// Raven also reads and writes this memory when the domain is not running (to place an actor, to empty a mailbox, to start again
+// after a failure), but it never trusts a number in it to decide where it writes: the only number it reads and uses is how far
+// the runtime has read the ring, and that it clamps (decision 203, the model `inbound`).
+
+import assembly: call_dispatch
+
+pub RT_FIRST_PAGE: u64 = 496
+pub RT_STATE: u64 = 0x1F0000
+pub RT_RING: u64 = 0x1F1000
+pub RT_BLOCKS: u64 = 0x1F2000
+pub RT_RING_SLOTS: u64 = 32
+pub RT_SLOT_BYTES: u64 = 128
+pub RT_BLOCK_BYTES: u64 = 1280
+pub RT_PLACES: u64 = 8
+RT_MAILBOX_SLOTS: u64 = 16
+RT_MAILBOX_AT: u64 = 32             // where the slots of a mailbox start, in its block
+RT_SLOT_WORDS: u64 = 9
+
+// Words of RT_STATE, as byte offsets.
+pub RT_S_CONSUMED: u64 = 0          // how many records of the ring the runtime has taken (it only grows)
+RT_S_RQ_FIRST: u64 = 8
+pub RT_S_RQ_COUNT: u64 = 16
+pub RT_S_LOST: u64 = 24             // messages that did not fit a mailbox
+pub RT_S_FINISHED: u64 = 40         // messages that are over: handled, or dropped (Raven counts them as finished, never more than it has handed over)
+pub RT_S_ACTOR: u64 = 64            // the address of the fields of each place's actor (what a handler is given as `self`)
+pub RT_S_DISPATCHER: u64 = 128      // the dispatcher of each place's actor
+pub RT_S_ENDED: u64 = 192           // 1: the actor has ended: nothing is queued for it and nothing of it runs
+pub RT_S_HELD: u64 = 256            // 1: its `new` has not run yet (it was spawned from another core): its messages wait
+RT_S_QUEUE: u64 = 320               // the run queue: RT_QUEUE_SLOTS places
+RT_QUEUE_SLOTS: u64 = 64
+RT_S_PAYLOAD: u64 = 832             // the message being handled, as the handler is given it
+
+/// The address of the mailbox of place `rb_place` in the pool at `rb_pool`.
+pub fn rt_block(rb_pool: u64, rb_place: u64) -> u64 {
+    return rb_pool + RT_BLOCKS + rb_place * RT_BLOCK_BYTES
+}
+
+/// Puts place `rq_place` at the end of the run queue (it has a message and is not in the queue). A full queue cannot be: each place
+/// is in it at most once, and there are at most RT_PLACES.
+pub fn rt_queue_push(rq_pool: u64, rq_place: u64) {
+    unsafe {
+        rq_state: u64 = rq_pool + RT_STATE
+        rq_first: u64 = load64(rq_state + RT_S_RQ_FIRST)
+        rq_count: u64 = load64(rq_state + RT_S_RQ_COUNT)
+        if rq_count >= RT_QUEUE_SLOTS {
+            return
+        }
+        store64(rq_state + RT_S_QUEUE + ((rq_first + rq_count) % RT_QUEUE_SLOTS) * 8, rq_place)
+        store64(rq_state + RT_S_RQ_COUNT, rq_count + 1)
+    }
+}
+
+/// Puts the message `pm_handler` with `pm_words` words (at `pm_payload`) in the mailbox of place `pm_place`, and the place in the run queue
+/// unless it is in it or waits for its `new`. False, with nothing changed, if the mailbox is full.
+pub fn rt_put(pm_pool: u64, pm_place: u64, pm_handler: u64, pm_words: u64, pm_payload: u64) -> bool {
+    unsafe {
+        pm_block: u64 = rt_block(pm_pool, pm_place)
+        pm_count: u64 = load64(pm_block + 8)
+        if pm_count >= RT_MAILBOX_SLOTS {
+            return false
+        }
+        pm_first: u64 = load64(pm_block)
+        pm_slot: u64 = pm_block + RT_MAILBOX_AT + ((pm_first + pm_count) % RT_MAILBOX_SLOTS) * RT_SLOT_WORDS * 8
+        store64(pm_slot, pm_handler)
+        copying: loop pm_k: u64 in 0..pm_words {
+            store64(pm_slot + 8 + pm_k * 8, load64(pm_payload + pm_k * 8))
+        }
+        store64(pm_block + 8, pm_count + 1)
+        if load64(pm_block + 16) == 0 and load64(pm_pool + RT_STATE + RT_S_HELD + pm_place * 8) == 0 {
+            store64(pm_block + 16, 1)
+            rt_queue_push(pm_pool, pm_place)
+        }
+        return true
+    }
+}
+
+/// The runtime's turn: it takes the records Raven has put in the ring (`dt_produced` of them in all, which Raven tells it: the
+/// number is Raven's, not read from the domain's memory) into the mailboxes, then runs one handler of the next actor that has a
+/// message. Returns 1 if some actor still has a message, 0 if none has.
+pub fn domain_turn(dt_produced: u64, dt_pool: u64) -> u64 {
+    unsafe {
+        dt_state: u64 = dt_pool + RT_STATE
+        mut dt_next: u64 = load64(dt_state + RT_S_CONSUMED)
+        if dt_next > dt_produced or dt_produced - dt_next > RT_RING_SLOTS {
+            // (its own number is wrong, or the ring was overrun by more than it holds: what is not in the ring any more is lost)
+            dt_next = 0
+            if dt_produced > RT_RING_SLOTS {
+                dt_next = dt_produced - RT_RING_SLOTS
+            }
+        }
+        taking: loop dt_next < dt_produced {
+            dt_slot: u64 = dt_pool + RT_RING + (dt_next % RT_RING_SLOTS) * RT_SLOT_BYTES
+            dt_place: u64 = load64(dt_slot)
+            if dt_place < RT_PLACES and load64(dt_state + RT_S_ENDED + dt_place * 8) == 0 {
+                mut dt_words: u64 = load64(dt_slot + 16)
+                if dt_words > 8 {
+                    dt_words = 8
+                }
+                if not rt_put(dt_pool, dt_place, load64(dt_slot + 8), dt_words, dt_slot + 24) {
+                    store64(dt_state + RT_S_LOST, load64(dt_state + RT_S_LOST) + 1)
+                    store64(dt_state + RT_S_FINISHED, load64(dt_state + RT_S_FINISHED) + 1)
+                }
+            } else {
+                store64(dt_state + RT_S_FINISHED, load64(dt_state + RT_S_FINISHED) + 1)     // for an actor that is not there: over
+            }
+            dt_next += 1
+        }
+        store64(dt_state + RT_S_CONSUMED, dt_next)
+        picking: loop load64(dt_state + RT_S_RQ_COUNT) > 0 {
+            dt_first: u64 = load64(dt_state + RT_S_RQ_FIRST)
+            dt_who: u64 = load64(dt_state + RT_S_QUEUE + dt_first * 8)
+            store64(dt_state + RT_S_RQ_FIRST, (dt_first + 1) % RT_QUEUE_SLOTS)
+            store64(dt_state + RT_S_RQ_COUNT, load64(dt_state + RT_S_RQ_COUNT) - 1)
+            if dt_who >= RT_PLACES {
+                continue picking
+            }
+            dt_block: u64 = rt_block(dt_pool, dt_who)
+            dt_count: u64 = load64(dt_block + 8)
+            if dt_count == 0 or load64(dt_state + RT_S_ENDED + dt_who * 8) != 0 or load64(dt_state + RT_S_HELD + dt_who * 8) != 0 {
+                store64(dt_block + 16, 0)       // nothing to run for it now: it is queued again when it has a message
+                continue picking
+            }
+            dt_oldest: u64 = load64(dt_block)
+            dt_message: u64 = dt_block + RT_MAILBOX_AT + dt_oldest * RT_SLOT_WORDS * 8
+            dt_handler: u64 = load64(dt_message)
+            copying: loop dt_k: u64 in 0..8 {
+                store64(dt_state + RT_S_PAYLOAD + dt_k * 8, load64(dt_message + 8 + dt_k * 8))
+            }
+            store64(dt_block, (dt_oldest + 1) % RT_MAILBOX_SLOTS)
+            store64(dt_block + 8, dt_count - 1)
+            if dt_count > 1 {
+                rt_queue_push(dt_pool, dt_who)      // (it stays marked as queued)
+            } else {
+                store64(dt_block + 16, 0)
+            }
+            call_dispatch(load64(dt_state + RT_S_DISPATCHER + dt_who * 8), load64(dt_state + RT_S_ACTOR + dt_who * 8),
+                          dt_handler, dt_state + RT_S_PAYLOAD)
+            store64(dt_state + RT_S_FINISHED, load64(dt_state + RT_S_FINISHED) + 1)
+            break picking
+        }
+        if load64(dt_state + RT_S_RQ_COUNT) > 0 {
+            return 1
+        }
+        return 0
+    }
+}

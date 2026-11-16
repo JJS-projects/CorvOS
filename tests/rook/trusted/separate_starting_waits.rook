@@ -1,15 +1,19 @@
-// An actor whose `new` has not run yet accepts messages but is not scheduled until it has (decision 181): a message from
-// another core can arrive before the start record does, and the handler must not run on fields `new` has yet to set.
-// Worked out: three `separate` actors fill cores 1, 2 and 3, so the probe is the fourth, on core 0, where this test can
-// reach its header. The header ends 1264 bytes before the actor's fields; its flags word is at offset 88 (4 = STARTING).
-// With the flag set, one hit() is accepted and nothing is scheduled: actors_waiting() is 0. With the flag cleared, a
-// second hit() schedules the actor: actors_waiting() is 1. When the system settles both hits have run: 2.
+// An actor whose `new` has not run yet accepts messages but its handlers do not run until it has (decision 181, and decision 203
+// for how it is done now): a message from another core can arrive before the start record does, and the handler must not run on
+// fields `new` has yet to set. The runtime of the domain keeps a word for each actor that says its `new` is still to run (Raven sets
+// it when it places an actor that another core starts, and clears it when the start has run); this test sets and clears it by hand.
+// Worked out: three `separate` actors fill cores 1, 2 and 3, so the probe is the fourth, on core 0, whose memory this test reaches.
+// Its first field is `hits`. With the word set, one hit() is accepted and the domain takes a turn (`run_one_turn`): the message goes to
+// the actor's mailbox and nothing runs: hits is 0. With the word cleared, a second hit() puts the domain in the run queue again:
+// actors_waiting() is 1. When the system settles both hits have run: 2.
 // expect: 0
 // expect: 1
 // expect: 2
 
 import actors: run_until_idle
-import mailbox: actors_waiting
+import assembly: domain_pool_base_of
+import domain_runtime: RT_STATE, RT_S_HELD
+import mailbox: actors_waiting, run_one_turn
 import print: print_u64
 
 actor Printer {
@@ -49,15 +53,18 @@ fn test_main() {
     c: Idle = spawn Idle()
     probe: Probe = spawn Probe()
     unsafe {
-        flags: u64 = actor_address(probe) - 1264 + 88
-        store64(flags, 4)
+        who: u64 = actor_address(probe)
+        held: u64 = domain_pool_base_of(0, load64(who - 1264 + 104) and 0xf) + RT_STATE + RT_S_HELD
+        store64(held, 1)
         probe.hit()
-        print_u64(actors_waiting())
-        store64(flags, 0)
+        run_one_turn()
+        print_u64(load64(who))
+        store64(held, 0)
         probe.hit()
         print_u64(actors_waiting())
     }
     run_until_idle()
-    probe.report(printer)
-    run_until_idle()
+    unsafe {
+        print_u64(load64(actor_address(probe)))
+    }
 }
