@@ -1,0 +1,85 @@
+// Actors placed in one domain share its core and its pool, but each has a page of its own that only Raven reaches, for its header and
+// mailbox (decision 201). The reference of an actor is the address of its fields, and its header is just before them (1264 bytes),
+// so the page before an actor's fields is that actor's.
+// Worked out: a and b are put in one domain; c has a domain of its own, which is on the next core in turn. Same core (print 1);
+// same domain number (print 1); b's fields are two pages after a's (a: control page, one page of fields; b: its control page, then
+// its fields; print 8192 = 2 * 4096); a different core for c (1). `a` reads its own first field, which is its `n`: 1. `a` then reads
+// the page before b's fields, where b's header is: a fault, which restarts the domain ("domain 1 faulted"); the domain's actors
+// keep their references and a reads its own field again: 1.
+// expect: 1
+// expect: 1
+// expect: 8192
+// expect: 1
+// expect: 1
+// expect-failure: domain 1 faulted
+// expect: 1
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on peek(address: u64, to: Printer) {
+        unsafe {
+            to.show(load64(address))
+        }
+    }
+}
+
+fn core_of(who: u64) -> u64 {
+    unsafe {
+        return (load64(who - 1264 + 104) shr 4) and 0xf
+    }
+}
+
+fn domain_number(who: u64) -> u64 {
+    unsafe {
+        return load64(who - 1264 + 104) and 0xf
+    }
+}
+
+fn same(x: u64, y: u64) {
+    if x == y {
+        print_u64(1)
+    } else {
+        print_u64(0)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Worker = spawn Worker(1) in d
+    b: Worker = spawn Worker(2) in d
+    c: Worker = spawn Worker(3)
+    unsafe {
+        who_a: u64 = actor_address(a)
+        who_b: u64 = actor_address(b)
+        who_c: u64 = actor_address(c)
+        same(core_of(who_a), core_of(who_b))
+        same(domain_number(who_a), domain_number(who_b))
+        print_u64(who_b - who_a)
+        if core_of(who_c) != core_of(who_a) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+        a.peek(who_a, printer)
+        run_until_idle()
+        a.peek(who_b - 4096, printer)
+        run_until_idle()
+        a.peek(who_a, printer)
+        run_until_idle()
+    }
+}

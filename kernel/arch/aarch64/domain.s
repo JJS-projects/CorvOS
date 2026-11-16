@@ -246,6 +246,68 @@ domain_unmap_devices_of:
     isb
     ret
 
+// void domain_pool_page_el1(core, d, page): makes page `page` of domain d's pool (on core `core`) a page that only EL1 reaches,
+// like the control page: it is where a later actor of the domain keeps its header and mailbox (decision 201). The domain's
+// translations are dropped on every core (as in domain_unmap_devices_of) before this returns, so the domain no longer reaches it.
+    .global domain_pool_page_el1
+domain_pool_page_el1:
+    ldr     x3, =domain_l1
+    mov     x4, #(12 << 12)
+    madd    x3, x0, x4, x3              // core's tables
+    sub     x4, x1, #1
+    add     x3, x3, x4, lsl #12         // L1 of domain d
+    add     x3, x3, #(6 << 12)          // its pool's L3: after the 3 L1 and the 3 L2 tables
+    mov     x5, #NDOMAINS
+    madd    x5, x0, x5, x1
+    sub     x5, x5, #1                  // the number of the pool
+    mov     x6, #POOL_BASE
+    add     x6, x6, x5, lsl #21         // the pool's physical address
+    add     x6, x6, x2, lsl #12         // the page's
+    ldr     x7, =D_TRAMP
+    orr     x7, x7, x6
+    str     x7, [x3, x2, lsl #3]
+    dsb     ishst
+    lsl     x1, x1, #48                 // the ASID is the domain number
+    tlbi    aside1is, x1
+    dsb     ish
+    isb
+    ret
+
+// void domain_reset_pool_map(core, d): puts the pool of domain d (on core `core`) back as it is when the domain is made: every
+// page read/write at EL0 except the control page (page 16), which only EL1 reaches. Pages made EL1-only by
+// domain_pool_page_el1 are ordinary again; the domain's translations are dropped on every core.
+    .global domain_reset_pool_map
+domain_reset_pool_map:
+    ldr     x3, =domain_l1
+    mov     x4, #(12 << 12)
+    madd    x3, x0, x4, x3
+    sub     x4, x1, #1
+    add     x3, x3, x4, lsl #12
+    add     x3, x3, #(6 << 12)          // the pool's L3
+    mov     x5, #NDOMAINS
+    madd    x5, x0, x5, x1
+    sub     x5, x5, #1
+    mov     x6, #POOL_BASE
+    add     x6, x6, x5, lsl #21         // the pool's physical address
+    mov     x9, #1                      // pages 1 to 511; page 0 stays unmapped
+1:  lsl     x10, x9, #12
+    add     x10, x10, x6
+    ldr     x11, =D_POOL
+    cmp     x9, #CONTROL_PAGE
+    b.ne    2f
+    ldr     x11, =D_TRAMP               // the control page: EL1 only
+2:  orr     x10, x10, x11
+    str     x10, [x3, x9, lsl #3]
+    add     x9, x9, #1
+    cmp     x9, #512
+    b.lo    1b
+    dsb     ishst
+    lsl     x1, x1, #48
+    tlbi    aside1is, x1
+    dsb     ish
+    isb
+    ret
+
 // u64 domain_actor(d) / void domain_set_actor(d, actor): the actor that lives in domain d (0: free). Raven's
 // record of which domains are in use; it is kept here, out of the domains' reach.
     .global domain_actor

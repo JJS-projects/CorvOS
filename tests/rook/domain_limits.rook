@@ -1,0 +1,59 @@
+// A domain holds at most 8 actors in its life, and nothing else of the domain's can be used once it is given back (decision 201).
+// Worked out: 8 workers are put in d (the table of places is full); a 9th, put there by a plain actor, fails (expect-failure, the
+// plain actor restarts). stop(d) ends them all; a worker asked to say its number is Gone (the reliable send answers 9).
+// expect-failure: a domain holds at most 8 actors at mailbox.rook:*
+// expect: 9
+
+import actors: Domain, Sent, new_domain, run_until_idle
+import print: print_u64
+
+actor Placer {
+    d: val Domain
+
+    new(d: val Domain) {
+        .d = d
+    }
+
+    pub lossy on place() {
+        w: Worker = spawn Worker(9) in .d
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub reliable on ping() {
+    }
+}
+
+fn answer(result: Sent) {
+    match result {
+        Delivered => print_u64(0)
+        MailboxFull => print_u64(8)
+        Gone => print_u64(9)
+    }
+}
+
+fn test_main() {
+    d: Domain = new_domain()
+    placer: Placer = spawn Placer(copy(d))
+    w1: Worker = spawn Worker(1) in d
+    w2: Worker = spawn Worker(2) in d
+    w3: Worker = spawn Worker(3) in d
+    w4: Worker = spawn Worker(4) in d
+    w5: Worker = spawn Worker(5) in d
+    w6: Worker = spawn Worker(6) in d
+    w7: Worker = spawn Worker(7) in d
+    w8: Worker = spawn Worker(8) in d
+    run_until_idle()
+    placer.place()
+    run_until_idle()
+    stop(d)
+    run_until_idle()
+    answer(w8.ping())
+    run_until_idle()
+}

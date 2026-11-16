@@ -1,0 +1,57 @@
+// Actors in a domain talk to each other and to others as they do anywhere (decision 201): a reference to an actor in the domain
+// is the right to send to it, and an actor in the domain can be given references and use them.
+// Worked out: a is in d and b is in d. a is asked to `go(b, printer)`, which sends b `hit(5)` and `hit(6)` and then asks b to
+// report to the printer: 11. b is asked directly the same: 11 again after one more hit(0).
+// expect: 11
+// expect: 11
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Sender {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on go(to: Receiver, printer: Printer) {
+        to.hit(5)
+        to.hit(6)
+        to.report(printer)
+    }
+}
+
+separate actor Receiver {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on hit(k: u64) {
+        .total += k
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Sender = spawn Sender(1) in d
+    b: Receiver = spawn Receiver() in d
+    a.go(b, printer)
+    run_until_idle()
+    b.hit(0)
+    b.report(printer)
+    run_until_idle()
+}

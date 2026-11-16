@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -50,6 +50,7 @@ ACTOR_SIZE_MASK: u64 = 0xFFFFFF     // bits 8 to 31 of the domain word, once shi
 ACTOR_F_IN_NEW: u64 = 1             // it was spawned by its spawner's `new`: kept across restarts
 ACTOR_F_ENDED: u64 = 2              // it has ended: sends to it are refused
 ACTOR_F_STARTING: u64 = 4           // its `new` has not run yet (on another core): messages wait, it is not scheduled
+ACTOR_F_RETIRED: u64 = 16           // it has ended and its place has been given up (in a domain: core 0 has handled its end); the domain is given back when all have
 ACTOR_F_RETIRING: u64 = 8           // it has ended but is still in the run queue: its memory is given back when that entry is taken
 
 // Raven's tables, as byte offsets from the start of the arena.
@@ -84,6 +85,13 @@ CORE_INJECT_COUNT: u64 = 216        // handlers run since it was armed
 // The actors that ended, their memory waiting to be used again (decision 197): in the block of the core whose arena they are in,
 // a list through the first word of each block, whose size is in bits 8 to 31 of its domain word.
 CORE_FREE_ACTORS: u64 = 512
+// The actors of a domain (decision 201), kept in the block of the core it is on, for each domain d (1 to 3): the table of its
+// places (DOMAIN_PLACES words, each the address of an actor's fields, 0: none), the next page of the pool a place may take, and the
+// generation of the domain, which changes each time it is given back.
+CORE_DOMAIN_TABLE: u64 = 576
+CORE_DOMAIN_NEXT: u64 = 768
+CORE_DOMAIN_GEN: u64 = 800
+CORE_DOMAIN_SEEN: u64 = 832         // per domain, 64 bytes: a bit for each page of the pool that has ever been the first page of an actor's fields
 CORE_TIMER_SEQ: u64 = 1288
 CORE_TIMERS: u64 = 1536
 TIMER_SLOTS: u64 = 32
@@ -104,6 +112,13 @@ DOMAIN_FIELDS: u64 = 0x11000        // where an actor in a domain keeps its fiel
 DOMAIN_INBOX: u64 = 0x1FF000        // ... and the message it is handling is copied here
 DOMAIN_POOL_BYTES: u64 = 0x200000
 DOMAIN_CONTROL: u64 = 0x10000       // the control page: the actor's header and mailbox are at its end
+DOMAIN_PLACES: u64 = 8              // the actors one domain can hold in its life (decision 201)
+DOMAIN_PAGE: u64 = 4096
+DOMAIN_CONTROL_PAGE: u64 = 16       // the page of the control page of the first place
+DOMAIN_INBOX_PAGE: u64 = 511        // the last page, where the message being handled is copied
+DOMAIN_ARGS_SAVE: u64 = 2800        // bytes of the control page below the header: where the arguments of `new` wait while a domain restarts
+DOMAIN_OPEN: u64 = 1                // the state of a domain that is in use (domain_actor_of says 0 for a free one) ...
+DOMAIN_CLOSING: u64 = 2             // ... and one whose actors are being ended: nothing is placed in it any more
 DOMAIN_CLEAN: u64 = 0x5EC0C1EA9ED0C0DE  // the first word of the control page of a pool that was wiped when its actor ended
 DOMAIN_STACK_FIRST: u64 = 0x1000    // the stack: [0x1000, 0x10000); then the control page; then the data
 DOMAIN_STACK_END: u64 = 0x10000
@@ -142,6 +157,13 @@ fn reference_to(r_actor: u64) -> u64 {
 
 /// Does the reference `r_ref` name the actor that is in its place now, and not one that was there before?
 pub fn is_current(r_ref: u64) -> bool {
+    unsafe {
+        r_address: u64 = r_ref and REF_ADDRESS_MASK
+        // an address in a domain's pool names an actor only if one was placed there (decision 201): its header is read only then
+        if r_address >= domain_pools_start() and r_address < domain_pools_end() and not place_registered(r_address) {
+            return false
+        }
+    }
     return generation_of(r_ref and REF_ADDRESS_MASK) == (r_ref shr REF_GENERATION_SHIFT)
 }
 
@@ -259,33 +281,222 @@ fn finish_retire(fr_who: u64) {
     }
 }
 
-/// Core 0: the actor in a domain has ended, and the domain is to be free for the next `separate` actor (decision 197). In
-/// this order: the generation changes (a stale reference is refused from now on, and the next tenant is told apart from this
-/// one); the actor leaves its parent's list; the peripherals are taken away and the domain's translations dropped on every core
-/// (domain_unmap_devices_of); the pool is wiped, except the two words of the header that say the place is ended and which
-/// generation it is, which stay so that nothing can be queued in a place that looks empty; the pool is marked as wiped, and
-/// then the domain counts as free.
+/// Core 0: an actor in a domain has ended (decision 201). In this order: its place gets a new generation (a stale reference is refused
+/// from now on); it leaves its parent's list; and if it was the last actor of the domain that has not ended, the domain is given back.
 fn retire_domain(rd_who: u64) {
     rd_core: u64 = core_of_actor(rd_who)
     rd_domain: u64 = domain_of(rd_who)
-    rd_pool: u64 = domain_pool_base_of(rd_core, rd_domain)
     unsafe {
         rd_header: u64 = rd_who - ACTOR_BEFORE_FIELDS
-        store64(rd_header + ACTOR_H_FLAGS, load64(rd_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED)
+        store64(rd_header + ACTOR_H_FLAGS, load64(rd_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED or ACTOR_F_RETIRED)
         store64(rd_header + ACTOR_H_DOMAIN, load64(rd_header + ACTOR_H_DOMAIN) + (1 shl REF_GENERATION_SHIFT))
-        unlink_from_parent(rd_who)
-        domain_unmap_devices_of(rd_core, rd_domain)
-        pool_wipe_range(rd_pool, DOMAIN_CONTROL)
-        pool_wipe_range(rd_pool + DOMAIN_FIELDS, DOMAIN_POOL_BYTES - DOMAIN_FIELDS)
-        clearing: loop rd_w: u64 in 0..(DOMAIN_FIELDS - DOMAIN_CONTROL) / 8 {
-            rd_at: u64 = rd_pool + DOMAIN_CONTROL + rd_w * 8
-            if rd_at != rd_header + ACTOR_H_DOMAIN and rd_at != rd_header + ACTOR_H_FLAGS {
-                store64(rd_at, 0)
+    }
+    unlink_from_parent(rd_who)
+    if unretired_place_count(rd_core, rd_domain) == 0 {
+        free_domain_now(rd_core, rd_domain)         // (every actor's end has been handled: none is left to read a header that is gone)
+    }
+}
+
+/// Gives domain `fd_d` of core `fd_core` back (decision 197, for several actors, decision 201). In this order: its table of places is
+/// cleared (from now a reference to any of its actors is refused, whatever its pages hold), its generation changes (the handle of the
+/// domain is stale), the peripherals are taken away and the translations dropped on every core, the pages that only EL1 reached are
+/// ordinary again, the pool is wiped and marked as wiped; then the domain counts as free.
+fn free_domain_now(fd_core: u64, fd_d: u64) {
+    fd_pool: u64 = domain_pool_base_of(fd_core, fd_d)
+    fd_table: u64 = place_table(fd_core, fd_d)
+    unsafe {
+        clearing: loop fd_i: u64 in 0..DOMAIN_PLACES {
+            store64(fd_table + fd_i * 8, 0)
+        }
+        fd_gen: u64 = core_block(fd_core) + CORE_DOMAIN_GEN + (fd_d - 1) * 8
+        store64(fd_gen, load64(fd_gen) + 1)
+        domain_unmap_devices_of(fd_core, fd_d)
+        domain_reset_pool_map(fd_core, fd_d)
+        pool_wipe(fd_pool)
+        store64(fd_pool + DOMAIN_CONTROL, DOMAIN_CLEAN)
+        domain_set_actor_of(fd_core, fd_d, 0)
+    }
+}
+
+// ---- several actors in a domain (decision 201) ---------------------------------------------------------------------------------
+// A domain's pool is 2 MB: the guard page, the stack, then pages for its actors. Each actor (a place) takes one page that only EL1
+// reaches, for its header and mailbox, right before the pages of its fields (an actor's header is just before its fields, as it is
+// in the arena), so a domain cannot reach any actor's header, its own or another's. The first place has the control page, as
+// before; the others make their page EL1-only when they are placed.
+
+/// The table of the places of domain `pt_d` on core `pt_core`.
+fn place_table(pt_core: u64, pt_d: u64) -> u64 {
+    unsafe {
+        return core_block(pt_core) + CORE_DOMAIN_TABLE + (pt_d - 1) * 64
+    }
+}
+
+/// The generation of domain `dg_d` on core `dg_core`: the number of times it has been given back.
+fn domain_generation(dg_core: u64, dg_d: u64) -> u64 {
+    unsafe {
+        return load64(core_block(dg_core) + CORE_DOMAIN_GEN + (dg_d - 1) * 8)
+    }
+}
+
+/// Is `pr_address`, an address in some domain's pool, the fields of an actor placed in that domain?
+fn place_registered(pr_address: u64) -> bool {
+    unsafe {
+        pr_index: u64 = (pr_address - domain_pools_start()) shr 21
+        pr_table: u64 = place_table(pr_index / DOMAINS, pr_index % DOMAINS + 1)
+        looking: loop pr_i: u64 in 0..DOMAIN_PLACES {
+            if load64(pr_table + pr_i * 8) == pr_address {
+                return true
             }
         }
-        store64(rd_pool + DOMAIN_CONTROL, DOMAIN_CLEAN)
-        domain_set_actor_of(rd_core, rd_domain, 0)
     }
+    return false
+}
+
+/// Has the actor whose fields are at `pl_place` not ended?
+fn place_live(pl_place: u64) -> bool {
+    unsafe {
+        return (load64(pl_place - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_ENDED) == 0
+    }
+}
+
+/// How many places domain `pc_d` of core `pc_core` has had, ended or not, and how many of them have not ended.
+fn place_count(pc_core: u64, pc_d: u64) -> u64 {
+    mut pc_n: u64 = 0
+    pc_table: u64 = place_table(pc_core, pc_d)
+    unsafe {
+        counting: loop pc_i: u64 in 0..DOMAIN_PLACES {
+            if load64(pc_table + pc_i * 8) != 0 {
+                pc_n += 1
+            }
+        }
+    }
+    return pc_n
+}
+
+/// How many places of the domain have not yet been given up: an actor that has not ended, or has ended and whose end core 0 has not
+/// handled yet (the record is on its way). The domain is given back when there are none.
+fn unretired_place_count(lc_core: u64, lc_d: u64) -> u64 {
+    mut lc_n: u64 = 0
+    lc_table: u64 = place_table(lc_core, lc_d)
+    unsafe {
+        counting: loop lc_i: u64 in 0..DOMAIN_PLACES {
+            lc_at: u64 = load64(lc_table + lc_i * 8)
+            if lc_at != 0 {
+                if (load64(lc_at - ACTOR_BEFORE_FIELDS + ACTOR_H_FLAGS) and ACTOR_F_RETIRED) == 0 {
+                    lc_n += 1
+                }
+            }
+        }
+    }
+    return lc_n
+}
+
+/// A domain that was free is taken: its pool is clean (wiped when it was given back, or wiped now if nothing is known about it)
+/// and empty.
+fn init_domain(id_core: u64, id_d: u64) {
+    id_pool: u64 = domain_pool_base_of(id_core, id_d)
+    unsafe {
+        if load64(id_pool + DOMAIN_CONTROL) == DOMAIN_CLEAN {
+            store64(id_pool + DOMAIN_CONTROL, 0)
+        } else {
+            pool_wipe(id_pool)                  // never used: nothing is known about what it holds
+        }
+        id_table: u64 = place_table(id_core, id_d)
+        clearing: loop id_i: u64 in 0..DOMAIN_PLACES {
+            store64(id_table + id_i * 8, 0)
+        }
+        store64(core_block(id_core) + CORE_DOMAIN_NEXT + (id_d - 1) * 8, DOMAIN_CONTROL_PAGE)
+    }
+    unsafe {
+        domain_set_actor_of(id_core, id_d, DOMAIN_OPEN)
+    }
+}
+
+/// The handle of a domain: its generation, its core and its number.
+fn domain_handle(dh_core: u64, dh_d: u64) -> u64 {
+    return (domain_generation(dh_core, dh_d) shl 8) or (dh_core shl 4) or dh_d
+}
+
+/// `new_domain()`: an empty domain on the next core in turn, which the holder of the handle may put actors in (decision 201).
+pub fn new_domain_impl() -> u64 {
+    nd_core: u64 = spawn_next_core()
+    nd_d: u64 = free_domain(nd_core)
+    init_domain(nd_core, nd_d)
+    return domain_handle(nd_core, nd_d)
+}
+
+/// The core (bits 4 to 7) and the number (bits 0 to 3) of the domain a handle names; a failure like any bug if it has ended
+/// (the handle of a domain that was given back is stale, as a reference to an actor that ended is).
+fn resolve_domain(rd_handle: u64) -> u64 {
+    rd_d: u64 = rd_handle and 0xF
+    rd_core: u64 = (rd_handle shr 4) and 0xF
+    if rd_d == 0 or rd_d > DOMAINS or rd_core > 3 {
+        panic("not a domain")
+    }
+    unsafe {
+        if domain_actor_of(rd_core, rd_d) != DOMAIN_OPEN or domain_generation(rd_core, rd_d) != (rd_handle shr 8) {
+            panic("that domain has ended")
+        }
+    }
+    return (rd_core shl 4) or rd_d
+}
+
+/// Gives an actor with `tp_words` words of fields and arguments a place in domain `tp_d` of core `tp_core`: a page that only EL1
+/// reaches, then the pages for its fields. Returns the address of its fields, which is its reference. Its header and mailbox page is
+/// cleared here, once the domain can no longer reach it: it may hold what the domain put there while it was an ordinary page.
+fn take_place(tp_core: u64, tp_d: u64, tp_words: u64) -> u64 {
+    tp_pool: u64 = domain_pool_base_of(tp_core, tp_d)
+    unsafe {
+        tp_next_at: u64 = core_block(tp_core) + CORE_DOMAIN_NEXT + (tp_d - 1) * 8
+        tp_control: u64 = load64(tp_next_at)                    // the page for its header and mailbox
+        mut tp_pages: u64 = (tp_words * 8 + DOMAIN_PAGE - 1) / DOMAIN_PAGE
+        if tp_pages == 0 {
+            tp_pages = 1
+        }
+        if tp_control + 1 + tp_pages > DOMAIN_INBOX_PAGE {
+            panic("a separate actor's fields do not fit its domain")
+        }
+        tp_table: u64 = place_table(tp_core, tp_d)
+        mut tp_slot: u64 = DOMAIN_PLACES
+        finding: loop tp_i: u64 in 0..DOMAIN_PLACES {
+            if tp_slot == DOMAIN_PLACES and load64(tp_table + tp_i * 8) == 0 {
+                tp_slot = tp_i
+            }
+        }
+        if tp_slot == DOMAIN_PLACES {
+            panic("a domain holds at most 8 actors")
+        }
+        if tp_control != DOMAIN_CONTROL_PAGE {
+            domain_pool_page_el1(tp_core, tp_d, tp_control)
+        }
+        pool_wipe_range(tp_pool + tp_control * DOMAIN_PAGE, DOMAIN_PAGE)
+        tp_fields: u64 = tp_pool + (tp_control + 1) * DOMAIN_PAGE
+        store64(tp_table + tp_slot * 8, tp_fields)
+        store64(tp_next_at, tp_control + 1 + tp_pages)
+        // a reference to an actor of this place stays a reference to something that was an actor, also after the place is given back
+        tp_seen: u64 = core_block(tp_core) + CORE_DOMAIN_SEEN + (tp_d - 1) * 64 + ((tp_control + 1) / 64) * 8
+        store64(tp_seen, load64(tp_seen) or (1 shl ((tp_control + 1) % 64)))
+        return tp_fields
+    }
+}
+
+/// Does [`hc_from`, `hc_to`), offsets in the pool of domain `hc_d` of core `hc_core`, touch a page that only EL1 reaches (the header
+/// and mailbox of an actor)? A device told to use it, or a request that Raven reads it for a domain, must not.
+pub fn range_hits_control_page(hc_core: u64, hc_d: u64, hc_from: u64, hc_to: u64) -> bool {
+    hc_table: u64 = place_table(hc_core, hc_d)
+    hc_pool: u64 = domain_pool_base_of(hc_core, hc_d)
+    unsafe {
+        looking: loop hc_i: u64 in 0..DOMAIN_PLACES {
+            hc_at: u64 = load64(hc_table + hc_i * 8)
+            if hc_at != 0 {
+                hc_page: u64 = hc_at - hc_pool - DOMAIN_PAGE      // the offset of the page before its fields
+                if hc_from < hc_page + DOMAIN_PAGE and hc_page < hc_to {
+                    return true
+                }
+            }
+        }
+    }
+    return false
 }
 
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
@@ -298,7 +509,7 @@ fn retire_domain(rd_who: u64) {
 /// one being made (decision 148), so references to it stay valid.
 pub fn spawn_actor_impl(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
                         rt_args_words: u64) -> u64 {
-    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, false, 0)
+    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, false, 0, 0)
 }
 
 /// The same for an actor that lives in a protection domain of its own (`separate actor`, decision 172): the
@@ -309,24 +520,37 @@ pub fn spawn_actor_impl(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u6
 /// The pages it covers are mapped into the domain before `new` runs (decision 182).
 pub fn spawn_separate_impl(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
                            rt_args_words: u64, rt_devices: u64, rt_domain: u64) -> u64 {
-    if rt_domain != 0 {
-        panic("spawn ... in a domain is not built yet")
-    }
-    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, true, rt_devices)
+    return spawn_common(fields, dispatcher, rt_entry, rt_args, rt_args_words, true, rt_devices, rt_domain)
 }
 
 /// `new_domain()`: an empty domain, whose handle is the right to put actors in it (decision 201).
 pub extern fn raven_new_domain() -> u64
 
-pub fn new_domain_impl() -> u64 {
-    panic("new_domain is not built yet")
-}
-
 /// `stop(domain)`: ends every actor in the domain and gives it back (decision 201).
 pub extern fn raven_stop_domain(handle: u64)
 
-pub fn stop_domain_impl(handle: u64) {
-    panic("stop(domain) is not built yet")
+/// The holder of a domain ends it: nothing is placed in it from now on, every actor in it ends, and the domain is given back when the
+/// last of them has (at once if it has none).
+pub fn stop_domain_impl(sd_handle: u64) {
+    sd_packed: u64 = resolve_domain(sd_handle)
+    sd_core: u64 = sd_packed shr 4
+    sd_d: u64 = sd_packed and 0xF
+    unsafe {
+        domain_set_actor_of(sd_core, sd_d, DOMAIN_CLOSING)
+    }
+    if unretired_place_count(sd_core, sd_d) == 0 {
+        free_domain_now(sd_core, sd_d)
+        return
+    }
+    sd_table: u64 = place_table(sd_core, sd_d)
+    unsafe {
+        ending: loop sd_i: u64 in 0..DOMAIN_PLACES {
+            sd_at: u64 = load64(sd_table + sd_i * 8)
+            if sd_at != 0 and place_live(sd_at) {
+                end_actor_anywhere(sd_at)
+            }
+        }
+    }
 }
 
 /// Maps the registers named by the `Mmio` arguments of a `separate` actor's `new` into its domain (decision 182). The
@@ -359,7 +583,7 @@ fn grant_devices(gd_core: u64, gd_domain: u64, gd_args: u64, gd_words: u64, gd_m
 }
 
 fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
-                rt_args_words: u64, rt_separate: bool, rt_devices: u64) -> u64 {
+                rt_args_words: u64, rt_separate: bool, rt_devices: u64, rt_dhandle: u64) -> u64 {
     rt_base: u64 = actor_arena_base()
     unsafe {
         rt_parent: u64 = load64(rt_base + ACTOR_S_CURRENT_ACTOR)
@@ -385,26 +609,27 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
             }
         }
         if rt_actor == 0 and rt_separate {
-            rt_core: u64 = spawn_next_core()    // Raven decides where it lives: 1, 2, 3, 0, 1, ... (decision 180)
-            rt_domain: u64 = free_domain(rt_core)
-            if (fields + rt_args_words) * 8 > DOMAIN_INBOX - DOMAIN_FIELDS {
-                panic("a separate actor's fields do not fit its domain")
-            }
-            rt_pool: u64 = domain_pool_base_of(rt_core, rt_domain)
-            rt_actor = rt_pool + DOMAIN_FIELDS
-            mut rt_domain_generation: u64 = 0
-            if load64(rt_pool + DOMAIN_CONTROL) == DOMAIN_CLEAN {
-                // wiped when its last actor ended (its place keeps the generation it was given then)
-                rt_domain_generation = load64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN) shr REF_GENERATION_SHIFT
-                store64(rt_pool + DOMAIN_CONTROL, 0)
+            mut rt_core: u64 = 0
+            mut rt_domain: u64 = 0
+            if rt_dhandle == 0 {
+                rt_core = spawn_next_core()     // Raven decides where it lives: 1, 2, 3, 0, 1, ... (decision 180)
+                rt_domain = free_domain(rt_core)
+                init_domain(rt_core, rt_domain)
             } else {
-                pool_wipe(rt_pool)              // never used: nothing is known about what it holds
+                rt_packed: u64 = resolve_domain(rt_dhandle)     // `spawn ... in d`: where `d` is (decision 201)
+                rt_core = rt_packed shr 4
+                rt_domain = rt_packed and 0xF
             }
+            if rt_args_words * 8 > DOMAIN_ARGS_SAVE {
+                panic("the arguments of a separate actor's new are too long")
+            }
+            rt_actor = take_place(rt_core, rt_domain, fields + rt_args_words)
+            // (the generation of an actor's place starts with that of its domain, so a reference to an actor of an earlier
+            // tenant of the same domain never matches one of this tenant)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DISPATCHER, dispatcher)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS, rt_actor + fields * 8)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN,
-                    rt_domain or (rt_core shl 4) or (rt_domain_generation shl REF_GENERATION_SHIFT))
-            domain_set_actor_of(rt_core, rt_domain, rt_actor)
+                    rt_domain or (rt_core shl 4) or ((domain_generation(rt_core, rt_domain) shl 16) shl REF_GENERATION_SHIFT))
             grant_devices(rt_core, rt_domain, rt_args, rt_args_words, rt_devices)
         }
         if rt_actor == 0 {
@@ -542,7 +767,7 @@ fn end_list(rt_list: u64) {
 /// that makes it): the actors it spawned in a handler end; those it spawned in its `new`
 /// wait, in order, to be matched by the spawns in the `new` that is about to run again;
 /// its fields are cleared and its mailbox emptied.
-fn rerun_begin(rt_who: u64) {
+fn rerun_prepare(rt_who: u64) {
     unsafe {
         rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
         mut rt_child: u64 = load64(rt_header + ACTOR_H_FIRST_CHILD)
@@ -577,7 +802,15 @@ fn rerun_begin(rt_who: u64) {
             store64(rt_at, 0)
             rt_at = rt_at + 8
         }
-        if domain_of(rt_who) != 0 {
+    }
+}
+
+/// `rerun_prepare`, and for an actor that is alone in its domain the wipe of the domain (decision 176). One of several is restarted
+/// without that: the others are not, and the whole domain is wiped only when it fails (`restart_domain`).
+fn rerun_begin(rt_who: u64) {
+    rerun_prepare(rt_who)
+    if domain_of(rt_who) != 0 and place_count(core_of_actor(rt_who), domain_of(rt_who)) == 1 {
+        unsafe {
             wipe_domain(rt_who)
         }
     }
@@ -616,6 +849,9 @@ fn rerun_end(rt_who: u64) {
 /// valid. If that `new` fails too, the actor ends (a restart that fails would otherwise
 /// repeat for ever).
 fn restart_actor(rt_who: u64) -> bool {
+    if domain_of(rt_who) != 0 and place_count(core_of_actor(rt_who), domain_of(rt_who)) > 1 {
+        return restart_domain(rt_who)           // a domain fails and restarts as a unit, all of its actors (decision 201)
+    }
     rt_base: u64 = actor_arena_base()
     unsafe {
         store64(rt_base + ACTOR_S_RESTARTS, load64(rt_base + ACTOR_S_RESTARTS) + 1)
@@ -643,6 +879,91 @@ fn restart_actor(rt_who: u64) -> bool {
     }
     notify_restarted(rt_who)
     return false
+}
+
+/// A domain with several actors fails and restarts as a unit (decision 201): each actor that has not ended is prepared (its children
+/// end, its watches go, its mailbox is emptied, its fields cleared), the arguments of their `new` are put aside in the pages that only
+/// EL1 reaches, the stack and the data are wiped (everything but those pages), the arguments are put back and each `new` runs again
+/// in the order the actors were placed, so every reference stays valid. A `new` that fails ends its actor (a restart that fails would
+/// repeat for ever) and the others go on. Returns whether `rd_who`, the actor whose handler failed, has ended.
+fn restart_domain(rd_who: u64) -> bool {
+    rd_base: u64 = actor_arena_base()
+    rd_core: u64 = core_of_actor(rd_who)
+    rd_d: u64 = domain_of(rd_who)
+    rd_table: u64 = place_table(rd_core, rd_d)
+    rd_pool: u64 = domain_pool_base_of(rd_core, rd_d)
+    mut rd_ended: bool = false
+    unsafe {
+        store64(rd_base + ACTOR_S_RESTARTS, load64(rd_base + ACTOR_S_RESTARTS) + 1)
+        preparing: loop rd_i: u64 in 0..DOMAIN_PLACES {
+            rd_at: u64 = load64(rd_table + rd_i * 8)
+            if rd_at != 0 and place_live(rd_at) {
+                rerun_prepare(rd_at)
+            }
+        }
+        saving: loop rd_j: u64 in 0..DOMAIN_PLACES {
+            rd_at: u64 = load64(rd_table + rd_j * 8)
+            if rd_at != 0 and place_live(rd_at) {
+                rd_words: u64 = load64(rd_at - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS_WORDS)
+                rd_kept: u64 = load64(rd_at - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS)
+                copying_out: loop rd_w: u64 in 0..rd_words {
+                    store64(rd_at - DOMAIN_PAGE + rd_w * 8, load64(rd_kept + rd_w * 8))
+                }
+            }
+        }
+        // the stack, then the data, page by page except the pages that only EL1 reaches
+        pool_wipe_range(rd_pool + 0x1000, 0xF000)
+        mut rd_from: u64 = rd_pool + DOMAIN_FIELDS
+        wiping: loop rd_k: u64 in 0..DOMAIN_PLACES {
+            rd_at: u64 = load64(rd_table + rd_k * 8)
+            if rd_at != 0 {
+                if rd_at - DOMAIN_PAGE > rd_from {
+                    pool_wipe_range(rd_from, rd_at - DOMAIN_PAGE - rd_from)
+                }
+                rd_from = rd_at
+            }
+        }
+        pool_wipe_range(rd_from, rd_pool + DOMAIN_POOL_BYTES - rd_from)
+        restoring: loop rd_m: u64 in 0..DOMAIN_PLACES {
+            rd_at: u64 = load64(rd_table + rd_m * 8)
+            if rd_at != 0 and place_live(rd_at) {
+                rd_words: u64 = load64(rd_at - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS_WORDS)
+                rd_kept: u64 = load64(rd_at - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS)
+                copying_back: loop rd_w: u64 in 0..rd_words {
+                    store64(rd_kept + rd_w * 8, load64(rd_at - DOMAIN_PAGE + rd_w * 8))
+                }
+            }
+        }
+        running: loop rd_n: u64 in 0..DOMAIN_PLACES {
+            rd_at: u64 = load64(rd_table + rd_n * 8)
+            if rd_at != 0 and place_live(rd_at) {
+                rd_header: u64 = rd_at - ACTOR_BEFORE_FIELDS
+                rd_start: u64 = load64(rd_header + ACTOR_H_START)
+                mut rd_failed: u64 = 0
+                if rd_start != 0 {
+                    store64(rd_base + ACTOR_S_CURRENT_ACTOR, rd_at)
+                    store64(rd_base + ACTOR_S_IN_NEW, 1)
+                    domain_budget_begin()
+                    timer_arm(budget_ticks())
+                    rd_failed = invoke(rd_start, rd_at, 0, load64(rd_header + ACTOR_H_ARGS))
+                    timer_disarm()
+                    domain_budget_end()
+                    store64(rd_base + ACTOR_S_CURRENT_ACTOR, 0)
+                    store64(rd_base + ACTOR_S_IN_NEW, 0)
+                }
+                if rd_failed != 0 {
+                    if rd_at == rd_who {
+                        rd_ended = true
+                    }
+                    end_actor(rd_at)
+                } else {
+                    rerun_end(rd_at)
+                    notify_restarted(rd_at)
+                }
+            }
+        }
+    }
+    return rd_ended
 }
 
 /// `watch(watched, watcher)`, which the compiler turns into a call of this: from now on
@@ -1519,8 +1840,8 @@ fn service_call(dm_pool: u64) -> u64 {
         }
         if dm_number == SVC_SELF {
             dm_who: u64 = domain_saved_x(0)
-            if dm_who != dm_pool + DOMAIN_FIELDS {
-                return REASON_BAD               // a domain's `self` is the actor that lives in it
+            if dm_who != load64(actor_arena_base() + ACTOR_S_CURRENT_ACTOR) {
+                return REASON_BAD               // a domain's `self` is the actor whose handler is running
             }
             return domain_resume(self_impl(dm_who))
         }
@@ -1553,7 +1874,14 @@ fn pool_readable(dm_pool: u64, dm_address: u64, dm_bytes: u64) -> bool {
     if dm_start >= DOMAIN_STACK_FIRST and dm_end <= DOMAIN_STACK_END {
         return true
     }
-    return dm_start >= DOMAIN_FIELDS and dm_end <= DOMAIN_POOL_BYTES
+    if dm_start < DOMAIN_FIELDS or dm_end > DOMAIN_POOL_BYTES {
+        return false
+    }
+    unsafe {
+        dm_index: u64 = (dm_pool - domain_pools_start()) shr 21
+        // (not the pages of an actor's header and mailbox, which only Raven reaches: a request that names one is a bad request)
+        return not range_hits_control_page(dm_index / DOMAINS, dm_index % DOMAINS + 1, dm_start, dm_end)
+    }
 }
 
 /// Is [dm_address, dm_address + dm_length) inside the kernel's constants (a message or a file name the
@@ -1574,12 +1902,18 @@ fn valid_actor(dm_target: u64) -> bool {
             // in a domain's pool: a domain of some core that holds exactly this actor
             // (a place in a pool: where an actor lives, or lived and has given the domain back, wiped: a stale reference
             // to it is refused when it is used, not a request that fails the domain)
+            // (an address that is, or was once, the start of an actor's fields in that domain; whether an actor is there now is
+            // `is_current`'s question, so a reference to an actor that has gone is refused softly, and an address where there never was
+            // one is a request that fails the domain)
             dm_index: u64 = (dm_target - domain_pools_start()) shr 21
             dm_there: u64 = domain_pool_base_of(dm_index / DOMAINS, dm_index % DOMAINS + 1)
-            if dm_target != dm_there + DOMAIN_FIELDS {
+            dm_in: u64 = dm_target - dm_there
+            if dm_target % DOMAIN_PAGE != 0 or dm_in < DOMAIN_FIELDS or dm_in >= DOMAIN_INBOX {
                 return false
             }
-            return domain_actor_of(dm_index / DOMAINS, dm_index % DOMAINS + 1) == dm_target or load64(dm_there + DOMAIN_CONTROL) == DOMAIN_CLEAN
+            dm_page: u64 = dm_in / DOMAIN_PAGE
+            dm_seen: u64 = core_block(dm_index / DOMAINS) + CORE_DOMAIN_SEEN + (dm_index % DOMAINS) * 64 + (dm_page / 64) * 8
+            return ((load64(dm_seen) shr (dm_page % 64)) and 1) == 1
         }
         dm_next: u64 = load64(dm_base + ACTOR_S_NEXT)
         mut dm_at: u64 = dm_base + ACTOR_FIRST_ACTOR
