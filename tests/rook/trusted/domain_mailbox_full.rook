@@ -1,0 +1,81 @@
+// The mailboxes of a domain's actors are in the domain (decision 203), so a flood can overflow two places: the ring Raven writes
+// (32 records) and the actor's mailbox (16 messages). A message that does not fit is dropped and counted, wherever it was dropped, and
+// a system that has dropped them still settles (`run_until_idle` returns).
+// Worked out: three Idle actors fill cores 1 to 3, so the Counter is on core 0, whose pool this test reads. 100 `add(1)` are sent to an actor in a domain. Each one is handled, or dropped by Raven because the ring was full
+// (`dropped_messages()`), or dropped in the domain because the mailbox was full (the domain's own count, RT_S_LOST, which this test
+// reads from the pool). The three add up to 100 (print 1), some did not fit somewhere (1), at least one was handled (1), and the system settled with nothing unfinished (0).
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 0
+
+import actors: dropped_messages, run_until_idle
+import assembly: domain_pool_base_of
+import domain_runtime: RT_STATE, RT_S_LOST
+import mailbox: unfinished_messages
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Idle {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+}
+
+separate actor Counter {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on add(k: u64) {
+        .total += k
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    i1: Idle = spawn Idle()
+    i2: Idle = spawn Idle()
+    i3: Idle = spawn Idle()
+    c: Counter = spawn Counter()
+    before: u64 = dropped_messages()
+    sending: loop i: u64 in 0..100 {
+        c.add(1)
+    }
+    run_until_idle()
+    unsafe {
+        who: u64 = actor_address(c)
+        pool: u64 = domain_pool_base_of(0, load64(who - 1264 + 104) and 0xf)
+        handled: u64 = load64(who)
+        lost: u64 = load64(pool + RT_STATE + RT_S_LOST)
+        if handled + lost + (dropped_messages() - before) == 100 {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+        if lost + (dropped_messages() - before) > 0 {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+        if handled > 0 {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    print_u64(unfinished_messages())
+}
