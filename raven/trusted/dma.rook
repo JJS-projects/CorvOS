@@ -9,18 +9,25 @@
 import assembly: cache_flush_range, domain_pool_base_of
 import devices: Mmio
 import hardware: counter_frequency, read_counter
-import mailbox: core_of_actor, domain_of
+import mailbox: core_of_actor, domain_of, is_current
 
 DMA_DATA_START: u64 = 0x11000       // the first byte of a pool a device may touch: after the guard page, the stack (0x1000 to
                                     // 0x10000) and the control page (0x10000 to 0x11000, the actor's header and mailbox,
                                     // which only Raven reaches); it is where the actor's fields begin
 DMA_POOL_BYTES: u64 = 0x200000      // a pool is 2 MB
+DMA_ADDRESS_MASK: u64 = 0xFFFFFFFF  // the address in a reference (decision 197)
 
 /// The physical address of the `length` bytes at `offset` in the pool of the actor `dw_owner` (a `separate` actor, the
-/// driver the transfer is for), or 0 if they are not wholly inside the part of the pool a device may use. A plain actor
-/// (not in a domain) has no pool: 0. A length of 0 is refused too: a transfer of nothing is a driver bug, not a request.
+/// driver the transfer is for, as a whole reference: `actor_reference`), or 0 if they are not wholly inside the part of the
+/// pool a device may use. A plain actor (not in a domain) has no pool: 0. A length of 0 is refused too: a transfer of nothing
+/// is a driver bug, not a request. If the driver has ended the answer is 0 whatever is in its pool now: the domain may have
+/// been given to another actor (decision 197), and a service made for the old driver is not the authority of the new one
+/// (decision 199).
 pub fn dma_window(dw_owner: u64, dw_offset: u64, dw_length: u64) -> u64 {
-    dm_domain: u64 = domain_of(dw_owner)
+    if not is_current(dw_owner) {
+        return 0
+    }
+    dm_domain: u64 = domain_of(dw_owner and DMA_ADDRESS_MASK)
     if dm_domain == 0 {
         return 0
     }
@@ -28,7 +35,7 @@ pub fn dma_window(dw_owner: u64, dw_offset: u64, dw_length: u64) -> u64 {
         return 0                                    // (the last two cannot overflow: the offset is at most the pool's size)
     }
     unsafe {
-        return domain_pool_base_of(core_of_actor(dw_owner), dm_domain) + dw_offset
+        return domain_pool_base_of(core_of_actor(dw_owner and DMA_ADDRESS_MASK), dm_domain) + dw_offset
     }
 }
 
@@ -59,7 +66,8 @@ pub actor DmaService {
     enable: val Mmio
     channel_number: u64
 
-    /// `owner` is the address of the driver (a `separate` actor); `channel` the registers of one DMA channel and `enable`
+    /// `owner` is the whole reference to the driver (a `separate` actor; `actor_reference`: the service stops being its
+    /// authority when the driver ends); `channel` the registers of one DMA channel and `enable`
     /// those of the controller's enable register (0x3F007F00 for 0x100 bytes), both parts of the peripherals.
     new(owner: u64, channel: val Mmio, enable: val Mmio, channel_number: u64) {
         .owner = owner

@@ -58,7 +58,7 @@ separate actor Driver: DmaDone {
 
 fn address_of(driver: Driver) -> u64 {
     unsafe {
-        return actor_address(driver)
+        return actor_reference(driver)
     }
 }
 
