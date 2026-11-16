@@ -1,0 +1,37 @@
+// `stop(d)` closes the domain at once (decision 202): between the call and the end of its last actor nothing can be placed in it.
+// Worked out: a is in d, and a plain Placer holds a copy of d. test_main calls stop(d) and then asks the Placer to put an actor in d. The
+// Placer handles that before the ends of the actors (which travel to the domain's core and back) can be done, so it is the closed state, not
+// the domain being given back, that refuses it: a failure of the Placer ("that domain has ended"). Had the domain stayed open, the
+// actor would be placed in a domain that is being ended, and there would be no failure.
+// expect-failure: that domain has ended at mailbox.rook:*
+
+import actors: Domain, new_domain, run_until_idle
+
+actor Placer {
+    d: val Domain
+
+    new(d: val Domain) {
+        .d = d
+    }
+
+    pub lossy on place() {
+        w: Worker = spawn Worker(2) in .d
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+}
+
+fn test_main() {
+    d: Domain = new_domain()
+    a: Worker = spawn Worker(1) in d
+    placer: Placer = spawn Placer(copy(d))
+    stop(d)
+    placer.place()
+    run_until_idle()
+}
