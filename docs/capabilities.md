@@ -20,6 +20,14 @@ a language feature) between them. The shell holds only a `ByteSink` narrowed fro
 owner also holds the `Revoke` side. After the owner revokes, the shell speaks again and
 nothing more reaches the UART.
 
+A **quota** is the same kind of thing (decision 198): `Metered` (`raven/meter.rook`) forwards bytes
+while a budget lasts (a token bucket on the clock) and drops the rest, so a holder of only its
+`ByteSink` side can send no more than the budget, however fast it sends, and cannot raise it
+(`rook/meter_flood`: 1000 sent, 5 through; `rook/meter_refill`: the budget fills up again with
+time, never past its capacity). The limit is in the reference it was given, so the holder needs
+no identity. It cannot be in the reference *word*: a reference is a value that is copied, so
+credits in it would be copied too.
+
 ## What "untrusted" means here
 
 A file outside a trusted directory (`raven/trusted/`, `tests/rook/support/trusted/`,
@@ -97,7 +105,8 @@ test for this is `rook/watch_basic`; the compile-time limits are the `error/watc
 - **Denial of service.** A runaway or panicking actor is restarted, not halted (decisions 133,
   148), but it can crash again at once, so one that crash-loops keeps Raven busy and fills the
   console with reports until a supervisor stops it (milestone 7, in progress). Flooding a
-  mailbox is bounded but not prevented.
+  mailbox is bounded but not prevented; a quota can be put in the capability that is handed out
+  (`Metered`, decision 198), for a `lossy` interface of bytes.
 - **Covert and timing channels.** Not claimed.
 - **Hardware untested.** All of this ran on QEMU. Nothing here was tried on a Pi Zero 2 W.
 

@@ -338,8 +338,10 @@ How failure and ending look to other actors (decisions 117 to 120):
 - **Mailbox sizes and fairness**: bounded mailboxes and what a full one means are
   settled (decision 112). Still open: how big a mailbox is, whether an actor can ask
   for a different size, whether one sender can fill a mailbox so that every other
-  sender gets `MailboxFull` (per-sender quotas), and whether a receiver is told how
-  many messages it lost.
+  sender gets `MailboxFull` (a quota in the capability handed to a sender, as a `Metered`
+  proxy for bytes, decision 198, bounds what that sender can send; a fair share of one
+  mailbox between senders is still open), and whether a receiver is told how many messages
+  it lost.
 - **Scheduling policy details** (the start is settled, section 6.4): the value of the
   handler time budget, whether it can differ per actor, whether interrupt-driven
   drivers need priority over others, whether a busy actor should drain its whole
