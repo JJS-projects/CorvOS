@@ -1158,6 +1158,16 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   A generic struct with private fields cannot be built outside its file (it has no way to be built from
   there yet: how a library `List<T>` is made is the next question).
 
+### 11.19b Domains: `new_domain()`, `spawn ... in d`, `stop(d)` (9b, decisions 201 and 202)
+
+- `d: Domain = new_domain()` (`import actors: Domain, new_domain`) is an empty domain; `a: Worker = spawn Worker(1) in d` puts a `separate`
+  actor in it, and `stop(d)` ends every actor in it. Actors in one domain share a core and a pool and fail and restart together; an actor
+  placed without `in` has a domain of its own, as before.
+- A `Domain` is the right to place actors in that domain, and nothing else gives it: a reference to an actor in it is only the right to send.
+  It can be copied (`copy(d)`) and given to a `new` as a `val`. A domain holds at most 8 actors in its life, and once its last actor has
+  ended or `stop(d)` has been called, its `Domain` is stale: `spawn ... in` it is a failure.
+- An actor in a domain cannot reach the UART, so it prints through a plain actor, as every `separate` actor does.
+
 ### 11.19a Generic interfaces and actors (8f, decision 200)
 
 - **Declaring and writing.** `interface Sink<T> { lossy on put(item: T) }` and `actor Limit<T>: Sink<T> { ... }`; a use

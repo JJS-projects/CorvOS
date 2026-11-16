@@ -164,6 +164,7 @@ start:
     sub x3, x29, #16
     mov x4, #0
     mov x5, #0
+    mov x6, #0
     bl raven_spawn_separate
     str x0, [x29, #-32]
 .Lret_start_10:

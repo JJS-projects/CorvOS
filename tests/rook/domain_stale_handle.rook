@@ -1,0 +1,83 @@
+// The handle of a domain that has been given back is stale, and so is a reference to an actor that lived in it, also after the
+// domain is given to another tenant at the same address (decisions 197 and 201).
+// Worked out: Raven puts domains on the cores 1, 2, 3, 0, 1, ...: e is the first (core 1); a is placed in it. The Placer holds a copy
+// of e. a is stopped, and e is given back (its last actor has ended). Three more domains take the other cores' turns and the fifth,
+// x5 on core 1 again, takes e's slot: its first actor w2 is at the very address a was (print 1). The reference a had is stale
+// (a reliable send to it is Gone: 9), and w2 is not reached by it; w2 itself is Delivered (0) and says 2. The Placer, which holds
+// the old handle, tries to place an actor in e: a failure, since the domain it names is not the one that is there now.
+// expect: 1
+// expect: 9
+// expect: 0
+// expect: 2
+// expect-failure: that domain has ended at mailbox.rook:*
+
+import actors: Domain, Sent, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Placer {
+    d: val Domain
+    printer: Printer
+
+    new(d: val Domain, printer: Printer) {
+        .d = d
+        .printer = printer
+    }
+
+    pub lossy on place() {
+        w: Worker = spawn Worker(9, .printer) in .d
+    }
+}
+
+separate actor Worker {
+    n: u64
+    printer: Printer
+
+    new(n: u64, printer: Printer) {
+        .n = n
+        .printer = printer
+    }
+
+    pub reliable on ping() {
+        .printer.show(.n)
+    }
+}
+
+fn answer(result: Sent) {
+    match result {
+        Delivered => print_u64(0)
+        MailboxFull => print_u64(8)
+        Gone => print_u64(9)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    e: Domain = new_domain()
+    a: Worker = spawn Worker(1, printer) in e
+    placer: Placer = spawn Placer(copy(e), printer)
+    stop(a)
+    run_until_idle()
+    x2: Domain = new_domain()
+    x3: Domain = new_domain()
+    x4: Domain = new_domain()
+    x5: Domain = new_domain()
+    w2: Worker = spawn Worker(2, printer) in x5
+    unsafe {
+        if actor_address(a) == actor_address(w2) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    answer(a.ping())
+    answer(w2.ping())
+    run_until_idle()
+    placer.place()
+    run_until_idle()
+}
