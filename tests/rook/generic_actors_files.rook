@@ -1,0 +1,54 @@
+// A generic interface and actor in a library file, used from another (decision 200): `stream: ItemSink, Quota` brings the two
+// generics, and the copies `ItemSink<u64>` and `Quota<u64>` are made for this program.
+// Worked out: a Quota<u64> of 2 passes the first 2 of 5 numbers to the Tally (the fixed budget: one more an hour), so the
+// Tally has 2 items and 10 + 20 = 30; the owner is told once that the budget is out. Prints 2, 30 and 1.
+// expect: 2
+// expect: 30
+// expect: 1
+
+import actors: run_until_idle
+import hardware: counter_frequency
+import meter: Overdrawn
+import print: print_u64
+import stream: Quota, ItemSink
+
+actor Tally: ItemSink<u64>, Overdrawn {
+    mut items: u64
+    mut sum: u64
+    mut told: u64
+
+    new() {
+        .items = 0
+        .sum = 0
+        .told = 0
+    }
+
+    lossy on put(item: u64) {
+        .items += 1
+        .sum += item
+    }
+
+    lossy on overdrawn() {
+        .told += 1
+    }
+
+    pub lossy on show() {
+        print_u64(.items)
+        print_u64(.sum)
+        print_u64(.told)
+    }
+}
+
+fn test_main() {
+    tally: Tally = spawn Tally()
+    quota: Quota<u64> = spawn Quota<u64>(narrow(tally, ItemSink<u64>), narrow(tally, Overdrawn), 2, 3600 * counter_frequency())
+    guest: ItemSink<u64> = narrow(quota, ItemSink<u64>)
+    guest.put(10)
+    guest.put(20)
+    guest.put(30)
+    guest.put(40)
+    guest.put(50)
+    run_until_idle()
+    tally.show()
+    run_until_idle()
+}

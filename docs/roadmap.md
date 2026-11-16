@@ -173,7 +173,7 @@ no sender identity needed). (3) Timers as messages (a `Timer` capability). Outsi
 **S, should have.** Raven schedules domains and the actor runtime moves into each domain (after the handle tables); real
 revocation through the handle table; model-checking the protocols between cores ([protocols.md](protocols.md), done as a
 start); deterministic multicore scheduling in QEMU (`ICOUNT`, done); fault injection in the test harness (done: `inject_failures`);
-a watchdog actor (after timers); bounce-buffer DMA; generics over actors.
+a watchdog actor (after timers); bounce-buffer DMA; generics over actors (generic interfaces and actors done in 8f, decision 200).
 
 **C, could have.** Zero-copy `val` and `iso`; page-granular ownership; CPU time as a capability; typestate or session types;
 effect annotations; declarative supervision trees; checkpoint and restore; message priorities; copy-on-write snapshots;

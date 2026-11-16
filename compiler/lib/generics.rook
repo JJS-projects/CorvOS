@@ -121,10 +121,18 @@ pub struct Generics {
 
     fn is_template(item: u64) -> bool {
         node: Node = .nodes.get(item)
-        if not (node.kind.same_as("Struct") or node.kind.same_as("Enum")) {
-            return false
+        if node.kind.same_as("Struct") or node.kind.same_as("Enum") {
+            return .nodes.get(node.kids.get(0)).text.len() > 0
         }
-        return .nodes.get(node.kids.get(0)).text.len() > 0
+        if node.kind.same_as("Actor") or node.kind.same_as("Interface") {
+            // only a generic has a `TypeParams` child (the first)
+            if node.kids.len() == 0 {
+                return false
+            }
+            first: Node = .nodes.get(node.kids.get(0))
+            return first.kind.same_as("TypeParams") and first.text.len() > 0
+        }
+        return false
     }
 
     mut fn set_kids(n: u64, kids: List<u64>) {
@@ -195,6 +203,14 @@ pub struct Generics {
         params_node.text = .empty()
         .nodes.set(params_at, params_node)
         .substitute(copied, names, args, context)
+        if node.kind.same_as("Actor") or node.kind.same_as("Interface") {
+            // an actor's or interface's copy has no `TypeParams` child, as a plain one has none (decision 200)
+            mut rest: List<u64> = List(region: .region)
+            dropping: loop k: u64 in 1..(node.kids.len()) {
+                rest.push(node.kids.get(k))
+            }
+            .set_kids(copied, rest)
+        }
         .instances.put(key, copied)
         mut root_node: Node = .nodes.get(.root)
         root_node.kids.push(copied)
@@ -202,29 +218,28 @@ pub struct Generics {
         .pending.push(copied)
     }
 
-    /// Turns the type reference `n` and the references in its arguments into plain references to copies.
-    mut fn visit_type(n: u64, context: u64) {
-        node: Node = .nodes.get(n)
-        name: Text = .last_word(node.text)
-        arguments: loop k: u64 in 0..(node.kids.len()) {
-            .rewrite(node.kids.get(k), context)
+    /// The name of the copy of the generic `name` made for the arguments `args` (the copy is made if it is new), or empty if
+    /// `name` is not generic. `n` is the node an error points at. The arguments are rewritten first: they may be generic too.
+    mut fn instance_key(n: u64, name: Text, args: List<u64>, context: u64) -> Text {
+        arguments: loop k: u64 in 0..(args.len()) {
+            .rewrite(args.get(k), context)
         }
         if .failed {
-            return
+            return .empty()
         }
         decl: u64 = .template(name)
         if decl == 0 {
-            if node.kids.len() > 0 {
+            if args.len() > 0 {
                 if .begin(n) {
                     .error.push('`')
                     .error.append_text(name)
                     .error.append("` is not generic, so it takes no type arguments")
                 }
             }
-            return
+            return .empty()
         }
         params: List<Text> = .words(.nodes.get(.nodes.get(decl).kids.get(0)).text)
-        if node.kids.len() == 0 {
+        if args.len() == 0 {
             if .begin(n) {
                 .error.push('`')
                 .error.append_text(name)
@@ -239,37 +254,95 @@ pub struct Generics {
                 }
                 .error.append(">` with the types")
             }
-            return
+            return .empty()
         }
-        if node.kids.len() != params.len() {
+        if args.len() != params.len() {
             if .begin(n) {
                 .error.push('`')
                 .error.append_text(name)
                 .error.append("` takes ")
                 .error.append_dec(params.len())
                 .error.append(" type argument(s), not ")
-                .error.append_dec(node.kids.len())
+                .error.append_dec(args.len())
             }
-            return
+            return .empty()
         }
         mut key: Text = .empty()
         key.append_text(name)
         key.push('<')
-        naming: loop k: u64 in 0..(node.kids.len()) {
+        naming: loop k: u64 in 0..(args.len()) {
             if k > 0 {
                 key.push(',')
             }
-            key.append_text(.last_word(.nodes.get(node.kids.get(k)).text))
+            key.append_text(.last_word(.nodes.get(args.get(k)).text))
         }
         key.push('>')
         if not .instances.contains(key) {
-            .make_instance(key, decl, node.kids, context)
+            .make_instance(key, decl, args, context)
+        }
+        return key
+    }
+
+    /// Turns the type reference `n` and the references in its arguments into plain references to copies.
+    mut fn visit_type(n: u64, context: u64) {
+        node: Node = .nodes.get(n)
+        name: Text = .last_word(node.text)
+        key: Text = .instance_key(n, name, node.kids, context)
+        if .failed or key.len() == 0 {
+            return
         }
         mut renamed: Node = .nodes.get(n)
         renamed.text = .with_name(renamed.text, key)
         renamed.visible_in = context
         empty_kids: List<u64> = List(region: .region)
         renamed.kids = copy(empty_kids)
+        .nodes.set(n, renamed)
+    }
+
+    /// `spawn Name<A, B>(...)`: the copy's name replaces `Name`, and the type arguments (the first child, if any) go.
+    mut fn visit_spawn(n: u64, context: u64) {
+        node: Node = .nodes.get(n)
+        mut has_args: bool = false
+        mut args: List<u64> = List(region: .region)
+        if node.kids.len() > 0 {
+            if .nodes.get(node.kids.get(0)).kind.same_as("TypeArgs") {
+                has_args = true
+                args = copy(.nodes.get(node.kids.get(0)).kids)
+            }
+        }
+        key: Text = .instance_key(n, copy(node.text), args, context)
+        if .failed or key.len() == 0 {
+            return
+        }
+        mut renamed: Node = .nodes.get(n)
+        renamed.text = copy(key)
+        mut rest: List<u64> = List(region: .region)
+        keeping: loop k: u64 in (if has_args { 1 } else { 0 })..(node.kids.len()) {
+            rest.push(node.kids.get(k))
+        }
+        renamed.kids = copy(rest)
+        .nodes.set(n, renamed)
+    }
+
+    /// `narrow(x, Name<A>)`: the copy's name replaces the interface's, in the call and in its `Interface` child.
+    mut fn visit_narrow(n: u64, context: u64) {
+        node: Node = .nodes.get(n)
+        if node.kids.len() < 2 {
+            return
+        }
+        at: u64 = node.kids.get(1)
+        iface: Node = .nodes.get(at)
+        key: Text = .instance_key(at, copy(iface.text), iface.kids, context)
+        if .failed or key.len() == 0 {
+            return
+        }
+        mut renamed_iface: Node = .nodes.get(at)
+        renamed_iface.text = copy(key)
+        empty_kids: List<u64> = List(region: .region)
+        renamed_iface.kids = copy(empty_kids)
+        .nodes.set(at, renamed_iface)
+        mut renamed: Node = .nodes.get(n)
+        renamed.text = copy(key)
         .nodes.set(n, renamed)
     }
 
@@ -280,6 +353,14 @@ pub struct Generics {
         }
         if .nodes.get(n).kind.same_as("Type") {
             .visit_type(n, context)
+        } else if .nodes.get(n).kind.same_as("Spawn") {
+            .visit_spawn(n, context)
+        } else if .nodes.get(n).kind.same_as("Narrow") {
+            .visit_narrow(n, context)
+        } else if .nodes.get(n).kind.same_as("Implements") {
+            listing: loop k: u64 in 0..(.nodes.get(n).kids.len()) {
+                .visit_type(.nodes.get(n).kids.get(k), context)     // each `Interface` child names an interface, with arguments
+            }
         }
         node: Node = .nodes.get(n)
         visiting: loop k: u64 in 0..(node.kids.len()) {

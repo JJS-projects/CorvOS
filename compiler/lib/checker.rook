@@ -1473,7 +1473,7 @@ pub struct Checker {
                 }
                 return
             }
-            .require_visible(.types.get(iface).decl, .types.get(iface).name, at, 0)
+            .require_visible(.types.get(iface).decl, .types.get(iface).name, at, .nodes.get(at).visible_in)
             if .failed {
                 return
             }
@@ -1634,8 +1634,10 @@ pub struct Checker {
             item: u64 = items.get(k)
             if .kind_is(item, "Actor") {
                 name: Text = .name_of(item)
-                .require_camel(name, "actor", item)
-                .declare_unique(name, item)
+                if .nodes.get(item).generic_base.len() == 0 {     // (a copy of a generic has its template's name checked)
+                    .require_camel(name, "actor", item)
+                    .declare_unique(name, item)
+                }
                 if .failed {
                     return
                 }
@@ -1646,8 +1648,10 @@ pub struct Checker {
                 .set_note(item, CHK_NOTE_TYPE, id)
             } else if .kind_is(item, "Interface") {
                 name: Text = .name_of(item)
-                .require_camel(name, "interface", item)
-                .declare_unique(name, item)
+                if .nodes.get(item).generic_base.len() == 0 {
+                    .require_camel(name, "interface", item)
+                    .declare_unique(name, item)
+                }
                 if .failed {
                     return
                 }

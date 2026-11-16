@@ -1,0 +1,16 @@
+// A copy of a generic actor must have the handlers of its interface.
+// alone
+// error: 9:17: `Wrong<u8>` implements `Sink<u8>`, so it needs a handler `put`
+
+interface Sink<T> {
+    lossy on put(item: T)
+}
+
+actor Wrong<T>: Sink<T> {
+    new() {
+    }
+}
+
+fn make() {
+    w: Wrong<u8> = spawn Wrong<u8>()
+}

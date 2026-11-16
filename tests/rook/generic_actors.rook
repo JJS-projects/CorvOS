@@ -1,0 +1,84 @@
+// Generic interfaces and actors (decision 200): `Sink<T>` and `Limit<T>` are written once, and each type argument makes a copy
+// that is checked and compiled like any actor, as `Option<T>` is for a struct.
+// Worked out: `Limit<T>` passes on at most `credits` items. Total is a `Sink<u64>`: Limit<u64> with 3 credits is sent 10, 20, 30,
+// 40 and 50, so Total adds 10 + 20 + 30 = 60 (prints 60). Count is a `Sink<u8>`: Limit<u8> with 1 credit is sent 7 and 8, so
+// Count has 1 item (prints 1). Two copies of the one `Limit` are in the program, with the same handler name `put`, whose
+// parameter is a u64 in one and a u8 in the other.
+// expect: 60
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Sink<T> {
+    lossy on put(item: T)
+}
+
+actor Total: Sink<u64> {
+    mut sum: u64
+
+    new() {
+        .sum = 0
+    }
+
+    lossy on put(item: u64) {
+        .sum += item
+    }
+
+    pub lossy on show() {
+        print_u64(.sum)
+    }
+}
+
+actor Count: Sink<u8> {
+    mut items: u64
+
+    new() {
+        .items = 0
+    }
+
+    lossy on put(item: u8) {
+        .items += 1
+    }
+
+    pub lossy on show() {
+        print_u64(.items)
+    }
+}
+
+actor Limit<T>: Sink<T> {
+    target: Sink<T>
+    mut credits: u64
+
+    new(target: Sink<T>, credits: u64) {
+        .target = target
+        .credits = credits
+    }
+
+    lossy on put(item: T) {
+        if .credits > 0 {
+            .credits -= 1
+            .target.put(item)
+        }
+    }
+}
+
+fn test_main() {
+    total: Total = spawn Total()
+    count: Count = spawn Count()
+    wide: Limit<u64> = spawn Limit<u64>(narrow(total, Sink<u64>), 3)
+    narrow_one: Limit<u8> = spawn Limit<u8>(narrow(count, Sink<u8>), 1)
+    to_wide: Sink<u64> = narrow(wide, Sink<u64>)
+    to_wide.put(10)
+    to_wide.put(20)
+    to_wide.put(30)
+    to_wide.put(40)
+    to_wide.put(50)
+    to_narrow: Sink<u8> = narrow(narrow_one, Sink<u8>)
+    to_narrow.put(7)
+    to_narrow.put(8)
+    run_until_idle()
+    total.show()
+    count.show()
+    run_until_idle()
+}

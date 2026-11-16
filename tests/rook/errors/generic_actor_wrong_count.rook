@@ -1,0 +1,22 @@
+// A generic actor takes as many type arguments as it declares.
+// alone
+// error: 21:16: `Limit` takes 1 type argument(s), not 2
+
+interface Sink<T> {
+    lossy on put(item: T)
+}
+
+actor Limit<T>: Sink<T> {
+    target: Sink<T>
+
+    new(target: Sink<T>) {
+        .target = target
+    }
+
+    lossy on put(item: T) {
+        .target.put(item)
+    }
+}
+
+fn make(boxed: Limit<u8, u8>) {
+}

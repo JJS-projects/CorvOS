@@ -142,7 +142,7 @@ class Gen:
         """`Name__Start(self, unused, args)` (capital S: a handler is snake_case, so it can never have this name): Raven calls this to run `new` on the arguments
         it kept at the spawn, the first time and on every restart. Numbers and references
         are loaded from their words, structs and enums passed as the address of theirs."""
-        symbol = f"{actor.name}__Start"
+        symbol = f"{S.asm_name(actor.name)}__Start"
         self.lines.append("")
         self.lines.append(f"// start stub for actor {actor.name} (line {actor.pos.line})")
         self.emit(f".global {symbol}")
@@ -169,7 +169,7 @@ class Gen:
         the arguments from x1: a number or reference is loaded from its payload word,
         a struct or enum is passed as the address of its words in the payload (as a
         lent struct is)."""
-        symbol = f"{actor.name}__Dispatch"
+        symbol = f"{S.asm_name(actor.name)}__Dispatch"
         self.lines.append("")
         self.lines.append(f"// dispatcher for actor {actor.name} (line {actor.pos.line})")
         self.emit(f".global {symbol}")
@@ -759,8 +759,8 @@ class Gen:
                 self.emit("str x0, [x1]")
             at += n
         self.emit(f"mov x0, #{e.actor.words}")
-        self.emit(f"adr x1, {e.actor.name}__Dispatch")
-        self.emit(f"adr x2, {e.actor.name}__Start")
+        self.emit(f"adr x1, {S.asm_name(e.actor.name)}__Dispatch")
+        self.emit(f"adr x2, {S.asm_name(e.actor.name)}__Start")
         self.region_addr(e.args_slot, e.args_words, "x3")
         self.emit(f"mov x4, #{e.args_words}")
         # an actor in a domain of its own is made by a different call (decision 175)

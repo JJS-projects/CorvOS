@@ -241,12 +241,14 @@ class Checker:
                             vd.name, tag, en, vd.pos)
         for item in prog.items:
             if isinstance(item, S.ActorDecl):
-                require_camel(item.name, "actor", item.pos)
-                self.declare_unique(item.name, item.pos)
+                if item.generic_base is None:           # (an instance of a generic has its template's name checked)
+                    require_camel(item.name, "actor", item.pos)
+                    self.declare_unique(item.name, item.pos)
                 self.actors[item.name] = item.ty = ActorType(item.name, item)
             elif isinstance(item, S.InterfaceDecl):
-                require_camel(item.name, "interface", item.pos)
-                self.declare_unique(item.name, item.pos)
+                if item.generic_base is None:
+                    require_camel(item.name, "interface", item.pos)
+                    self.declare_unique(item.name, item.pos)
                 self.interfaces[item.name] = item.ty = InterfaceType(item.name, item)
         for st in self.structs.values():
             self.enter_file(st.decl)
@@ -414,13 +416,14 @@ class Checker:
     def implements(self, actor):
         """`actor Name: Interface` promises every handler of the interface, with the
         same modifier and parameter types."""
-        for name, pos in actor.decl.implements:
+        for ref in actor.decl.implements:
+            name, pos = ref.name, ref.pos
             iface = self.interfaces.get(name)
             if iface is None:
                 if name in self.actors or name in self.structs or name in self.enums:
                     raise CompileError(f"`{name}` is not an interface", pos)
                 raise CompileError(f"unknown interface `{name}`", pos)
-            self.require_visible(iface.decl, iface.name, pos)
+            self.require_visible(iface.decl, iface.name, pos, ref.visible_in)
             if iface in actor.implements:
                 raise CompileError(f"`{actor.name}` already implements `{name}`", pos)
             for hname, want in iface.methods.items():
