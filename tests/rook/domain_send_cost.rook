@@ -1,0 +1,98 @@
+// What a send costs inside a domain and across domains (decision 204), measured with the ARM generic timer as `send_cost` does: 64
+// rounds of 16 messages. A Relay in one domain is told to send 16 messages to a Sink in the same domain (the fast path: no call to
+// Raven), or to a Sink in another domain (a call to Raven for each, and a record in a ring to another core); each round runs until idle.
+// The numbers go to the console as "Raven: ..." lines in the test log; on QEMU they are the host's time, not the Pi's, so the test
+// checks only that every message arrived and the timer moved, never what the numbers are.
+// Worked out: each Sink handled 64 * 16 = 1024 messages (print 1024 twice), and the timer moved (true, true).
+// expect: 1024
+// expect: 1024
+// expect: true
+// expect: true
+
+import actors: Domain, new_domain, run_until_idle
+import bytes: Bytes
+import devices: Mmio
+import hardware: counter_frequency, read_counter
+import pl011: Pl011
+import print: print_bool, print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Sink {
+    mut seen: u64
+
+    new() {
+        .seen = 0
+    }
+
+    pub lossy on take(k: u64) {
+        .seen += 1
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.seen)
+    }
+}
+
+separate actor Relay {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on blast(to: Sink, count: u64) {
+        sending: loop i: u64 in 0..count {
+            to.take(i)
+        }
+    }
+}
+
+ROUNDS: u64 = 64
+BATCH: u64 = 16
+
+fn show(console: Pl011, what: Bytes, sent: u64, ticks: u64) {
+    console.write("Raven: ")
+    console.write(what)
+    console.write(": ")
+    console.write_dec(sent)
+    console.write(" sends, ")
+    console.write_dec(ticks)
+    console.write(" timer ticks to send and deliver them, timer at ")
+    console.write_dec(counter_frequency())
+    console.write(" Hz\n")
+}
+
+fn test_main(peripherals: Mmio) {
+    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    printer: Printer = spawn Printer()
+    d1: Domain = new_domain()
+    d2: Domain = new_domain()
+    relay: Relay = spawn Relay(0) in d1
+    inside: Sink = spawn Sink() in d1
+    across: Sink = spawn Sink() in d2
+
+    mut inside_ticks: u64 = 0
+    mut across_ticks: u64 = 0
+    rounds: loop r: u64 in 0..ROUNDS {
+        mut started: u64 = read_counter()
+        relay.blast(inside, BATCH)
+        run_until_idle()
+        inside_ticks += read_counter() - started
+        started = read_counter()
+        relay.blast(across, BATCH)
+        run_until_idle()
+        across_ticks += read_counter() - started
+    }
+    show(console, "sends inside a domain (fast path)", ROUNDS * BATCH, inside_ticks)
+    show(console, "sends to another domain (through Raven)", ROUNDS * BATCH, across_ticks)
+    inside.report(printer)
+    across.report(printer)
+    run_until_idle()
+    print_bool(inside_ticks > 0)
+    print_bool(across_ticks > 0)
+}

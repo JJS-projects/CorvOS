@@ -1,0 +1,89 @@
+// A send from an actor of a domain to another actor of the same domain does not go to Raven (decision 204): it is put in the target's
+// mailbox in the domain, by the stub the sender calls, and the domain's runtime runs it. A `reliable` sender is told the mailbox is
+// full, which it could not be before (decision 203's limit); a send to an actor of another domain still goes to Raven.
+// Worked out: three Idle actors fill cores 1 to 3, so the Pinger and the Sink (placed in one domain) are on core 0, a domain whose pool this
+// test reads. The Pinger is told `go(sink, 40)`: its handler sends `add(1)` to the Sink 40 times (lossy: the mailbox holds 16, so 16 are
+// kept, 24 dropped in the domain), then 20 reliable `firm(1)`: the first 0 fit (the mailbox is full), so all 20 are told MailboxFull.
+// The Sink handles the 16 kept. Printed: how many sends the fast path delivered (16: the kept ones), the Sink's total (16), how many
+// reliable sends were told full (20), the domain's count of losses (24), and that the system settled (0 unfinished).
+// expect: 16
+// expect: 16
+// expect: 20
+// expect: 24
+// expect: 0
+
+import actors: Domain, Sent, new_domain, run_until_idle
+import assembly: domain_pool_base_of
+import domain_runtime: RT_STATE, RT_S_FAST, RT_S_LOST
+import mailbox: unfinished_messages
+import print: print_u64
+
+separate actor Idle {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+}
+
+separate actor Sink {
+    mut total: u64
+    mut told_full: u64
+
+    new() {
+        .total = 0
+        .told_full = 0
+    }
+
+    pub lossy on add(k: u64) {
+        .total += k
+    }
+
+    pub reliable on firm(k: u64) {
+        .total += k
+    }
+}
+
+fn is_full(result: Sent) -> u64 {
+    match result {
+        Delivered => return 0
+        MailboxFull => return 1
+        Gone => return 0
+    }
+}
+
+separate actor Pinger {
+    mut told_full: u64
+
+    new() {
+        .told_full = 0
+    }
+
+    pub lossy on go(to: Sink, n: u64) {
+        sending: loop i: u64 in 0..n {
+            to.add(1)
+        }
+        firm: loop j: u64 in 0..20 {
+            .told_full += is_full(to.firm(1))
+        }
+    }
+}
+
+fn test_main() {
+    i1: Idle = spawn Idle()
+    i2: Idle = spawn Idle()
+    i3: Idle = spawn Idle()
+    d: Domain = new_domain()
+    sink: Sink = spawn Sink() in d
+    pinger: Pinger = spawn Pinger() in d
+    pinger.go(sink, 40)
+    run_until_idle()
+    unsafe {
+        pool: u64 = domain_pool_base_of(0, load64(actor_address(pinger) - 1264 + 104) and 0xf)
+        print_u64(load64(pool + RT_STATE + RT_S_FAST))
+        print_u64(load64(actor_address(sink)))
+        print_u64(load64(actor_address(pinger)))
+        print_u64(load64(pool + RT_STATE + RT_S_LOST))
+    }
+    print_u64(unfinished_messages())
+}

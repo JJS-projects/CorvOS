@@ -15,7 +15,7 @@
 
 import actors: Sent
 import assembly: domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
-import domain_runtime: RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
+import domain_runtime: RT_S_GEN, RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -514,6 +514,7 @@ RING_QUEUED: u64 = 16               // 1 if the domain is in this core's run que
 RING_DONE: u64 = 24                 // how many of the messages put in the ring Raven has counted as finished
 RING_DEFER: u64 = 32                // 1 while a turn that failed is being restarted: the messages lost are counted as over when it is done
 RING_DEFERRED: u64 = 40             // how many are waiting to be counted
+RING_HOLD: u64 = 48                 // 1 while the domain has messages that Raven has not counted (those its actors sent each other, decision 204): one is in the count of unfinished messages for them all
 
 fn ring_state(rs_core: u64, rs_d: u64) -> u64 {
     unsafe {
@@ -642,6 +643,7 @@ fn runtime_register(rr_who: u64, rr_dispatcher: u64, rr_held: bool) {
         store64(rr_state + RT_S_ACTOR + rr_place * 8, rr_who)
         store64(rr_state + RT_S_DISPATCHER + rr_place * 8, rr_dispatcher)
         store64(rr_state + RT_S_ENDED + rr_place * 8, 0)
+        store64(rr_state + RT_S_GEN + rr_place * 8, generation_of(rr_who))
         store64(rr_state + RT_S_HELD + rr_place * 8, if rr_held { 1 } else { 0 })
         rr_block: u64 = rt_block(rr_pool, rr_place)
         store64(rr_block, 0)
@@ -725,6 +727,14 @@ fn runtime_discard(rd_core: u64, rd_d: u64) {
             rd_base: u64 = actor_arena_base()
             store64(rd_base + ACTOR_S_LOST, load64(rd_base + ACTOR_S_LOST) + (rd_produced - rd_done))
         }
+        if load64(rd_state + RING_HOLD) != 0 {
+            store64(rd_state + RING_HOLD, 0)
+            if load64(rd_state + RING_DEFER) != 0 {
+                store64(rd_state + RING_DEFERRED, load64(rd_state + RING_DEFERRED) + 1)
+            } else {
+                pending_sub(1)
+            }
+        }
         store64(rd_state + RING_PRODUCED, 0)
         store64(rd_state + RING_SEEN, 0)
         store64(rd_state + RING_DONE, 0)
@@ -744,6 +754,7 @@ fn runtime_rebuild(rb_core: u64, rb_d: u64) {
                 rb_header: u64 = rb_who - ACTOR_BEFORE_FIELDS
                 store64(rb_state + RT_S_ACTOR + rb_i * 8, rb_who)
                 store64(rb_state + RT_S_DISPATCHER + rb_i * 8, load64(rb_header + ACTOR_H_DISPATCHER))
+                store64(rb_state + RT_S_GEN + rb_i * 8, generation_of(rb_who))
                 store64(rb_state + RT_S_ENDED + rb_i * 8, if (load64(rb_header + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 { 1 } else { 0 })
             }
         }
@@ -817,8 +828,19 @@ fn run_domain_entry(re_d: u64) {
         }
         return
     }
+    unsafe {
+        if re_outcome == 1 and load64(re_state + RING_HOLD) == 0 {
+            // (the actors of the domain have messages for each other that no count knows of: the system is not idle until they are handled)
+            pending_add(1)
+            store64(re_state + RING_HOLD, 1)
+        }
+    }
     refresh_consumed(re_core, re_d)
     unsafe {
+        if re_outcome == 0 and load64(re_state + RING_HOLD) != 0 {
+            store64(re_state + RING_HOLD, 0)
+            pending_sub(1)
+        }
         if re_outcome == 1 or load64(re_state + RING_PRODUCED) > load64(re_state + RING_SEEN) {
             queue_domain(re_core, re_d)
         }
