@@ -21,6 +21,10 @@ where nothing can happen and the work is not finished. It finds the shortest cou
 | | the generation and the ENDED flag are written first and the wipe leaves them alone | verified | the order in `retire_domain` |
 | inflight: a record for the first tenant is in a ring while the domain gets a second | the record carries the address only | **invariant broken** (2 steps) | a send from a third core overtaking the end of the actor |
 | | the record carries the whole reference, and the core that takes it compares the generation | verified | `handle_record` |
+| inbound: Raven writes a record in a domain's inbound ring and the domain reads it | the write index is in the domain's memory | **invariant broken** (2 steps: Raven writes outside the ring) | the design of decision 201: a domain may write its own memory as it likes |
+| | the write index is in the control page (EL1 only) | verified | decision 201 |
+| restart_ring: a domain restarts with a record in its ring | the ring is kept and its read index is wiped | **invariant broken** (3 steps: the new runtime reads a record sent before the restart) | decision 201; an actor's mailbox is emptied by a restart for the same reason (decision 148) |
+| | the ring and both indices are set back at the restart | verified | decision 201 |
 | start: a message can overtake the record that starts its actor | the message is handled when it arrives | **invariant broken** (4 steps) | the first form of decision 181 (a handler ran on zeroed fields) |
 | | the actor is marked STARTING | verified | decision 181 |
 

@@ -303,6 +303,61 @@ def inflight(mode):
     return explore(("first", True, "first", None), step, finished, invariant)
 
 
+# ---- inbound: Raven writes a domain's inbound ring, and the domain reads it (decision 201) ----------------------------------
+
+def inbound(mode):
+    # state: (stage, produced, wrote_outside)
+    # Raven puts cross-domain messages into the ring of a domain that runs its own actors; the domain's runtime takes them out. Raven
+    # runs at EL1 and the domain at EL0, and the domain's memory is the domain's to write, any way it likes (it can fail and be wrong,
+    # not only be right). The ring has 2 slots. Where Raven writes the next record is computed from the producer index. If that index
+    # is kept in the domain's memory, a domain sets it to a number outside the ring and Raven writes where the domain says, which
+    # is Raven's own memory as well as the domain's. If it is kept in Raven's memory (the control page, which only EL1 reaches), the
+    # domain can only change what it reads, never where Raven writes.
+    SIZE = 2
+
+    def step(s):
+        stage, index, outside = s
+        if stage == "run":
+            if mode == "index_in_domain":
+                yield "the domain sets the producer index to a number outside the ring", ("run", SIZE + 5, outside)
+            # Raven writes the record at the slot the index names, then moves the index on (inside the ring, as it always does)
+            yield "Raven puts a message in the ring", ("run", (index + 1) % SIZE, outside or index >= SIZE)
+
+    def finished(s):
+        return s[0] == "run"
+
+    def invariant(s):
+        return not s[2]             # Raven wrote outside the ring
+
+    return explore(("run", 0, False), step, finished, invariant)
+
+
+def restart_ring(mode):
+    # state: (stage, pending_in_ring, seen_by_new_runtime)
+    # A domain restarts as a unit and its memory is wiped (decision 176), the ring's read index with it. A message that Raven had put in
+    # the ring before the restart is a message for the actor that no longer exists: the new runtime must not see it as if it were sent
+    # to it. If the ring is not emptied and its indices set back by the restart, the wiped read index is 0 again while Raven's
+    # write index is not, and the new runtime reads what is left of the old messages, as if they were new (the mailbox of an actor
+    # is emptied by a restart for the same reason, and what was in it counted as lost: decision 148).
+    def step(s):
+        stage, pending, seen = s
+        if stage == "before":
+            if pending < 2:
+                yield "Raven puts a message in the ring", ("before", pending + 1, seen)
+            yield "the domain fails and restarts", ("after", pending if mode == "keep" else 0, seen)
+        elif stage == "after":
+            if pending > 0:
+                yield "the new runtime takes a message out", ("after", pending - 1, seen + (1 if mode == "keep" else 0))
+
+    def finished(s):
+        return s[0] == "after" and s[1] == 0
+
+    def invariant(s):
+        return s[2] == 0            # the new runtime saw a message sent before the restart
+
+    return explore(("before", 0, 0), step, finished, invariant)
+
+
 EXPECTED = {
     ("flood", "unbounded"): "stuck",
     ("flood", "bounded"): "ok",
@@ -318,10 +373,14 @@ EXPECTED = {
     ("retire", "keep_header"): "ok",
     ("inflight", "plain"): "invariant",
     ("inflight", "checked"): "ok",
+    ("inbound", "index_in_domain"): "invariant",
+    ("inbound", "index_in_raven"): "ok",
+    ("restart_ring", "keep"): "invariant",
+    ("restart_ring", "reset"): "ok",
     ("start", "no_flag"): "invariant",
     ("start", "flag"): "ok",
 }
-SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight}
+SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight, "inbound": inbound, "restart_ring": restart_ring}
 
 
 def run_all():
