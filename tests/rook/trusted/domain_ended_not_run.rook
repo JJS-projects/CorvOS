@@ -1,6 +1,7 @@
 // An actor that has ended in a domain runs nothing (decision 203): the messages that were queued for it, in the ring and in its
 // mailbox, are over, not handled by an actor that is not there.
-// Worked out: a and b are in one domain. b is sent three `tick`s, and is stopped before the domain has run: none of them is
+// Worked out: three Idle actors take cores 1 to 3, so the domain is on core 0, where the sends and the stop are in order (on another core
+// the ticks and the stop travel in different rings and either may arrive first). a and b are in one domain. b is sent three `tick`s, and is stopped before the domain has run: none of them is
 // handled (no output). a is then sent one `tick`, and says 7. So the only output is 7.
 // expect: 7
 
@@ -10,6 +11,14 @@ import print: print_u64
 actor Printer {
     lossy on show(n: u64) {
         print_u64(n)
+    }
+}
+
+separate actor Idle {
+    mut unused: u64
+
+    new() {
+        .unused = 0
     }
 }
 
@@ -27,6 +36,9 @@ separate actor Ticker {
 
 fn test_main() {
     printer: Printer = spawn Printer()
+    i1: Idle = spawn Idle()
+    i2: Idle = spawn Idle()
+    i3: Idle = spawn Idle()
     d: Domain = new_domain()
     a: Ticker = spawn Ticker(7) in d
     b: Ticker = spawn Ticker(8) in d
