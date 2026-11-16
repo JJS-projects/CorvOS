@@ -199,6 +199,7 @@ scheduler.
   its whole mailbox before yielding, so the kernel is involved once per wake-up, not
   once per message. Scheduling still lives only in Raven, but the kernel no longer
   sees every message.
+- **Built (decision 204):** a send between two actors of one domain is put in the receiver's mailbox by the stub itself; Raven is not called (it is called only to enter the domain, which it does once for a turn, not once per message). The measurement is `tests/rook/domain_send_cost.rook`.
 - **Mailboxes are bounded** (decision 112). A full mailbox never crashes the sender
   or the receiver: a send to a `reliable` handler returns an error the sender must
   handle, and a send to a `lossy` handler drops the new message. Which a handler is,
@@ -263,7 +264,7 @@ as section 5 allows, and moves the actors' runtime into the domain; the fast pat
 - **A fault, a panic or an overrun fails the whole domain**, which restarts as a unit with its memory wiped; Raven runs each actor's `new`
   again in order, so references stay valid. The ring indices are set back with it (model `restart_ring`).
 - **Raven never lets a domain decide where it writes**: the write index of the ring is in the control page (model `inbound`).
-- Built in steps 9b (actors share a domain, Raven still keeps the mailboxes: done, decision 202) and 9c (the runtime in the domain: 9c-1 done, decision 203, the ring, mailboxes and run queue are in the pool; the fast path is 9c-2); see decision 201. In 9b an actor's header page is placed before its fields in the pool, one EL1-only page for each of up to 8 actors, and a domain given back is wiped with its table.
+- Built in steps 9b (actors share a domain, Raven still keeps the mailboxes: done, decision 202) and 9c (the runtime in the domain: 9c-1 done, decision 203, the ring, mailboxes and run queue are in the pool; the fast path of 9c-2 is decision 204: a send inside a domain goes straight to the mailbox, measured about 1.8 times as fast as one across on QEMU); see decision 201. In 9b an actor's header page is placed before its fields in the pool, one EL1-only page for each of up to 8 actors, and a domain given back is wiped with its table.
 
 ### 6.3a What application code can reach
 
