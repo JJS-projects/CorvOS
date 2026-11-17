@@ -1,0 +1,51 @@
+// An actor in a domain places another actor in its own domain with a `Domain` it holds (decision 206): `spawn Worker(n) in .d` inside a
+// handler. The new actor's `new` runs when the handler that placed it is over, so a message sent to it at once waits for it.
+// Worked out: the Pool is in domain d and holds a copy of d. It is told `grow(7, printer)`: its handler places a Worker whose `new` sets
+// n to 7, and sends it `say(printer)` straight away. The Worker has not started yet: the message waits and runs after `new`, so the
+// Printer shows 7 (not 0). A second `grow(9, printer)` places another: 9. Both Workers and the Pool share one domain.
+// expect: 7
+// expect: 9
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+
+    new(d: val Domain) {
+        .d = d
+    }
+
+    pub lossy on grow(n: u64, printer: Printer) {
+        w: Worker = spawn Worker(n) in .d
+        w.say(printer)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    pool: Pool = spawn Pool(copy(d)) in d
+    pool.grow(7, printer)
+    run_until_idle()
+    pool.grow(9, printer)
+    run_until_idle()
+}

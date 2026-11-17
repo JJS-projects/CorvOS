@@ -5,16 +5,17 @@
 // test reads. The Pinger is told `go(sink, 40)`: its handler sends `add(1)` to the Sink 40 times (lossy: the mailbox holds 16, so 16 are
 // kept, 24 dropped in the domain), then 20 reliable `firm(1)`: the first 0 fit (the mailbox is full), so all 20 are told MailboxFull.
 // The Sink handles the 16 kept. Printed: how many sends the fast path delivered (16: the kept ones), the Sink's total (16), how many
-// reliable sends were told full (20), the domain's count of losses (24), and that the system settled (0 unfinished).
+// reliable sends were told full (20), the domain's count of losses (24), how many messages the runtime counts as finished (1: only the `go`, Raven's own ring record; the fast path's are not in it, as Raven never counted them), and that the system settled (0 unfinished).
 // expect: 16
 // expect: 16
 // expect: 20
 // expect: 24
+// expect: 1
 // expect: 0
 
 import actors: Domain, Sent, new_domain, run_until_idle
 import assembly: domain_pool_base_of
-import domain_runtime: RT_STATE, RT_S_FAST, RT_S_LOST
+import domain_runtime: RT_STATE, RT_S_FAST, RT_S_FINISHED, RT_S_LOST
 import mailbox: unfinished_messages
 import print: print_u64
 
@@ -84,6 +85,7 @@ fn test_main() {
         print_u64(load64(actor_address(sink)))
         print_u64(load64(actor_address(pinger)))
         print_u64(load64(pool + RT_STATE + RT_S_LOST))
+        print_u64(load64(pool + RT_STATE + RT_S_FINISHED))
     }
     print_u64(unfinished_messages())
 }

@@ -459,7 +459,7 @@ class Checker:
                 raise CompileError(
                     f"`iso` is for structs and enums; {ty} is already a plain value", p.type.pos)
             if (getattr(actor.decl, "separate", False) and is_aggregate(ty)
-                    and not (what == "`new`" and p.type.val and ty.name in ("Mmio", "Timer"))):
+                    and not (what == "`new`" and p.type.val and ty.name in ("Mmio", "Timer", "Domain"))):
                 raise CompileError(
                     f"{what} of a `separate` actor takes numbers, bools, chars and actor references for now: "
                     f"{ty} would have to be copied between domains", p.type.pos)
@@ -1122,6 +1122,16 @@ class Checker:
                     raise CompileError(f"`{e.name}` is not an actor: `spawn` creates actors", e.pos)
                 raise CompileError(f"unknown actor `{e.name}`", e.pos)
             self.require_visible(actor.decl, actor.name, e.pos)
+            if (self.receiver is not None and is_actor(self.receiver[0])
+                    and getattr(self.receiver[0].decl, "separate", False)):
+                # an actor in a domain places actors only with a Domain it holds, and not in its `new` (decision 206)
+                if e.domain is None:
+                    raise CompileError(
+                        "an actor in a domain can `spawn` only into a `Domain` it holds: "
+                        "write `spawn Name(...) in d`", e.pos)
+                if self.in_new:
+                    raise CompileError(
+                        "an actor in a domain can't `spawn` in its `new`: place the actor in a handler", e.pos)
             if e.domain is not None:
                 if not actor.decl.separate:
                     raise CompileError(

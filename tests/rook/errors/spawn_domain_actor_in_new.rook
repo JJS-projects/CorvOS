@@ -1,0 +1,18 @@
+// An actor in a domain places actors in a handler, not in its `new` (decision 206).
+// error: 16:17: an actor in a domain can't `spawn` in its `new`: place the actor in a handler
+
+import actors: Domain
+
+separate actor Other {
+    mut n: u64
+
+    new() {
+        .n = 0
+    }
+}
+
+separate actor Maker {
+    new(d: val Domain) {
+        discard spawn Other() in d
+    }
+}

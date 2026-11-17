@@ -1,0 +1,94 @@
+// An actor placed in a handler that then fails is started by the restart, once, and not again later (decision 206): the restart re-runs its
+// `new` from the arguments kept for it, and clears the note that its start was waiting for the end of the turn.
+// Worked out: the Pool places a Worker (n = 5), tells the Keeper (a plain actor) its reference and panics in the same handler
+// (expect-failure): the turn fails and the domain restarts, running the Worker's `new`. The Keeper feeds the Worker 10: its total is 10 (print 10),
+// and its n 5. The Pool then places another Worker: the first one is not started a second time (its total would be 0): it says 10 again.
+// expect-failure: a crash at domain_spawn_crash.rook:70
+// expect: 10
+// expect: 5
+// expect: 10
+// expect: 5
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+    mut total: u64
+
+    new(n: u64) {
+        .n = n
+        .total = 0
+    }
+
+    pub lossy on add(k: u64) {
+        .total += k
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.total)
+        to.show(.n)
+    }
+}
+
+actor Keeper {
+    mut worker: Worker
+
+    new(w: Worker) {
+        .worker = w
+    }
+
+    pub lossy on keep(w: Worker) {
+        .worker = w
+    }
+
+    pub lossy on feed(k: u64) {
+        .worker.add(k)
+    }
+
+    pub lossy on ask(printer: Printer) {
+        .worker.report(printer)
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+
+    new(d: val Domain) {
+        .d = d
+    }
+
+    pub lossy on grow_and_crash(keeper: Keeper) {
+        w: Worker = spawn Worker(5) in .d
+        keeper.keep(w)
+        panic("a crash")
+    }
+
+    pub lossy on grow() {
+        w: Worker = spawn Worker(6) in .d
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    pool: Pool = spawn Pool(copy(d)) in d
+    first: Worker = spawn Worker(0) in d
+    keeper: Keeper = spawn Keeper(first)
+    pool.grow_and_crash(keeper)
+    run_until_idle()
+    keeper.feed(10)
+    run_until_idle()
+    keeper.ask(printer)
+    run_until_idle()
+    pool.grow()
+    run_until_idle()
+    keeper.ask(printer)
+    run_until_idle()
+}

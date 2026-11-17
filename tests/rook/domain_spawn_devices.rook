@@ -1,0 +1,56 @@
+// An actor in a domain cannot hand a device's registers to an actor it places (decision 206): the pages of a device are mapped
+// into a domain only by Raven's own placement, from the whole peripherals (decision 182), never at the asking of a domain.
+// Worked out: the Pool holds the UART's registers (given to its `new`, so they are mapped into its domain) and tries to place a Worker
+// whose `new` takes them: Raven refuses the request and fails the domain (expect-failure), which restarts as a unit.
+// The Pool's `placed` is then 0 (it never got to count).
+// expect-failure: domain 1 made a request it may not
+// expect: 0
+
+import actors: Domain, new_domain, run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    regs: val Mmio
+
+    new(regs: val Mmio) {
+        .regs = copy(regs)
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+    regs: val Mmio
+    mut placed: u64
+
+    new(d: val Domain, regs: val Mmio) {
+        .d = d
+        .regs = copy(regs)
+        .placed = 0
+    }
+
+    pub lossy on grow() {
+        w: Worker = spawn Worker(copy(.regs)) in .d
+        .placed += 1
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.placed)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    pool: Pool = spawn Pool(copy(d), peripherals.part(0x201000, 0x1000)) in d
+    pool.grow()
+    run_until_idle()
+    pool.report(printer)
+    run_until_idle()
+}

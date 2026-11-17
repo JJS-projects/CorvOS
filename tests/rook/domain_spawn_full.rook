@@ -1,0 +1,54 @@
+// A domain holds at most 8 actors in its life, and an actor that asks for a ninth place fails its domain, as one that makes any request
+// it may not does (decisions 201 and 206): Raven does not panic for it.
+// Worked out: the Pool is the first actor of its domain; 7 `grow` place seven Workers (8 places in all). The eighth `grow` asks for a ninth:
+// the domain fails (expect-failure) and restarts as a unit, so the Pool's count of what it placed, which is in its fields, is 0 again.
+// expect-failure: domain 1 made a request it may not
+// expect: 0
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    mut n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+    mut placed: u64
+
+    new(d: val Domain) {
+        .d = d
+        .placed = 0
+    }
+
+    pub lossy on grow() {
+        w: Worker = spawn Worker(.placed) in .d
+        .placed += 1
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.placed)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    pool: Pool = spawn Pool(copy(d)) in d
+    growing: loop i: u64 in 0..8 {
+        pool.grow()
+        run_until_idle()
+    }
+    pool.report(printer)
+    run_until_idle()
+}
