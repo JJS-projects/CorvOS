@@ -33,6 +33,11 @@ STAGES = [
     ("driver", "rook/separate_uart_driver", "milestone 7: the UART driver in a domain, killed mid-use; type hello, then !llo (the driver crashes and restarts), then world", "24, 25", "decision 184"),
     ("dma", "rook/trusted/dma_copy", "a driver copies inside its pool through the DMA service; bad requests are refused", "26", "item 26: the bus alias 0xC0000000, cache maintenance, the channel registers (0x3F007000)"),
     ("storm", "rook/separate_driver_storm", "a driver that fails on every interrupt is stopped by its spawner; type xy", "25", "decision 190"),
+    ("timer", "rook/timer_order", "timers are messages: three timers arrive in order of their times", "18", "item 18: the generic timer's frequency and compare register"),
+    ("recycle", "rook/separate_recycle", "milestone 8: 5 rounds of 12 separate actors, each round ending them all so their domains are used again", "27", "item 27: the tlbi after the device table is cleared"),
+    ("share", "rook/domain_share", "milestone 9: two actors share one domain; one's header page is not reachable by the other", "28", "item 28: the page remap and its tlbi"),
+    ("fast", "rook/trusted/domain_fast_send", "a send inside a domain goes straight to the mailbox, a full mailbox is told", "29", "item 29: what core 0 and a domain's core write into the same pool, and in what order"),
+    ("spawn", "rook/domain_spawn", "an actor in a domain places another in its domain", "28, 29", "items 28 and 29"),
 ]
 
 

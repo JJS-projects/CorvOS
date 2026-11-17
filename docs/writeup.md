@@ -3,7 +3,7 @@
 **Status: a draft written before any board has run.** Everything below was seen on QEMU (`raspi3b` and `raspi3ap`) or is
 argued from the code; each claim says which. Booting a real Pi Zero 2 W and rewriting the "not shown" parts with what the
 board did is the owner's step ([`tools/bringup-stages.py`](../tools/bringup-stages.py), decision 187); nothing in milestones 8
-and 9 has run there either. Hardware assumptions are listed, with how sure each is, in [hardware.md](hardware.md) (items 1-28).
+and 9 has run there either. Hardware assumptions are listed, with how sure each is, in [hardware.md](hardware.md) (items 1-29).
 
 The hypothesis ([design.md](design.md) section 1): an OS built from actors, where an actor reference is a capability, is
 better on four fronts. The sizes behind the discussion, counted on 2026-11-13: the trusted part of Raven is 1808 lines of
@@ -131,7 +131,7 @@ were, and the number of places a core can be wrong about another has grown with 
 ## What I would do next
 
 1. Boot the stages in [`tools/bringup-stages.py`](../tools/bringup-stages.py) one at a time (decision 187) and update
-   hardware.md (items 1-28; 27 and 28 are the page remap and the TLB invalidation of the milestone 8 and 9 domains) and this page
+   hardware.md (items 1-29; 27 and 28 are the page remap and the TLB invalidation of the milestone 8 and 9 domains, 29 what a domain's core and core 0 write into one pool) and this page
    with what happened.
 2. A DMA actor and one DMA-capable device (the SD card or USB), which decides whether decision 185 survives contact with a
    bus address and cache maintenance.
