@@ -1,0 +1,45 @@
+// A domain's request to place an actor is checked before Raven does any arithmetic on it (decision 208): a number of argument words
+// so large that multiplying it by 8 overflows is refused like any bad request, it does not make Raven panic (which would halt the core).
+// Worked out: the Forger, alone in domain 1 on core 1, asks `svc #4` (raven_spawn_separate, the call `spawn ... in d` compiles to) with
+// 2^61 argument words. That fails its domain ("domain 1 made a request it may not"); the domain restarts with n = 5 again, and
+// `say` shows 5. Before decision 208 the check was `words * 8 > 2800`, and Raven panicked with "integer overflow" and stopped.
+// expect-failure: domain 1 made a request it may not
+// expect: 5
+
+import actors: run_until_idle
+import print: print_u64
+
+extern fn raven_spawn_separate(fields: u64, dispatcher: u64, entry: u64, args: u64, words: u64, devices: u64, handle: u64) -> u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Forger {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on forge() {
+        unsafe {
+            discard raven_spawn_separate(1, 0, 0, 0, 2305843009213693952, 0, 0)
+        }
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    forger: Forger = spawn Forger(5)
+    forger.forge()
+    run_until_idle()
+    forger.say(printer)
+    run_until_idle()
+}

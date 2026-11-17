@@ -13,8 +13,10 @@
 // number and 8 words (the same as the mailbox of an actor in Raven's arena).
 //
 // Raven also reads and writes this memory when the domain is not running (to place an actor, to empty a mailbox, to start again
-// after a failure), but it never trusts a number in it to decide where it writes: the only number it reads and uses is how far
-// the runtime has read the ring, and that it clamps (decision 203, the model `inbound`).
+// after a failure), and every word of it is the domain's to change. Raven reads: how far the runtime has read the ring and how many
+// messages it has finished (clamped to what Raven handed over: decision 203, the model `inbound`), a mailbox's count and queued flag
+// (the count capped at its size), and the run queue's start and count (`rt_queue_push`, reduced before use). It never uses one to
+// decide where it writes outside this memory, and it never does arithmetic on one that could overflow and panic Raven (decision 208).
 
 import assembly: call_dispatch
 
@@ -33,7 +35,7 @@ RT_SLOT_WORDS: u64 = 9
 
 // Words of RT_STATE, as byte offsets.
 pub RT_S_CONSUMED: u64 = 0          // how many records of the ring the runtime has taken (it only grows)
-RT_S_RQ_FIRST: u64 = 8
+pub RT_S_RQ_FIRST: u64 = 8
 pub RT_S_RQ_COUNT: u64 = 16
 pub RT_S_LOST: u64 = 24             // messages that did not fit a mailbox
 pub RT_S_FINISHED: u64 = 40         // messages that are over: handled, or dropped (Raven counts them as finished, never more than it has handed over)
@@ -53,11 +55,12 @@ pub fn rt_block(rb_pool: u64, rb_place: u64) -> u64 {
 }
 
 /// Puts place `rq_place` at the end of the run queue (it has a message and is not in the queue). A full queue cannot be: each place
-/// is in it at most once, and there are at most RT_PLACES.
+/// is in it at most once, and there are at most RT_PLACES. Raven calls this too, at EL1 (`runtime_release`), on words the domain can
+/// write: the start is reduced before it is added to, so no value of them overflows (decision 208).
 pub fn rt_queue_push(rq_pool: u64, rq_place: u64) {
     unsafe {
         rq_state: u64 = rq_pool + RT_STATE
-        rq_first: u64 = load64(rq_state + RT_S_RQ_FIRST)
+        rq_first: u64 = load64(rq_state + RT_S_RQ_FIRST) % RT_QUEUE_SLOTS
         rq_count: u64 = load64(rq_state + RT_S_RQ_COUNT)
         if rq_count >= RT_QUEUE_SLOTS {
             return

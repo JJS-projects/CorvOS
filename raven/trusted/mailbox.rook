@@ -697,7 +697,10 @@ fn runtime_clear(rc_who: u64) {
         rc_base: u64 = actor_arena_base()
         store64(rc_base + ACTOR_S_LOST, load64(rc_base + ACTOR_S_LOST) + rc_count)
         rc_over_at: u64 = domain_pool_base_of(rc_core, rc_d) + RT_STATE + RT_S_FINISHED
-        store64(rc_over_at, load64(rc_over_at) + rc_count)       // they are over (the domain's count, as the runtime keeps it)
+        rc_over: u64 = load64(rc_over_at)       // (the domain's own count, which it may have set to anything: decision 208)
+        if rc_over <= 0xFFFFFFFFFFFFFFFF - rc_count {
+            store64(rc_over_at, rc_over + rc_count)     // they are over (refresh_consumed clamps whatever this holds)
+        }
         store64(rc_block, 0)
         store64(rc_block + 8, 0)
     }
@@ -905,7 +908,9 @@ fn place_from_domain(pf_pool: u64) -> u64 {
         pf_args: u64 = domain_saved_x(3)
         pf_words: u64 = domain_saved_x(4)
         pf_handle: u64 = domain_saved_x(6)
-        if domain_saved_x(5) != 0 or pf_fields > 4096 or pf_words * 8 > DOMAIN_ARGS_SAVE {
+        // (every register is the domain's: bounded before any arithmetic, so no number it chooses can overflow here and panic
+        // Raven, decision 208)
+        if domain_saved_x(5) != 0 or pf_fields > 4096 or pf_words > DOMAIN_ARGS_SAVE / 8 {
             return 0
         }
         if pf_words > 0 and not pool_readable(pf_pool, pf_args, pf_words * 8) {

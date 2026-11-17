@@ -1,0 +1,56 @@
+// A domain that lies about its count of finished messages and then fails cannot make Raven panic while it restarts it (decision 208):
+// emptying a mailbox adds to that count, which is the domain's own word, and the addition is checked before it is made.
+// Worked out: the Liar, in domain 1, writes 2^64 - 1 over its runtime's count of finished messages and 1 over the number of messages in
+// its own mailbox (place 0), then panics. Raven restarts the domain: emptying the mailbox would have added 1 to 2^64 - 1 ("integer
+// overflow at mailbox.rook", and Raven stopped, before decision 208). Now the restart goes on, the system settles, and an Honest actor
+// in another domain says 5.
+// expect-failure: lie then fail at domain_liar_restart.rook:32
+// expect: 5
+
+import actors: run_until_idle
+import domain_runtime: RT_BLOCKS, RT_STATE, RT_S_FINISHED
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Liar {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on lie() {
+        unsafe {
+            store64(actor_address(self) - 0x11000 + RT_STATE + RT_S_FINISHED, 18446744073709551615)
+            store64(actor_address(self) - 0x11000 + RT_BLOCKS + 8, 1)
+        }
+        panic("lie then fail")
+    }
+}
+
+separate actor Honest {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    liar: Liar = spawn Liar(1)
+    honest: Honest = spawn Honest(5)
+    liar.lie()
+    run_until_idle()
+    honest.say(printer)
+    run_until_idle()
+}

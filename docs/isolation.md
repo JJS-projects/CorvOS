@@ -18,6 +18,7 @@ test fails if it breaks. Everything here ran on QEMU only; the last section says
 | keep the CPU | the handler budget timer ends the run (100 ms), also when it runs out while Raven serves a request (decision 177) | `domain_timeout`, `separate_spins`, `domain_timeout_before_entry`, `domain_timeout_in_service`, `separate_spins_in_calls` |
 | run off the end of its stack unnoticed | a page below the stack is not mapped | `domain_stack_overflow` |
 | ask Raven for something it should not | every address, target and handler number in a request is checked | `separate_forged_requests` |
+| make Raven panic with a number it chooses (a register of a request, a word of its runtime's memory) | each such number is bounded or compared before Raven does arithmetic on it, so a lie fails the domain, never Raven (decision 208) | `domain_forged_spawn_words`, `domain_liar`, `domain_liar_restart`, `domain_liar_queue` |
 | leave anything behind after a failure | a restart wipes its stack and data | `separate_restart_wipes`, `domain_wipe_data` |
 | disturb another domain by failing | a failure is a reason Raven sees; the others' memory is untouched | `separate_cross_domain`, `separate_isolation_other_domain` |
 
