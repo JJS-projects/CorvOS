@@ -1,0 +1,81 @@
+// A DMA service made for one actor of a domain that two actors share (decision 205): it moves data inside the pool the actors share
+// while its owner lives, and stops when its owner ends although the domain does not (the other actor keeps it).
+// Worked out: a and b are in one domain; the service is made for a. b puts 111 at byte 0x100 and 222 at byte 0x200 of a's page of
+// fields. The service copies 8 bytes from 0x100 to 0x200 of that page: done(true) (print 1) and the word at 0x200 is 111 (print 111).
+// Then a ends (b keeps the domain alive: the pool is not given back and nothing in it changes). b puts 222 back at 0x200 and the
+// service is asked for the same copy: it must refuse (done(false): print 0) and the word is still 222 (print 222). The check is on
+// the owner, not on the domain.
+// expect: 1
+// expect: 111
+// expect: 0
+// expect: 222
+
+import actors: Domain, new_domain, run_until_idle
+import devices: Mmio
+import dma: DmaDone, DmaService
+import print: print_u64
+
+actor Printer: DmaDone {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+
+    lossy on done(ok: bool) {
+        if ok {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+}
+
+separate actor Driver {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+
+    lossy on plant(at: u64) {
+        unsafe {
+            store64(at + 0x100, 111)
+            store64(at + 0x200, 222)
+        }
+    }
+
+    lossy on look(at: u64, to: Printer) {
+        unsafe {
+            to.show(load64(at + 0x200))
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    a: Driver = spawn Driver() in d
+    b: Driver = spawn Driver() in d
+    mut page: u64 = 0
+    mut offset: u64 = 0
+    mut owner: u64 = 0
+    unsafe {
+        page = actor_address(a) and 0xFFFFFFFFFFFFF000
+        offset = page - (page and 0xFFFFFFFFFFE00000)
+        owner = actor_reference(a)
+    }
+    dma: DmaService = spawn DmaService(owner, peripherals.part(0x007000, 0x100), peripherals.part(0x007F00, 0x100), 0)
+    b.plant(page)
+    run_until_idle()
+    dma.transfer(offset + 0x100, offset + 0x200, 8, narrow(printer, DmaDone))
+    run_until_idle()
+    b.look(page, printer)
+    run_until_idle()
+    stop(a)
+    run_until_idle()
+    b.plant(page)
+    run_until_idle()
+    dma.transfer(offset + 0x100, offset + 0x200, 8, narrow(printer, DmaDone))
+    run_until_idle()
+    b.look(page, printer)
+    run_until_idle()
+}
