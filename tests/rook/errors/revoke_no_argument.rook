@@ -1,0 +1,7 @@
+// `revoke` takes exactly one argument (decision 207).
+// alone
+// error: 6:5: `revoke` takes one argument: the actor reference to cut off
+
+fn cut() {
+    revoke()
+}
