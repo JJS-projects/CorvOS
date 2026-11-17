@@ -27,6 +27,7 @@ pub RT_SLOT_BYTES: u64 = 128
 pub RT_BLOCK_BYTES: u64 = 1280
 pub RT_PLACES: u64 = 8
 RT_MAILBOX_SLOTS: u64 = 16
+RT_FAST_FLAG: u64 = 0x8000000000000000     // in the handler word of a message the fast path put in a mailbox: Raven has no count for it (decision 204)
 RT_MAILBOX_AT: u64 = 32             // where the slots of a mailbox start, in its block
 RT_SLOT_WORDS: u64 = 9
 
@@ -138,7 +139,8 @@ pub fn domain_turn(dt_produced: u64, dt_pool: u64) -> u64 {
             }
             dt_oldest: u64 = load64(dt_block)
             dt_message: u64 = dt_block + RT_MAILBOX_AT + dt_oldest * RT_SLOT_WORDS * 8
-            dt_handler: u64 = load64(dt_message)
+            dt_word: u64 = load64(dt_message)
+            dt_handler: u64 = dt_word and 0x7FFFFFFFFFFFFFFF
             copying: loop dt_k: u64 in 0..8 {
                 store64(dt_state + RT_S_PAYLOAD + dt_k * 8, load64(dt_message + 8 + dt_k * 8))
             }
@@ -151,7 +153,9 @@ pub fn domain_turn(dt_produced: u64, dt_pool: u64) -> u64 {
             }
             call_dispatch(load64(dt_state + RT_S_DISPATCHER + dt_who * 8), load64(dt_state + RT_S_ACTOR + dt_who * 8),
                           dt_handler, dt_state + RT_S_PAYLOAD)
-            store64(dt_state + RT_S_FINISHED, load64(dt_state + RT_S_FINISHED) + 1)
+            if (dt_word and RT_FAST_FLAG) == 0 {
+                store64(dt_state + RT_S_FINISHED, load64(dt_state + RT_S_FINISHED) + 1)     // (only the messages Raven counted: the records of the ring)
+            }
             break picking
         }
         if load64(dt_state + RT_S_RQ_COUNT) > 0 {
@@ -193,7 +197,7 @@ pub fn domain_send_local(ds_target: u64, ds_handler: u64, ds_payload: u64, ds_wo
             return 0
         }
         ds_state: u64 = ds_pool + RT_STATE
-        if rt_put(ds_pool, ds_place, ds_handler, ds_words, ds_payload) {
+        if rt_put(ds_pool, ds_place, ds_handler or RT_FAST_FLAG, ds_words, ds_payload) {
             store64(ds_state + RT_S_FAST, load64(ds_state + RT_S_FAST) + 1)
         } else {
             store64(ds_state + RT_S_LOST, load64(ds_state + RT_S_LOST) + 1)
@@ -214,7 +218,7 @@ pub fn domain_send_reliable_local(ds_target: u64, ds_handler: u64, ds_payload: u
             return 0
         }
         ds_state: u64 = ds_pool + RT_STATE
-        if rt_put(ds_pool, ds_place, ds_handler, ds_words, ds_payload) {
+        if rt_put(ds_pool, ds_place, ds_handler or RT_FAST_FLAG, ds_words, ds_payload) {
             store64(ds_state + RT_S_FAST, load64(ds_state + RT_S_FAST) + 1)
             store64(ds_result, 0)
         } else {

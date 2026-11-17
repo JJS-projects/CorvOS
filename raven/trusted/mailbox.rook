@@ -863,7 +863,11 @@ fn run_domain_entry(re_d: u64) {
     unsafe {
         store64(re_state + RING_DEFER, 1)           // (an actor whose `new` fails restarts the domain: as for a failed turn, the count waits)
     }
-    run_pending_starts(re_core, re_d)
+    if run_pending_starts(re_core, re_d) != 0 and re_outcome == 0 {
+        // (a message sent to an actor that was still starting waits in its mailbox, which no count of Raven's knows: the domain has work
+        // until it has run it, so the system is not idle: found by `domain_spawn`, which lost its second line one run in about ten)
+        re_outcome = 1
+    }
     unsafe {
         store64(re_state + RING_DEFER, 0)
         pending_sub(load64(re_state + RING_DEFERRED))
@@ -939,11 +943,12 @@ fn place_from_domain(pf_pool: u64) -> u64 {
 }
 
 /// Runs the `new` of the actors that actors of domain `rs_d` placed in it during the turn that is over (decision 206).
-fn run_pending_starts(rs_core: u64, rs_d: u64) {
+fn run_pending_starts(rs_core: u64, rs_d: u64) -> u64 {
     rs_state: u64 = ring_state(rs_core, rs_d)
+    mut rs_started: u64 = 0
     unsafe {
         if load64(rs_state + RING_STARTS) == 0 {
-            return
+            return 0
         }
         store64(rs_state + RING_STARTS, 0)
         rs_table: u64 = place_table(rs_core, rs_d)
@@ -954,10 +959,12 @@ fn run_pending_starts(rs_core: u64, rs_d: u64) {
                 if (load64(rs_header + ACTOR_H_FLAGS) and ACTOR_F_PENDING) != 0 {
                     store64(rs_header + ACTOR_H_FLAGS, load64(rs_header + ACTOR_H_FLAGS) - ACTOR_F_PENDING)
                     start_here(rs_who, load64(rs_header + ACTOR_H_START), load64(rs_header + ACTOR_H_ARGS_WORDS), 0, load64(rs_header + ACTOR_H_ARGS))
+                    rs_started += 1
                 }
             }
         }
     }
+    return rs_started
 }
 
 /// Makes room for an actor with `fields` words of fields and `args_words` words of `new`
