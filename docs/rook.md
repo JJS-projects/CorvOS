@@ -390,7 +390,7 @@ fn classify(b: u8) -> u8 {
   actor take numbers, bools, chars and actor references for now (a struct or enum, `iso` or `val`, is an
   error: copying data between address spaces is not built). A send to it is written like any other;
   `python3 -m fledgling FILES --report-copies` lists the sends that copy, with the size (decision 173).
-  A `separate` actor runs at EL0 in a domain of its own (decision 175, milestone 6b-2b); for now it cannot `spawn`, `watch` or `stop`, and at most three can exist. A failing one restarts as a unit with its memory wiped (decision 176), and it can be watched and stopped like any actor. Raven puts each on the next core in turn (decision 180; there is no syntax for it): messages to and from it cross cores through rings (decision 181), in order for one sender and one receiver, and a program that wants to know that everything has settled calls `run_until_idle`.
+  A `separate` actor runs at EL0 in a domain of its own (decision 175, milestone 6b-2b); it cannot `watch` or `stop` yet, and it `spawn`s only as 11.19b says (`spawn Name(...) in d` in a handler, with a `Domain` it holds); at most three domains of the old kind can exist. A failing one restarts as a unit with its memory wiped (decision 176), and it can be watched and stopped like any actor. Raven puts each on the next core in turn (decision 180; there is no syntax for it): messages to and from it cross cores through rings (decision 181), in order for one sender and one receiver, and a program that wants to know that everything has settled calls `run_until_idle`.
 - Inside an actor, its own fields are written `.field`; `self` is a reference to
   the actor itself, for handing out (`counter.read(narrow(self, Reply<u64>))`).
 - An actor processes one message at a time, so its fields never need locks.
@@ -1167,6 +1167,13 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   It can be copied (`copy(d)`) and given to a `new` as a `val`. A domain holds at most 8 actors in its life, and once its last actor has
   ended or `stop(d)` has been called, its `Domain` is stale: `spawn ... in` it is a failure.
 - An actor in a domain cannot reach the UART, so it prints through a plain actor, as every `separate` actor does.
+- **An actor in a domain can place actors** (9d-2, decision 206): `spawn Worker(n) in .d` inside a **handler** of a `separate` actor that
+  holds a `Domain` (given to its `new` as `d: val Domain`, which a `separate` actor's `new` accepts, as it does `Mmio` and `Timer`). It
+  is a compile error to `spawn` in a `separate` actor without `in`, or in its `new`. The `Domain` must be the actor's *own* domain: a
+  request for another fails the domain, as any request it may not make does. The new actor's `new` runs when the handler that placed it
+  has returned, so a message sent to it at once waits for it. It cannot be given a device (`Mmio`: the request fails the domain), has no
+  spawner that can `stop(ref)` it (only `stop(d)` ends it), and when the domain restarts it comes back in its place with the arguments
+  it was spawned with, like every actor of the domain; the placer's reference to it is lost with the placer's wiped fields.
 
 ### 11.19a Generic interfaces and actors (8f, decision 200)
 

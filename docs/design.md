@@ -249,7 +249,7 @@ to retrofit. All four cores come up with a Raven of their own since milestone 6d
 between them go through rings, one for each ordered pair of cores (milestone 6d-2, decision 181), and Raven puts each
 `separate` actor on the next core in turn (decision 180).
 
-### 6.3b Several actors in a domain, and the runtime inside it (decision 201, designed in 9a, not built)
+### 6.3b Several actors in a domain, and the runtime inside it (decision 201; built in 9b to 9d, decisions 202 to 206)
 
 Today a `separate` actor has a domain to itself, and Raven keeps its mailbox. The design below (decision 201) lets actors share a domain,
 as section 5 allows, and moves the actors' runtime into the domain; the fast path of section 6.2 is its result.
