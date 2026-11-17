@@ -1,17 +1,18 @@
 // Raven queues a place in a domain's run queue itself when an actor placed there starts (`runtime_release`), and the queue's start is
 // a word the domain can write: Raven reduces it before adding to it, so a domain that lies about it fails itself, not Raven
 // (decision 208).
-// Worked out: the Pool, in domain d, writes 2^64 - 1 over its runtime's queue start, then places a Worker and sends it `say`; the
-// Worker is waiting for its `new`, so the message waits in its mailbox. When the turn is over Raven runs the Worker's `new` and queues
-// it: before decision 208 the sum of start and count overflowed in Raven ("integer overflow at domain_runtime.rook", from EL1) and the
-// core stopped. Now Raven queues it, and the runtime in the domain, which reads the lie as it is, fails at EL0 on its next turn (the
-// failure below); the domain restarts as a unit. An Honest actor in another domain still says 5, and the Pool, restarted, says 3.
+// Worked out: the Pool, in domain d, writes 2^64 - 1 over its runtime's queue start and 1 over its count, then places a Worker and
+// sends it `say`; the Worker is waiting for its `new`, so the message waits in its mailbox. When the turn is over Raven runs the
+// Worker's `new` and queues it: before decision 208 the sum of start and count (2^64 - 1 + 1) overflowed in Raven ("integer overflow at
+// domain_runtime.rook", from EL1) and the core stopped. Now Raven queues it, and the runtime in the domain, which reads the lie as it
+// is, fails at EL0 on its next turn (the failure below); the domain restarts as a unit. An Honest actor in another domain still says
+// 5, and the Pool, restarted, says 3.
 // expect-failure: integer overflow at domain_runtime.rook:*
 // expect: 5
 // expect: 3
 
 import actors: Domain, new_domain, run_until_idle
-import domain_runtime: RT_STATE, RT_S_RQ_FIRST
+import domain_runtime: RT_STATE, RT_S_RQ_COUNT, RT_S_RQ_FIRST
 import print: print_u64
 
 actor Printer {
@@ -42,6 +43,7 @@ separate actor Pool {
     pub lossy on grow(printer: Printer) {
         unsafe {
             store64(actor_address(self) - 0x11000 + RT_STATE + RT_S_RQ_FIRST, 18446744073709551615)
+            store64(actor_address(self) - 0x11000 + RT_STATE + RT_S_RQ_COUNT, 1)
         }
         w: Worker = spawn Worker(7) in .d
         w.say(printer)
