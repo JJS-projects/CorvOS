@@ -1,0 +1,93 @@
+// An actor placed from inside a domain comes back when the domain restarts (decision 206): the restart re-runs every place's `new`
+// from the arguments kept for it, a placed actor's included, so the reference the Keeper holds stays valid.
+// Worked out: the Pool places a Worker with n = 5 and gives its reference to the Keeper, a plain actor. The Worker is asked to count 10
+// and 20 and says its total 30 and its n 5. The Pool's `crash` panics (expect-failure): the domain restarts, the Worker's `new` runs
+// again on its kept argument, so it says total 0 and n 5 through the same reference.
+// expect: 30
+// expect: 5
+// expect-failure: a crash at domain_spawn_restart.rook:73
+// expect: 0
+// expect: 5
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+    mut total: u64
+
+    new(n: u64) {
+        .n = n
+        .total = 0
+    }
+
+    pub lossy on add(k: u64) {
+        .total += k
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.total)
+        to.show(.n)
+    }
+}
+
+actor Keeper {
+    mut worker: Worker
+
+    new(w: Worker) {
+        .worker = w
+    }
+
+    pub lossy on keep(w: Worker) {
+        .worker = w
+    }
+
+    pub lossy on feed(k: u64) {
+        .worker.add(k)
+    }
+
+    pub lossy on ask(printer: Printer) {
+        .worker.report(printer)
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+
+    new(d: val Domain) {
+        .d = d
+    }
+
+    pub lossy on grow(keeper: Keeper) {
+        w: Worker = spawn Worker(5) in .d
+        keeper.keep(w)
+    }
+
+    pub lossy on crash() {
+        panic("a crash")
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()
+    pool: Pool = spawn Pool(copy(d)) in d
+    first: Worker = spawn Worker(0) in d
+    keeper: Keeper = spawn Keeper(first)
+    pool.grow(keeper)
+    run_until_idle()
+    keeper.feed(10)
+    keeper.feed(20)
+    keeper.ask(printer)
+    run_until_idle()
+    pool.crash()
+    run_until_idle()
+    keeper.ask(printer)
+    run_until_idle()
+}

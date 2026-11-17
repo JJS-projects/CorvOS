@@ -1,10 +1,10 @@
-// A `separate` actor cannot `spawn` yet: the request is refused and fails the domain (decision 175).
-// Worked out: make() spawns a Printer; Raven answers a domain's `spawn` with "made a request it may not"; the actor
-// is restarted and reports its start value, 3.
+// An actor in a domain can place actors only in its own domain for now: a `Domain` that names another is refused and fails the domain (decisions 175 and 206).
+// Worked out: Counter is in domain d1 and holds a copy of d2, another domain. make() spawns a Helper in d2; Raven answers a domain's
+// request for another domain with "made a request it may not"; the actor is restarted and reports its start value, 3.
 // expect-failure: domain 1 made a request it may not
 // expect: 3
 
-import actors: run_until_idle
+import actors: Domain, new_domain, run_until_idle
 import print: print_u64
 
 actor Printer {
@@ -13,15 +13,25 @@ actor Printer {
     }
 }
 
+separate actor Helper {
+    mut n: u64
+
+    new() {
+        .n = 0
+    }
+}
+
 separate actor Counter {
     mut total: u64
+    other: val Domain
 
-    new(start: u64) {
+    new(start: u64, other: val Domain) {
         .total = start
+        .other = other
     }
 
     lossy on make() {
-        discard spawn Printer()
+        discard spawn Helper() in .other
     }
 
     lossy on report(to: Printer) {
@@ -31,7 +41,9 @@ separate actor Counter {
 
 fn test_main() {
     printer: Printer = spawn Printer()
-    counter: Counter = spawn Counter(3)
+    d1: Domain = new_domain()
+    d2: Domain = new_domain()
+    counter: Counter = spawn Counter(3, copy(d2)) in d1
     counter.make()
     run_until_idle()
     counter.report(printer)

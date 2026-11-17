@@ -1,0 +1,17 @@
+// An actor in a domain places actors only into a `Domain` it holds, never with a plain `spawn` (decision 206).
+// alone
+// error: 15:17: an actor in a domain can `spawn` only into a `Domain` it holds: write `spawn Name(...) in d`
+
+separate actor Other {
+    mut n: u64
+
+    new() {
+        .n = 0
+    }
+}
+
+separate actor Maker {
+    pub lossy on make() {
+        discard spawn Other()
+    }
+}

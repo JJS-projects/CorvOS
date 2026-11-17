@@ -1173,7 +1173,7 @@ pub struct Checker {
                 .say(" is already a plain value")
                 return 0
             }
-            mmio_ok: bool = is_new and modifier == 2 and (.is_mmio(ty) or .is_timer(ty))    // a device's registers, mapped into the domain; a Timer (decision 196)
+            mmio_ok: bool = is_new and modifier == 2 and (.is_mmio(ty) or .is_timer(ty) or .is_domain(ty))    // a device's registers, mapped into the domain; a Timer (decision 196)
             if .has_word(.nodes.get(.types.get(owner).decl).text, "separate") and .is_aggregate(ty) and not mmio_ok {
                 .fail_node(type_node)
                 .say_text(what)
@@ -4862,6 +4862,19 @@ pub struct Checker {
             return 0
         }
         spawn_domain: u64 = .spawn_domain(e)
+        if .recv != 0 and .types.get(.recv).kind == CHK_ACTOR and .is_separate(.recv) {
+            // an actor in a domain places actors only with a Domain it holds, and not in its `new` (decision 206)
+            if spawn_domain == 0 {
+                .fail_node(e)
+                .say("an actor in a domain can `spawn` only into a `Domain` it holds: write `spawn Name(...) in d`")
+                return 0
+            }
+            if .in_new {
+                .fail_node(e)
+                .say("an actor in a domain can't `spawn` in its `new`: place the actor in a handler")
+                return 0
+            }
+        }
         if spawn_domain != 0 {
             if not .is_separate(act) {
                 .fail_node(e)

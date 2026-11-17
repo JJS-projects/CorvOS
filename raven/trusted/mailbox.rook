@@ -52,6 +52,7 @@ ACTOR_F_IN_NEW: u64 = 1             // it was spawned by its spawner's `new`: ke
 ACTOR_F_ENDED: u64 = 2              // it has ended: sends to it are refused
 ACTOR_F_STARTING: u64 = 4           // its `new` has not run yet (on another core): messages wait, it is not scheduled
 ACTOR_F_RETIRED: u64 = 16           // it has ended and its place has been given up (in a domain: core 0 has handled its end); the domain is given back when all have
+ACTOR_F_PENDING: u64 = 32           // it was placed by an actor of its own domain: its `new` runs when the turn that placed it is over (decision 206)
 ACTOR_F_RETIRING: u64 = 8           // it has ended but is still in the run queue: its memory is given back when that entry is taken
 
 // Raven's tables, as byte offsets from the start of the arena.
@@ -140,6 +141,7 @@ REC_PAYLOAD: u64 = 48               // byte offset of the message words in a rec
 SVC_SEND: u64 = 1                   // the calls (rtstubs.s)
 SVC_SEND_RELIABLE: u64 = 2
 SVC_PANIC: u64 = 8
+SVC_SPAWN_SEPARATE: u64 = 4         // raven_spawn_separate: what an actor of a domain asks to place an actor in its own domain (decision 206)
 SVC_TIMER: u64 = 9                  // raven_timer_after (rtstubs.s)
 SVC_SELF: u64 = 10                  // raven_self (rtstubs.s)
 
@@ -446,6 +448,31 @@ fn resolve_domain(rd_handle: u64) -> u64 {
 /// Gives an actor with `tp_words` words of fields and arguments a place in domain `tp_d` of core `tp_core`: a page that only EL1
 /// reaches, then the pages for its fields. Returns the address of its fields, which is its reference. Its header and mailbox page is
 /// cleared here, once the domain can no longer reach it: it may hold what the domain put there while it was an ordinary page.
+/// Is there room in the domain for an actor of `pf_words` words of fields and arguments: a free place and the pages? (The checks
+/// `take_place` makes, for a caller that must not panic: an actor in a domain that asks for more fails its domain, not Raven.)
+fn place_fits(pf_core: u64, pf_d: u64, pf_words: u64) -> bool {
+    if pf_words > 4096 {
+        return false
+    }
+    unsafe {
+        pf_control: u64 = load64(core_block(pf_core) + CORE_DOMAIN_NEXT + (pf_d - 1) * 8)
+        mut pf_pages: u64 = (pf_words * 8 + DOMAIN_PAGE - 1) / DOMAIN_PAGE
+        if pf_pages == 0 {
+            pf_pages = 1
+        }
+        if pf_control + 1 + pf_pages > RT_FIRST_PAGE {
+            return false
+        }
+        pf_table: u64 = place_table(pf_core, pf_d)
+        looking: loop pf_i: u64 in 0..DOMAIN_PLACES {
+            if load64(pf_table + pf_i * 8) == 0 {
+                return true
+            }
+        }
+    }
+    return false
+}
+
 fn take_place(tp_core: u64, tp_d: u64, tp_words: u64) -> u64 {
     tp_pool: u64 = domain_pool_base_of(tp_core, tp_d)
     unsafe {
@@ -514,6 +541,7 @@ RING_QUEUED: u64 = 16               // 1 if the domain is in this core's run que
 RING_DONE: u64 = 24                 // how many of the messages put in the ring Raven has counted as finished
 RING_DEFER: u64 = 32                // 1 while a turn that failed is being restarted: the messages lost are counted as over when it is done
 RING_DEFERRED: u64 = 40             // how many are waiting to be counted
+RING_STARTS: u64 = 56               // how many actors placed from inside the domain are waiting for their `new` (decision 206)
 RING_HOLD: u64 = 48                 // 1 while the domain has messages that Raven has not counted (those its actors sent each other, decision 204): one is in the count of unfinished messages for them all
 
 fn ring_state(rs_core: u64, rs_d: u64) -> u64 {
@@ -735,6 +763,7 @@ fn runtime_discard(rd_core: u64, rd_d: u64) {
                 pending_sub(1)
             }
         }
+        store64(rd_state + RING_STARTS, 0)
         store64(rd_state + RING_PRODUCED, 0)
         store64(rd_state + RING_SEEN, 0)
         store64(rd_state + RING_DONE, 0)
@@ -755,6 +784,9 @@ fn runtime_rebuild(rb_core: u64, rb_d: u64) {
                 store64(rb_state + RT_S_ACTOR + rb_i * 8, rb_who)
                 store64(rb_state + RT_S_DISPATCHER + rb_i * 8, load64(rb_header + ACTOR_H_DISPATCHER))
                 store64(rb_state + RT_S_GEN + rb_i * 8, generation_of(rb_who))
+                if (load64(rb_header + ACTOR_H_FLAGS) and ACTOR_F_PENDING) != 0 {
+                    store64(rb_header + ACTOR_H_FLAGS, load64(rb_header + ACTOR_H_FLAGS) - ACTOR_F_PENDING)     // (its `new` runs in the restart)
+                }
                 store64(rb_state + RT_S_ENDED + rb_i * 8, if (load64(rb_header + ACTOR_H_FLAGS) and ACTOR_F_ENDED) != 0 { 1 } else { 0 })
             }
         }
@@ -829,6 +861,13 @@ fn run_domain_entry(re_d: u64) {
         return
     }
     unsafe {
+        store64(re_state + RING_DEFER, 1)           // (an actor whose `new` fails restarts the domain: as for a failed turn, the count waits)
+    }
+    run_pending_starts(re_core, re_d)
+    unsafe {
+        store64(re_state + RING_DEFER, 0)
+        pending_sub(load64(re_state + RING_DEFERRED))
+        store64(re_state + RING_DEFERRED, 0)
         if re_outcome == 1 and load64(re_state + RING_HOLD) == 0 {
             // (the actors of the domain have messages for each other that no count knows of: the system is not idle until they are handled)
             pending_add(1)
@@ -843,6 +882,80 @@ fn run_domain_entry(re_d: u64) {
         }
         if re_outcome == 1 or load64(re_state + RING_PRODUCED) > load64(re_state + RING_SEEN) {
             queue_domain(re_core, re_d)
+        }
+    }
+}
+
+/// What an actor of a domain asks when it does `spawn Name(...) in d` (the call `raven_spawn_separate`, decision 206): the actor is
+/// placed in the domain it is in, and its `new` runs when the turn that placed it is over (it cannot run now: the placer's handler
+/// is on the domain's stack). The result is the reference to the new actor, or 0 if the request is not one a domain may make
+/// (any other domain than its own, a device, a domain that is full, arguments that are not in its pool): the domain fails.
+fn place_from_domain(pf_pool: u64) -> u64 {
+    pf_index: u64 = (pf_pool - domain_pools_start()) shr 21
+    pf_core: u64 = pf_index / 3
+    pf_d: u64 = pf_index % 3 + 1
+    unsafe {
+        pf_fields: u64 = domain_saved_x(0)
+        pf_dispatcher: u64 = domain_saved_x(1)
+        pf_entry: u64 = domain_saved_x(2)
+        pf_args: u64 = domain_saved_x(3)
+        pf_words: u64 = domain_saved_x(4)
+        pf_handle: u64 = domain_saved_x(6)
+        if domain_saved_x(5) != 0 or pf_fields > 4096 or pf_words * 8 > DOMAIN_ARGS_SAVE {
+            return 0
+        }
+        if pf_words > 0 and not pool_readable(pf_pool, pf_args, pf_words * 8) {
+            return 0
+        }
+        if (pf_handle and 0xF) != pf_d or ((pf_handle shr 4) and 0xF) != pf_core or core_id() != pf_core {
+            return 0                                    // the Domain it holds is not its own domain: not built (decision 206)
+        }
+        if domain_actor_of(pf_core, pf_d) != DOMAIN_OPEN or domain_generation(pf_core, pf_d) != (pf_handle shr 8) {
+            return 0                                    // a Domain that has ended
+        }
+        if not place_fits(pf_core, pf_d, pf_fields + pf_words) {
+            return 0
+        }
+        pf_actor: u64 = take_place(pf_core, pf_d, pf_fields + pf_words)
+        pf_header: u64 = pf_actor - ACTOR_BEFORE_FIELDS
+        store64(pf_header + ACTOR_H_DISPATCHER, pf_dispatcher)
+        store64(pf_header + ACTOR_H_ARGS, pf_actor + pf_fields * 8)
+        store64(pf_header + ACTOR_H_DOMAIN,
+                pf_d or (pf_core shl 4) or ((domain_generation(pf_core, pf_d) shl 16) shl REF_GENERATION_SHIFT))
+        store64(pf_header + ACTOR_H_START, pf_entry)
+        store64(pf_header + ACTOR_H_ARGS_WORDS, pf_words)
+        store64(pf_header + ACTOR_H_PARENT, 0)
+        store64(pf_header + ACTOR_H_FLAGS, ACTOR_F_STARTING or ACTOR_F_PENDING)
+        store64(pf_header + ACTOR_H_NEXT_SIBLING, 0)
+        pf_kept: u64 = pf_actor + pf_fields * 8
+        copying: loop pf_w: u64 in 0..pf_words {
+            store64(pf_kept + pf_w * 8, load64(pf_args + pf_w * 8))
+        }
+        runtime_register(pf_actor, pf_dispatcher, true)
+        pf_state: u64 = ring_state(pf_core, pf_d)
+        store64(pf_state + RING_STARTS, load64(pf_state + RING_STARTS) + 1)
+        return reference_to(pf_actor)
+    }
+}
+
+/// Runs the `new` of the actors that actors of domain `rs_d` placed in it during the turn that is over (decision 206).
+fn run_pending_starts(rs_core: u64, rs_d: u64) {
+    rs_state: u64 = ring_state(rs_core, rs_d)
+    unsafe {
+        if load64(rs_state + RING_STARTS) == 0 {
+            return
+        }
+        store64(rs_state + RING_STARTS, 0)
+        rs_table: u64 = place_table(rs_core, rs_d)
+        starting: loop rs_i: u64 in 0..DOMAIN_PLACES {
+            rs_who: u64 = load64(rs_table + rs_i * 8)
+            if rs_who != 0 {
+                rs_header: u64 = rs_who - ACTOR_BEFORE_FIELDS
+                if (load64(rs_header + ACTOR_H_FLAGS) and ACTOR_F_PENDING) != 0 {
+                    store64(rs_header + ACTOR_H_FLAGS, load64(rs_header + ACTOR_H_FLAGS) - ACTOR_F_PENDING)
+                    start_here(rs_who, load64(rs_header + ACTOR_H_START), load64(rs_header + ACTOR_H_ARGS_WORDS), 0, load64(rs_header + ACTOR_H_ARGS))
+                }
+            }
         }
     }
 }
@@ -2198,6 +2311,13 @@ fn service_call(dm_pool: u64) -> u64 {
             }
             store64(dm_result, dm_tag)
             return domain_resume(0)
+        }
+        if dm_number == SVC_SPAWN_SEPARATE {
+            dm_placed: u64 = place_from_domain(dm_pool)
+            if dm_placed == 0 {
+                return REASON_BAD
+            }
+            return domain_resume(dm_placed)
         }
         if dm_number == SVC_TIMER {
             dm_t_target: u64 = domain_saved_x(0)
