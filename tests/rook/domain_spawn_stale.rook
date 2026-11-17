@@ -1,0 +1,61 @@
+// A `Domain` that was the handle of an earlier tenant of this domain's slot is stale, and an actor holding it cannot place actors in
+// the domain that has the slot now (decision 206; the same staleness as decision 201's `domain_stale_handle`).
+// Worked out: e is the first domain (core 1): its only actor ends and e is given back. Three more domains take the other cores' turns and
+// the fifth, x5, takes e's slot. The Pool in x5 is given a copy of the old handle e. Its `grow` asks to place a Worker: the handle names this
+// core and this domain but an earlier generation, so Raven refuses and fails the domain (expect-failure). The Pool restarts and its
+// `placed` is 0.
+// expect-failure: domain 1 made a request it may not
+// expect: 0
+
+import actors: Domain, new_domain, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    mut n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+    mut placed: u64
+
+    new(d: val Domain) {
+        .d = d
+        .placed = 0
+    }
+
+    pub lossy on grow() {
+        w: Worker = spawn Worker(1) in .d
+        .placed += 1
+    }
+
+    pub lossy on report(to: Printer) {
+        to.show(.placed)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    e: Domain = new_domain()
+    old: Worker = spawn Worker(0) in e
+    stop(old)
+    run_until_idle()
+    x2: Domain = new_domain()
+    x3: Domain = new_domain()
+    x4: Domain = new_domain()
+    x5: Domain = new_domain()
+    pool: Pool = spawn Pool(copy(e)) in x5
+    pool.grow()
+    run_until_idle()
+    pool.report(printer)
+    run_until_idle()
+}
