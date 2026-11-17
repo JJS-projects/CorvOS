@@ -569,6 +569,9 @@ class Gen:
                     self.emit("bl raven_stop")
             else:
                 self.emit("bl raven_stop_self")
+        elif isinstance(e, S.Call) and e.callee == "revoke":
+            self.expr(e.args[0])                    # the reference; the new one comes back in x0 (decision 207)
+            self.emit("bl raven_revoke")
         elif isinstance(e, S.Call) and e.callee == "actor_address":
             self.expr(e.args[0])                    # a reference: the address is its low 32 bits, the generation the high
             self.emit("mov w0, w0")

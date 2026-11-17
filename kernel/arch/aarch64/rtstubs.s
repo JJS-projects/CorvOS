@@ -31,6 +31,7 @@ rt_stubs:
     stub    raven_self, self_impl                   // 10: the running actor's whole reference, address and generation
     stub    raven_new_domain, new_domain_impl       // 11: an empty domain for `spawn ... in` (decision 201); not for a domain
     stub    raven_stop_domain, stop_domain_impl     // 12: ends the actors of a domain and gives it back (decision 201); not for a domain
+    stub    raven_revoke, revoke_impl               // 13: cuts off every reference to an actor and returns a new one (decision 207); not for a domain
     .org    4096                                    // the page is exactly 4 KB
 
     .section .text.rtgate, "ax"
@@ -45,7 +46,7 @@ rt_gate:
     ldr     x16, 2f
     br      x16
 2:  .quad   rt_gate_send_reliable
-    .irp n, 3,4,5,6,7,8,9,10,11,12
+    .irp n, 3,4,5,6,7,8,9,10,11,12,13
     svc     #\n
     ret
     .balign 16

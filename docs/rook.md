@@ -1138,6 +1138,15 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   failed again during a restart, or because a parent ended it. Without `stopped` only restarts
   are reported. A watch on an actor that has ended is forgotten (derived; open to review).
 
+### 11.18a `revoke` (10a, decision 207)
+
+- `door = revoke(door)` cuts off every reference to an actor at once and returns a new one: the old ones, the caller's and those it lent,
+  are stale from then on (a send is dropped, a `reliable` send is told `Gone`). The actor is not restarted and keeps its fields and its
+  mailbox. Only the actor that spawned it (or code outside any actor that did) can revoke it, as for `stop(ref)`; from anyone else it is
+  a failure. The argument must be a reference to an actor (not an interface), the result has the same type. An actor in a domain cannot
+  `revoke` yet (a compile error). Messages already in its mailbox are delivered; so a holder that sent just before still has them run.
+- It differs from a `Valve` (`raven/valve.rook`) in being a mechanism of Raven's, for any actor, with nothing in the path of a message.
+
 ### 11.19 Rules settled while building generics (step 5c)
 
 - **Declaring and writing.** `struct Pair<A, B> { ... }` and `enum Option<T> { ... }`; a use writes

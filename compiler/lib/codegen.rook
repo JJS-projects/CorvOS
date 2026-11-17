@@ -1263,6 +1263,9 @@ pub struct Codegen {
             } else {
                 .emit("bl raven_stop_self")
             }
+        } else if callee.same_as("revoke") {
+            .expr(args.get(0))              // the reference; the new one comes back in x0 (decision 207)
+            .emit("bl raven_revoke")
         } else if callee.same_as("actor_address") {
             .expr(args.get(0))              // a reference: the address is its low 32 bits, the generation the high
             .emit("mov w0, w0")

@@ -1,0 +1,8 @@
+// `revoke` takes a reference to an actor (decision 207).
+// alone
+// error: 7:21: `revoke` takes a reference to an actor, not u64
+
+fn cut() {
+    x: u64 = 5
+    y: u64 = revoke(x)
+}

@@ -999,6 +999,43 @@ pub extern fn raven_stop_domain(handle: u64)
 
 /// The holder of a domain ends it: nothing is placed in it from now on, every actor in it ends, and the domain is given back when the
 /// last of them has (at once if it has none).
+/// `revoke(target)` (decision 207): every reference to the actor `rv_ref` names goes stale at once, and the caller is given a new one. Only the
+/// actor that spawned it (or code outside any actor that did) may, as for `stop`. The actor runs on; what is already in its mailbox is
+/// delivered (those messages were sent with a reference that was good then, and a message carries no sender to tell them from the
+/// owner's); what is in a ring on its way is dropped when it arrives, as a send to any stale reference is; a timer armed with an old
+/// reference finds it stale when it fires. A reference that is stale already is returned as it is.
+pub fn revoke_impl(rv_ref: u64) -> u64 {
+    rv_base: u64 = actor_arena_base()
+    if not is_current(rv_ref) {
+        return rv_ref
+    }
+    rv_target: u64 = rv_ref and REF_ADDRESS_MASK
+    rv_header: u64 = rv_target - ACTOR_BEFORE_FIELDS
+    unsafe {
+        if load64(rv_header + ACTOR_H_PARENT) != load64(rv_base + ACTOR_S_CURRENT_ACTOR) {
+            panic("only the actor that spawned an actor can revoke it")
+        }
+        mut rv_word: u64 = load64(rv_header + ACTOR_H_DOMAIN)
+        rv_domain: u64 = domain_of(rv_target)
+        if rv_domain != 0 {
+            // (in a domain the high 16 bits of the generation are the domain's tenant; the low 16 count the revocations)
+            if ((rv_word shr REF_GENERATION_SHIFT) and 0xFFFF) == 0xFFFF {
+                panic("an actor in a domain can be revoked at most 65535 times")
+            }
+        }
+        rv_word += 1 shl REF_GENERATION_SHIFT
+        store64(rv_header + ACTOR_H_DOMAIN, rv_word)
+        if rv_domain != 0 {
+            rv_core: u64 = core_of_actor(rv_target)
+            rv_place: u64 = place_index(rv_core, rv_domain, rv_target)
+            if rv_place != RT_PLACES {
+                store64(domain_pool_base_of(rv_core, rv_domain) + RT_STATE + RT_S_GEN + rv_place * 8, rv_word shr REF_GENERATION_SHIFT)
+            }
+        }
+    }
+    return reference_to(rv_target)
+}
+
 pub fn stop_domain_impl(sd_handle: u64) {
     sd_packed: u64 = resolve_domain(sd_handle)
     sd_core: u64 = sd_packed shr 4

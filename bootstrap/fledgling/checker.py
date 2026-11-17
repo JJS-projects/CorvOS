@@ -57,7 +57,7 @@ STORES = {f"store{n}": INT_TYPES[f"u{n}"] for n in (8, 16, 32, 64)}
 # `actor_reference(reference)` the whole word, address and generation (decision 197), and
 # `handler_number("fired")` is the number messages use for the handlers of that name.
 # Both are allowed only inside `unsafe { }` in trusted files, like loads and stores.
-BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "stop", "actor_address", "actor_reference",
+BUILTINS = set(LOADS) | set(STORES) | {"panic", "watch", "stop", "revoke", "actor_address", "actor_reference",
                                                   "handler_number", "store_element", "load_element", "words_of"}
 
 ARITH = {"+", "-", "*", "/", "%"}
@@ -1196,6 +1196,8 @@ class Checker:
             return self.watch_call(e)
         if name == "stop":
             return self.stop_call(e)
+        if name == "revoke":
+            return self.revoke_call(e)
         if self.unsafe_depth == 0:
             where = "inside `unsafe { }`" if self.trusted else \
                 "in files under a trusted directory, inside `unsafe { }`"
@@ -1325,6 +1327,19 @@ class Checker:
         if not is_actor(ty) and not (is_aggregate(ty) and ty.name == "Domain"):
             raise CompileError(f"`stop` takes an actor reference or a `Domain`, not {ty}", e.args[0].pos)
         return UNIT
+
+    def revoke_call(self, e):
+        """`revoke(actor)` cuts off every reference to an actor this actor (or this code, outside any actor) spawned,
+        and gives back a new one (decision 207)."""
+        if len(e.args) != 1:
+            raise CompileError("`revoke` takes one argument: the actor reference to cut off", e.pos)
+        if (self.receiver is not None and is_actor(self.receiver[0])
+                and getattr(self.receiver[0].decl, "separate", False)):
+            raise CompileError("an actor in a domain can't `revoke` yet", e.pos)
+        ty = self.expr(e.args[0])
+        if not is_actor(ty):
+            raise CompileError(f"`revoke` takes a reference to an actor, not {ty}", e.args[0].pos)
+        return ty
 
     def build_with_new(self, e, st):
         """`Name(a: 1, b: 2)` for a struct that has a `new`: the arguments are those of `new`,

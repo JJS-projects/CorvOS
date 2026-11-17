@@ -1,0 +1,64 @@
+// `revoke(ref)` cuts off every copy of a reference at once and gives its spawner a new one (decision 207).
+// Worked out: the Owner spawns a Door and lends it to a Guest, which keeps its copy. The Guest uses it: the door opens (print 1).
+// The Owner revokes the door: its own old reference and the Guest's are stale, and it is handed a new one. The Guest uses its copy
+// again: nothing happens (the door does not open, and `dropped_messages` goes up by two with the one sent through `stale`, a second
+// revoke of the old reference, which changes nothing: print 2). The Owner uses the new reference:
+// it opens (print 2 again: the door has been opened twice in all, the second time through the new reference). The door was not restarted:
+// its count went on.
+// expect: 1
+// expect: 2
+// expect: 2
+
+import actors: dropped_messages, run_until_idle
+import print: print_u64
+
+actor Door {
+    mut opened: u64
+
+    new() {
+        .opened = 0
+    }
+
+    pub lossy on open(to: Printer) {
+        .opened += 1
+        to.show(.opened)
+    }
+}
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Guest {
+    mut door: Door
+    printer: Printer
+
+    new(door: Door, printer: Printer) {
+        .door = door
+        .printer = printer
+    }
+
+    pub lossy on knock() {
+        .door.open(.printer)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    mut door: Door = spawn Door()
+    guest: Guest = spawn Guest(door, printer)
+    guest.knock()
+    run_until_idle()
+    before: u64 = dropped_messages()
+    old: Door = door
+    door = revoke(door)
+    stale: Door = revoke(old)           // already stale: nothing to cut off, and no failure; it is still stale
+    stale.open(printer)
+    guest.knock()
+    run_until_idle()
+    print_u64(dropped_messages() - before)
+    door.open(printer)
+    run_until_idle()
+}

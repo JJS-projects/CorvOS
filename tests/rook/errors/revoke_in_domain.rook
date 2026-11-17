@@ -1,0 +1,16 @@
+// An actor in a domain cannot revoke yet (decision 207).
+// error: 14:17: an actor in a domain can't `revoke` yet
+
+separate actor Other {
+    mut n: u64
+
+    new() {
+        .n = 0
+    }
+}
+
+separate actor Maker {
+    pub lossy on make(o: Other) {
+        discard revoke(o)
+    }
+}
