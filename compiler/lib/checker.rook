@@ -642,7 +642,7 @@ pub struct Checker {
         discard .add_signature_row(0, 0, 0, 0, false, .empty())
         .builtin_types()
         .unit = .add_type(CHK_UNIT, .quoted("()"), 0)
-        .fill_builtins("load8 load16 load32 load64 store8 store16 store32 store64 panic watch stop actor_address")
+        .fill_builtins("load8 load16 load32 load64 store8 store16 store32 store64 panic watch stop revoke actor_address")
         .fill_builtins("handler_number store_element load_element words_of actor_reference")
         .imports.push(TextMap(region: .region))
         .exports.push(TextMap(region: .region))
@@ -4207,6 +4207,9 @@ pub struct Checker {
         if name.same_as("stop") {
             return .stop_call(e)
         }
+        if name.same_as("revoke") {
+            return .revoke_call(e)
+        }
         if .unsafe_depth == 0 {
             .fail_node(e)
             .say_name(name)
@@ -5033,6 +5036,33 @@ pub struct Checker {
             return 0
         }
         return .unit
+    }
+
+    /// `revoke(actor)` cuts off every reference to an actor this actor (or this code, outside any actor) spawned, and gives back a
+    /// new one (decision 207).
+    mut fn revoke_call(e: u64) -> u64 {
+        args: List<u64> = copy(.nodes.get(e).kids)
+        if args.len() != 1 {
+            .fail_node(e)
+            .say("`revoke` takes one argument: the actor reference to cut off")
+            return 0
+        }
+        if .recv != 0 and .types.get(.recv).kind == CHK_ACTOR and .is_separate(.recv) {
+            .fail_node(e)
+            .say("an actor in a domain can't `revoke` yet")
+            return 0
+        }
+        ty: u64 = .expr(args.get(0), 0, 0)
+        if .failed {
+            return 0
+        }
+        if not .is_actor(ty) {
+            .fail_node(args.get(0))
+            .say("`revoke` takes a reference to an actor, not ")
+            .say_type(ty)
+            return 0
+        }
+        return ty
     }
 
     // ---- struct values and variants ------------------------------------------------------------

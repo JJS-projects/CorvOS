@@ -171,7 +171,7 @@ no sender identity needed). (3) Timers as messages (a `Timer` capability). Outsi
 ([tools/bringup-stages.py](../tools/bringup-stages.py)) and the final write-up ([writeup.md](writeup.md)).
 
 **S, should have.** Raven schedules domains and the actor runtime moves into each domain (after the handle tables); real
-revocation through the handle table; model-checking the protocols between cores ([protocols.md](protocols.md), done as a
+revocation through the handle table (done in 10a, decision 207: `revoke(ref)`); model-checking the protocols between cores ([protocols.md](protocols.md), done as a
 start); deterministic multicore scheduling in QEMU (`ICOUNT`, done); fault injection in the test harness (done: `inject_failures`);
 a watchdog actor (after timers); bounce-buffer DMA; generics over actors (generic interfaces and actors done in 8f, decision 200).
 

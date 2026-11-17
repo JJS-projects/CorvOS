@@ -1,0 +1,46 @@
+// Only the actor that spawned an actor can revoke it, as only it can stop it (decisions 147 and 207).
+// Worked out: the Meddler is given a Door that test_main spawned and tries to revoke it: a failure like any bug (expect-failure), the
+// Meddler restarts. The Door, which was not touched, still opens: print 1.
+// expect-failure: only the actor that spawned an actor can revoke it at mailbox.rook:*
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Door {
+    mut opened: u64
+
+    new() {
+        .opened = 0
+    }
+
+    pub lossy on open(to: Printer) {
+        .opened += 1
+        to.show(.opened)
+    }
+}
+
+actor Meddler {
+    new() {
+    }
+
+    pub lossy on meddle(door: Door) {
+        discard revoke(door)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    door: Door = spawn Door()
+    meddler: Meddler = spawn Meddler()
+    meddler.meddle(door)
+    run_until_idle()
+    door.open(printer)
+    run_until_idle()
+}

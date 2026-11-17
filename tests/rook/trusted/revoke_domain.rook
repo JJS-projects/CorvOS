@@ -1,0 +1,66 @@
+// A revoked actor in a domain is cut off from actors of its own domain too (decision 207): the fast path of decision 204 checks the
+// generation the runtime holds, which `revoke` updates.
+// Worked out: Sink and Pinger share a domain, and the Pinger holds a reference to the Sink. The Pinger sends it a reliable `firm(1)`:
+// Delivered by the fast path (delivered 1) and the Sink handles it (total 1). test_main, which spawned the Sink, revokes it. The Pinger
+// tries again with its old reference: Gone (gone 1), and the Sink's total stays 1. test_main sends through the new reference:
+// total 2.
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 2
+
+import actors: Domain, Sent, new_domain, run_until_idle
+import print: print_u64
+
+separate actor Sink {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub reliable on firm(k: u64) {
+        .total += k
+    }
+}
+
+separate actor Pinger {
+    to: Sink
+    mut delivered: u64
+    mut gone: u64
+
+    new(to: Sink) {
+        .to = to
+        .delivered = 0
+        .gone = 0
+    }
+
+    pub lossy on attempt() {
+        match .to.firm(1) {
+            Delivered => .delivered += 1
+            MailboxFull => discard 0
+            Gone => .gone += 1
+        }
+    }
+}
+
+fn test_main() {
+    d: Domain = new_domain()
+    mut sink: Sink = spawn Sink() in d
+    pinger: Pinger = spawn Pinger(sink) in d
+    pinger.attempt()
+    run_until_idle()
+    sink = revoke(sink)
+    pinger.attempt()
+    run_until_idle()
+    unsafe {
+        print_u64(load64(actor_address(pinger) + 8))
+        print_u64(load64(actor_address(pinger) + 16))
+        print_u64(load64(actor_address(sink)))
+    }
+    discard sink.firm(1)
+    run_until_idle()
+    unsafe {
+        print_u64(load64(actor_address(sink)))
+    }
+}

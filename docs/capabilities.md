@@ -56,7 +56,10 @@ they offer). Raven's own untrusted files (`pl011.rook`, `valve.rook`) are held t
 | 15 | Find a shared global to write through | There is no global mutable state; constants are numbers, bools and text | `error/global_mut` |
 | 16 | Use a name it never imported | A file uses another file's names only if it imports them | `error/import_missing_*` |
 
-For revocation: every copy of the shell's reference points at the valve, so one `revoke`
+`revoke(ref)` (decision 207) is the other way to the same end: the spawner of an actor cuts off every reference to it, with nothing in the path of a
+message and for any actor, at the price that messages already in its mailbox are still delivered (`rook/revoke_basic`, `revoke_domain`).
+
+For revocation with a `Valve`: every copy of the shell's reference points at the valve, so one `revoke`
 closes all of them, whoever the shell passed it to. The revocation message is `reliable`, so
 a full mailbox is reported to the owner instead of losing it (`rook/capability_revoke` checks
 the line is written once; `harness/line_count` checks that check can fail).
