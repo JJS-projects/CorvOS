@@ -37,9 +37,61 @@ rt_stubs:
     .balign 4096
     .global rt_gate
 rt_gate:
-    .irp n, 1,2,3,4,5,6,7,8,9,10,11,12
+    // Entries 1 and 2 (a send, a reliable send) first try the fast path of decision 204 and ask Raven only if it did not handle the
+    // message. The gate page is the same virtual address in every domain but the stubs' physical copy, so the jump is absolute.
+    ldr     x16, 1f
+    br      x16
+1:  .quad   rt_gate_send
+    ldr     x16, 2f
+    br      x16
+2:  .quad   rt_gate_send_reliable
+    .irp n, 3,4,5,6,7,8,9,10,11,12
     svc     #\n
     ret
     .balign 16
     .endr
     .org    4096
+
+    .section .text, "ax"
+// A send inside a domain (decision 204): try `domain_send_local(target, handler, payload, words, pool)`, where pool is this domain's own
+// pool (the stack is in it, and a pool is 2 MB aligned); if it did not handle it, `svc #1`. x0-x3 and the link register are kept
+// across the call so that the svc sees the arguments.
+    .global rt_gate_send
+rt_gate_send:
+    sub     sp, sp, #48
+    stp     x0, x1, [sp]
+    stp     x2, x3, [sp, #16]
+    str     x30, [sp, #32]
+    mov     x4, sp
+    lsr     x4, x4, #21
+    lsl     x4, x4, #21                 // the domain's pool: the stack pointer with the low 21 bits cleared
+    bl      domain_send_local
+    mov     x9, x0                      // 1: handled
+    ldp     x0, x1, [sp]
+    ldp     x2, x3, [sp, #16]
+    ldr     x30, [sp, #32]
+    add     sp, sp, #48
+    cbnz    x9, 1f
+    svc     #1
+1:  ret
+
+// The same for a send to a `reliable` handler: x8 is where the result goes (kept too), and it is the sixth argument.
+    .global rt_gate_send_reliable
+rt_gate_send_reliable:
+    sub     sp, sp, #64
+    stp     x0, x1, [sp]
+    stp     x2, x3, [sp, #16]
+    stp     x8, x30, [sp, #32]
+    mov     x4, sp
+    lsr     x4, x4, #21
+    lsl     x4, x4, #21
+    mov     x5, x8
+    bl      domain_send_reliable_local
+    mov     x9, x0
+    ldp     x0, x1, [sp]
+    ldp     x2, x3, [sp, #16]
+    ldp     x8, x30, [sp, #32]
+    add     sp, sp, #64
+    cbnz    x9, 1f
+    svc     #2
+1:  ret

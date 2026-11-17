@@ -1,0 +1,75 @@
+// The fast path (decision 204) checks the generation of the reference it is given, so a reference to an actor of an earlier tenant of a
+// domain, which names the very address of an actor of this tenant, delivers nothing to it.
+// Worked out: e is the first domain (core 1) and `old` is placed in it, then stopped: e is given back. Three more domains take the other
+// cores' turns and the fifth, x5, takes e's slot (core 1 again) with a higher generation. Its first actor, `fresh`, is at the very address
+// `old` was (print 1). A Pinger, the second actor of x5, is told to send a reliable `firm(1)` to `old`: the reference is stale, so the fast
+// path leaves it to Raven, which answers Gone (print 1 for gone); to `fresh` it is Delivered (print 1 for delivered) by the fast path
+// (the domain's count of fast sends is 1). `fresh` handled exactly one message (print 1): the one it was sent, not the one meant for `old`.
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+
+import actors: Domain, Sent, new_domain, run_until_idle
+import domain_runtime: RT_STATE, RT_S_FAST
+import print: print_u64
+
+separate actor Sink {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub reliable on firm(k: u64) {
+        .total += k
+    }
+}
+
+separate actor Pinger {
+    mut delivered: u64
+    mut gone: u64
+
+    new() {
+        .delivered = 0
+        .gone = 0
+    }
+
+    pub lossy on attempt(to: Sink) {
+        match to.firm(1) {
+            Delivered => .delivered += 1
+            MailboxFull => discard 0
+            Gone => .gone += 1
+        }
+    }
+}
+
+fn test_main() {
+    e: Domain = new_domain()
+    old: Sink = spawn Sink() in e
+    stop(old)
+    run_until_idle()
+    x2: Domain = new_domain()
+    x3: Domain = new_domain()
+    x4: Domain = new_domain()
+    x5: Domain = new_domain()
+    fresh: Sink = spawn Sink() in x5
+    pinger: Pinger = spawn Pinger() in x5
+    unsafe {
+        if actor_address(fresh) == actor_address(old) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    pinger.attempt(old)
+    pinger.attempt(fresh)
+    run_until_idle()
+    unsafe {
+        print_u64(load64(actor_address(pinger) + 8))
+        print_u64(load64(actor_address(pinger)))
+        print_u64(load64((actor_address(pinger) and 0xFFFFFFFFFFE00000) + RT_STATE + RT_S_FAST))
+        print_u64(load64(actor_address(fresh)))
+    }
+}

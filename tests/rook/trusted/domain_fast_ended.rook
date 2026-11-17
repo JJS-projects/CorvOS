@@ -1,0 +1,83 @@
+// The fast path (decision 204) does not deliver to an actor that has ended: the send goes to Raven, which answers as it always did (decision 150).
+// Worked out: three Idle actors take cores 1 to 3, so the domain is on core 0, whose counters this test reads. A Pinger and a Sink are in one domain. The Pinger is told `try(sink)` twice, once before the Sink ends (the reliable send is
+// Delivered: delivered 1) and once after stop(sink) (Gone: gone 1), and a lossy send to the ended one is dropped (dropped_messages() 1 more).
+// The Sink handled the first message (its total is 1) and the fast path delivered exactly one message (the first: 1).
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+// expect: 1
+
+import actors: Domain, Sent, dropped_messages, new_domain, run_until_idle
+import domain_runtime: RT_STATE, RT_S_FAST
+import print: print_u64
+
+separate actor Idle {
+    mut unused: u64
+
+    new() {
+        .unused = 0
+    }
+}
+
+separate actor Sink {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub lossy on add(k: u64) {
+        .total += k
+    }
+
+    pub reliable on firm(k: u64) {
+        .total += k
+    }
+}
+
+separate actor Pinger {
+    mut delivered: u64
+    mut gone: u64
+
+    new() {
+        .delivered = 0
+        .gone = 0
+    }
+
+    pub lossy on attempt(to: Sink) {
+        match to.firm(1) {
+            Delivered => .delivered += 1
+            MailboxFull => discard 0
+            Gone => .gone += 1
+        }
+    }
+
+    pub lossy on soft(to: Sink) {
+        to.add(1)
+    }
+}
+
+fn test_main() {
+    i1: Idle = spawn Idle()
+    i2: Idle = spawn Idle()
+    i3: Idle = spawn Idle()
+    d: Domain = new_domain()
+    sink: Sink = spawn Sink() in d
+    pinger: Pinger = spawn Pinger() in d
+    pinger.attempt(sink)
+    run_until_idle()
+    stop(sink)
+    run_until_idle()
+    before: u64 = dropped_messages()
+    pinger.attempt(sink)
+    pinger.soft(sink)
+    run_until_idle()
+    unsafe {
+        print_u64(load64(actor_address(pinger)))
+        print_u64(load64(actor_address(pinger) + 8))
+        print_u64(dropped_messages() - before)
+        print_u64(load64(actor_address(sink)))
+        print_u64(load64((actor_address(pinger) and 0xFFFFFFFFFFE00000) + RT_STATE + RT_S_FAST))
+    }
+}

@@ -43,6 +43,8 @@ pub RT_S_HELD: u64 = 256            // 1: its `new` has not run yet (it was spaw
 RT_S_QUEUE: u64 = 320               // the run queue: RT_QUEUE_SLOTS places
 RT_QUEUE_SLOTS: u64 = 64
 RT_S_PAYLOAD: u64 = 832             // the message being handled, as the handler is given it
+pub RT_S_GEN: u64 = 896             // the generation of each place's actor (the high half of a reference to it): Raven writes it when it places one
+pub RT_S_FAST: u64 = 960            // how many sends the fast path has delivered (a measurement, and what the tests look at)
 
 /// The address of the mailbox of place `rb_place` in the pool at `rb_pool`.
 pub fn rt_block(rb_pool: u64, rb_place: u64) -> u64 {
@@ -156,5 +158,68 @@ pub fn domain_turn(dt_produced: u64, dt_pool: u64) -> u64 {
             return 1
         }
         return 0
+    }
+}
+
+/// The place of the actor whose fields are at `fp_address` in the pool at `fp_pool`, if it is current (the reference `fp_ref` names its
+/// generation) and has not ended; RT_PLACES if not. A reference that does not fit goes the long way, to Raven, which says what is wrong.
+fn find_place(fp_pool: u64, fp_ref: u64) -> u64 {
+    unsafe {
+        fp_state: u64 = fp_pool + RT_STATE
+        fp_address: u64 = fp_ref and 0xFFFFFFFF
+        finding: loop fp_i: u64 in 0..RT_PLACES {
+            if load64(fp_state + RT_S_ACTOR + fp_i * 8) == fp_address {
+                if load64(fp_state + RT_S_GEN + fp_i * 8) == (fp_ref shr 32) and load64(fp_state + RT_S_ENDED + fp_i * 8) == 0 {
+                    return fp_i
+                }
+                return RT_PLACES
+            }
+        }
+    }
+    return RT_PLACES
+}
+
+/// The fast path of a send (decision 204): a send inside a domain to an actor of the same domain, from `ds_pool` (the sender's own
+/// pool, which the stub in rtstubs.s takes from the stack pointer), is put straight into the mailbox, without a call to Raven.
+/// 1 if it was: a full mailbox is a loss of the domain, counted as the ring's are. 0 if the target is not here, not current or has
+/// ended, or the message is too long (Raven's own check then settles it, as before).
+pub fn domain_send_local(ds_target: u64, ds_handler: u64, ds_payload: u64, ds_words: u64, ds_pool: u64) -> u64 {
+    unsafe {
+        if ds_words > 8 or (ds_target and 0xFFFFFFFF) < ds_pool or (ds_target and 0xFFFFFFFF) - ds_pool >= 0x200000 {
+            return 0
+        }
+        ds_place: u64 = find_place(ds_pool, ds_target)
+        if ds_place == RT_PLACES {
+            return 0
+        }
+        ds_state: u64 = ds_pool + RT_STATE
+        if rt_put(ds_pool, ds_place, ds_handler, ds_words, ds_payload) {
+            store64(ds_state + RT_S_FAST, load64(ds_state + RT_S_FAST) + 1)
+        } else {
+            store64(ds_state + RT_S_LOST, load64(ds_state + RT_S_LOST) + 1)
+        }
+        return 1
+    }
+}
+
+/// The fast path of a send to a `reliable` handler: the same, and the sender is told: 0 delivered, 1 the mailbox is full (written at
+/// `ds_result`). 1 if it was handled here, 0 if it has to go to Raven.
+pub fn domain_send_reliable_local(ds_target: u64, ds_handler: u64, ds_payload: u64, ds_words: u64, ds_pool: u64, ds_result: u64) -> u64 {
+    unsafe {
+        if ds_words > 8 or (ds_target and 0xFFFFFFFF) < ds_pool or (ds_target and 0xFFFFFFFF) - ds_pool >= 0x200000 {
+            return 0
+        }
+        ds_place: u64 = find_place(ds_pool, ds_target)
+        if ds_place == RT_PLACES {
+            return 0
+        }
+        ds_state: u64 = ds_pool + RT_STATE
+        if rt_put(ds_pool, ds_place, ds_handler, ds_words, ds_payload) {
+            store64(ds_state + RT_S_FAST, load64(ds_state + RT_S_FAST) + 1)
+            store64(ds_result, 0)
+        } else {
+            store64(ds_result, 1)
+        }
+        return 1
     }
 }
