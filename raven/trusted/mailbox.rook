@@ -133,7 +133,8 @@ DOMAIN_CONTROL_PAGE: u64 = 16       // the page of the control page of the first
 DOMAIN_INBOX_PAGE: u64 = 511        // the last page, where the message being handled is copied
 DOMAIN_ARGS_SAVE: u64 = 2800        // bytes of the control page below the header: where the arguments of `new` wait while a domain restarts
 DOMAIN_OPEN: u64 = 1                // the state of a domain that is in use (domain_actor_of says 0 for a free one) ...
-DOMAIN_CLOSING: u64 = 2             // ... and one whose actors are being ended: nothing is placed in it any more
+DOMAIN_CLOSING: u64 = 2             // ... and one whose actors are being ended: nothing is placed in it any more ...
+DOMAIN_FREEING: u64 = 3             // ... and one being given back by its own core (decision 211): not free yet, and not run
 DOMAIN_CLEAN: u64 = 0x5EC0C1EA9ED0C0DE  // the first word of the control page of a pool that was wiped when its actor ended
 DOMAIN_STACK_FIRST: u64 = 0x1000    // the stack: [0x1000, 0x10000); then the control page; then the data
 DOMAIN_STACK_END: u64 = 0x10000
@@ -150,6 +151,7 @@ REC_STOP: u64 = 4                   // end the actor
 REC_DROP_WATCHES: u64 = 5           // a watcher ended or restarted: forget its watches
 REC_TIMER: u64 = 6                  // arm a timer on core 0 (decision 196): 2 handler number, 3 deadline, 4 token
 REC_RETIRE: u64 = 7                 // an actor in a domain has ended (decision 197): core 0 gives its domain back
+REC_FREE_DOMAIN: u64 = 8            // core 0 to a domain's own core: give domain (word 1) back now (decision 211)
 REC_PAYLOAD: u64 = 48               // byte offset of the message words in a record
 SVC_SEND: u64 = 1                   // the calls (rtstubs.s)
 SVC_SEND_RELIABLE: u64 = 2
@@ -318,12 +320,13 @@ fn retire_domain(rd_who: u64) {
     }
 }
 
-/// Gives domain `fd_d` of core `fd_core` back (decision 197, for several actors, decision 201). In this order: its table of places is
-/// cleared (from now a reference to any of its actors is refused, whatever its pages hold), its generation changes (the handle of the
-/// domain is stale), the peripherals are taken away and the translations dropped on every core, the pages that only EL1 reached are
-/// ordinary again, the pool is wiped and marked as wiped; then the domain counts as free.
+/// Gives domain `fd_d` of core `fd_core` back (decision 197, for several actors, decision 201). Core 0 does, at once, what makes
+/// every reference and handle stale: it clears the table of places (from now a reference to any of its actors is refused, whatever
+/// its pages hold) and changes the domain's generation (its handle is stale), and marks it FREEING, which no spawn takes and no turn
+/// runs. The rest is done by the domain's own core, between two of its turns, because that core may still have the domain in its
+/// run queue and keeps its ring's numbers (decision 211, the model `give_back`): core 0 sends it a record, or does it here if the
+/// domain is its own.
 fn free_domain_now(fd_core: u64, fd_d: u64) {
-    fd_pool: u64 = domain_pool_base_of(fd_core, fd_d)
     fd_table: u64 = place_table(fd_core, fd_d)
     unsafe {
         clearing: loop fd_i: u64 in 0..DOMAIN_PLACES {
@@ -331,12 +334,32 @@ fn free_domain_now(fd_core: u64, fd_d: u64) {
         }
         fd_gen: u64 = core_block(fd_core) + CORE_DOMAIN_GEN + (fd_d - 1) * 8
         store64(fd_gen, load64(fd_gen) + 1)
-        runtime_discard(fd_core, fd_d)
-        domain_unmap_devices_of(fd_core, fd_d)
-        domain_reset_pool_map(fd_core, fd_d)
-        pool_wipe(fd_pool)
-        store64(fd_pool + DOMAIN_CONTROL, DOMAIN_CLEAN)
-        domain_set_actor_of(fd_core, fd_d, 0)
+        domain_set_actor_of(fd_core, fd_d, DOMAIN_FREEING)
+        if fd_core == core_id() {
+            finish_give_back(fd_d)
+            return
+        }
+        fd_rec: u64 = ring_scratch(0)
+        store64(fd_rec, REC_FREE_DOMAIN)
+        store64(fd_rec + 8, fd_d)
+        push_record(fd_core, fd_rec)
+    }
+}
+
+/// On the domain's own core (decision 211): gives domain `gb_d` back. In this order: what was in its ring and the hold are counted
+/// as over, the peripherals are taken away and the translations dropped on every core, the pages that only EL1 reached are ordinary
+/// again, the pool is wiped and marked as wiped; then the domain is free (written with a release, so a core that sees it free sees
+/// the wipe too).
+fn finish_give_back(gb_d: u64) {
+    gb_core: u64 = core_id()
+    gb_pool: u64 = domain_pool_base_of(gb_core, gb_d)
+    unsafe {
+        runtime_discard(gb_core, gb_d)
+        domain_unmap_devices_of(gb_core, gb_d)
+        domain_reset_pool_map(gb_core, gb_d)
+        pool_wipe(gb_pool)
+        store64(gb_pool + DOMAIN_CONTROL, DOMAIN_CLEAN)
+        domain_set_actor_of(gb_core, gb_d, 0)
     }
 }
 
@@ -902,8 +925,9 @@ fn run_domain_entry(re_d: u64) {
     re_state: u64 = ring_state(re_core, re_d)
     unsafe {
         store64(re_state + RING_QUEUED, 0)
-        if domain_actor_of(re_core, re_d) == 0 {
-            return                              // it has been given back since
+        re_state_now: u64 = domain_actor_of(re_core, re_d)
+        if re_state_now != DOMAIN_OPEN and re_state_now != DOMAIN_CLOSING {
+            return                              // it has been given back since, or is being given back (decision 211)
         }
         domain_budget_begin()
     }
@@ -1900,6 +1924,8 @@ fn handle_record(rt_rec: u64) {
             end_actor(rt_who)
         } else if rt_kind == REC_RETIRE {
             retire_domain(rt_who)
+        } else if rt_kind == REC_FREE_DOMAIN {
+            finish_give_back(rt_who)
         } else if rt_kind == REC_DROP_WATCHES {
             drop_watches(rt_who)
         } else if rt_kind == REC_TIMER {
