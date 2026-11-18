@@ -1,0 +1,37 @@
+// A domain that restarts counts each message it loses once (decision 214). Until then a message that the runtime had taken from the
+// ring into a mailbox was counted when the mailbox was emptied and again when the ring was discarded.
+// Worked out: three Spacers take cores 1, 2 and 3 (decision 180's order), so the Victim lives in a domain of core 0, whose count of
+// lost messages `lost_messages()` reads. It is sent `boom`, `note(1)` and `note(2)`; one turn takes all three into its mailbox and
+// runs `boom`, which fails (the failure below), with the two notes waiting. They are lost in the restart: 2 (before decision 214: 5,
+// the two notes counted twice and the failed message once).
+// expect-failure: victim fails at domain_lost_restart.rook:19
+// expect: 2
+
+import actors: lost_messages, run_until_idle
+import print: print_u64
+
+separate actor Spacer {
+    pub lossy on idle() { }
+}
+
+separate actor Victim {
+    pub lossy on boom() {
+        panic("victim fails")
+    }
+
+    pub lossy on note(k: u64) { }
+}
+
+fn test_main() {
+    s1: Spacer = spawn Spacer()
+    s2: Spacer = spawn Spacer()
+    s3: Spacer = spawn Spacer()
+    victim: Victim = spawn Victim()             // on core 0
+    run_until_idle()
+    before: u64 = lost_messages()
+    victim.boom()
+    victim.note(1)
+    victim.note(2)
+    run_until_idle()
+    print_u64(lost_messages() - before)
+}

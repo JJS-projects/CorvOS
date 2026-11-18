@@ -9,7 +9,7 @@
 import assembly: cache_flush_range, domain_pool_base_of
 import devices: Mmio
 import hardware: counter_frequency, read_counter
-import mailbox: core_of_actor, domain_of, is_current, range_hits_control_page
+import mailbox: DOMAIN_DMA_BLOCK, core_of_actor, domain_of, is_current, range_hits_control_page
 
 DMA_DATA_START: u64 = 0x11000       // the first byte of a pool a device may touch: after the guard page, the stack (0x1000 to
                                     // 0x10000) and the control page (0x10000 to 0x11000, the actor's header and mailbox,
@@ -52,7 +52,6 @@ pub fn dma_window(dw_owner: u64, dw_offset: u64, dw_length: u64) -> u64 {
 // the `Mmio` of a DMA channel.
 
 DMA_BUS: u64 = 0xC0000000           // the bus alias of RAM that bypasses the caches: a device's address is the physical one + this
-DMA_CB_OFFSET: u64 = 0x10800        // where the service keeps its control block: in the EL1-only control page of the owner's pool
 DMA_TI_COPY: u64 = 0x110            // transfer information: source and destination addresses both increment
 DMA_CS_ACTIVE: u64 = 1
 DMA_CS_END: u64 = 2
@@ -97,7 +96,8 @@ fn dma_copy(dc_owner: u64, dc_channel: Mmio, dc_enable: Mmio, dc_number: u64, dc
         return false                                // overlapping ranges: what a device does with them is not defined
     }
     unsafe {
-        dc_block: u64 = dc_to - dc_dst + DMA_CB_OFFSET          // the pool's base + the control block's offset
+        dc_block: u64 = dc_to - dc_dst + DOMAIN_DMA_BLOCK       // the pool's base + the control block's offset: in the first place's
+                                                                // EL1-only page, after the arguments a restart keeps there (decision 212)
         store32(dc_block, DMA_TI_COPY wrap u32)
         store32(dc_block + 4, (DMA_BUS + dc_from) wrap u32)
         store32(dc_block + 8, (DMA_BUS + dc_to) wrap u32)
