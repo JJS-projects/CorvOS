@@ -70,6 +70,28 @@ pub fn rt_queue_push(rq_pool: u64, rq_place: u64) {
     }
 }
 
+/// How many of the messages waiting in the mailbox of place `rm_place` came through the ring, so that Raven counted them: those
+/// without RT_FAST_FLAG (decision 210). Raven calls this at EL1 on the domain's own words: the count is capped at the mailbox's size
+/// and the start reduced before use (decision 208).
+pub fn rt_ring_messages_in(rm_pool: u64, rm_place: u64) -> u64 {
+    mut rm_found: u64 = 0
+    unsafe {
+        rm_block: u64 = rt_block(rm_pool, rm_place)
+        mut rm_count: u64 = load64(rm_block + 8)
+        if rm_count > RT_MAILBOX_SLOTS {
+            rm_count = RT_MAILBOX_SLOTS
+        }
+        rm_first: u64 = load64(rm_block) % RT_MAILBOX_SLOTS
+        counting: loop rm_i: u64 in 0..rm_count {
+            rm_slot: u64 = rm_block + RT_MAILBOX_AT + ((rm_first + rm_i) % RT_MAILBOX_SLOTS) * RT_SLOT_WORDS * 8
+            if (load64(rm_slot) and RT_FAST_FLAG) == 0 {
+                rm_found += 1
+            }
+        }
+    }
+    return rm_found
+}
+
 /// Puts the message `pm_handler` with `pm_words` words (at `pm_payload`) in the mailbox of place `pm_place`, and the place in the run queue
 /// unless it is in it or waits for its `new`. False, with nothing changed, if the mailbox is full.
 pub fn rt_put(pm_pool: u64, pm_place: u64, pm_handler: u64, pm_words: u64, pm_payload: u64) -> bool {

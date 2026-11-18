@@ -1,0 +1,65 @@
+// The fix of decision 206 has a test that fails without it (decision 210): an actor a handler places in its own domain, and a
+// message sent to it at once, keep the system busy after the turn until the message has run.
+// Worked out: as `domain_spawn`: the Pool, in domain d on core 1, places a Worker and sends it `say` by the fast path, which waits
+// until the Worker's `new` has run at the end of the turn. Core 1 is limited to that one turn (decision 210's test hook): after it,
+// the Worker's message waits, and the count of unfinished messages must not be 0 (1). Without decision 206's hold it was 0 here,
+// which is the gap through which `domain_spawn` lost its second line about one run in ten. Then core 1 runs again: 7.
+// expect: 1
+// expect: 7
+
+import actors: Domain, new_domain, run_until_idle
+import mailbox: test_limit_turns, test_turns_left, unfinished_messages, wait_for_other_cores
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+
+    new(d: val Domain) {
+        .d = d
+    }
+
+    pub lossy on grow(n: u64, printer: Printer) {
+        w: Worker = spawn Worker(n) in .d
+        w.say(printer)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()                    // on core 1
+    pool: Pool = spawn Pool(copy(d)) in d
+    run_until_idle()
+    test_limit_turns(1, 2)                      // one more turn on core 1, then none
+    pool.grow(7, printer)
+    waiting: loop rt_i: u64 in 0..50000000 {
+        if test_turns_left(1) == 1 {
+            break waiting
+        }
+        wait_for_other_cores()
+    }
+    if unfinished_messages() > 0 {
+        print_u64(1)
+    } else {
+        print_u64(0)
+    }
+    test_limit_turns(1, 0)
+    run_until_idle()
+}

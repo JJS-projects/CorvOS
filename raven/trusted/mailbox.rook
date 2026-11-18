@@ -15,7 +15,7 @@
 
 import actors: Sent
 import assembly: atomic_increment, domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
-import domain_runtime: RT_S_GEN, RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
+import domain_runtime: rt_ring_messages_in, RT_S_GEN, RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -102,6 +102,11 @@ CORE_DOMAIN_SEEN: u64 = 832         // per domain, 64 bytes: a bit for each page
 CORE_PLACE_GEN: u64 = 1296          // (1024 to 1279 are the two scratch ring records of rings.s; 1288 is CORE_TIMER_SEQ)
 PLACE_GEN_LAST: u64 = 0xFFFFFFFF
 PLACE_GEN_NONE: u64 = 0x100000000      // what next_place_generation says when there is none left (no reference holds it)
+// For tests only (decision 210), in each core's block: a bit for each core whose ring to this one `drain_rings` leaves alone, and a
+// limit on turns (0: none; n > 0: this core runs n - 1 more turns, then none until it is changed). They make a schedule between
+// two cores that a test needs happen every time, instead of once in ten runs.
+CORE_TEST_HOLD: u64 = 1320
+CORE_TEST_TURNS: u64 = 1328
 CORE_TIMER_SEQ: u64 = 1288
 CORE_TIMERS: u64 = 1536
 TIMER_SLOTS: u64 = 32
@@ -736,10 +741,13 @@ fn runtime_clear(rc_who: u64) {
         }
         rc_base: u64 = actor_arena_base()
         store64(rc_base + ACTOR_S_LOST, load64(rc_base + ACTOR_S_LOST) + rc_count)
+        // only the messages that came through the ring are in Raven's count: those the fast path put there are not (RT_FAST_FLAG),
+        // and counting them as finished would make a ring record that still waits look finished (decision 210)
+        rc_ring: u64 = rt_ring_messages_in(domain_pool_base_of(rc_core, rc_d), rc_place)
         rc_over_at: u64 = domain_pool_base_of(rc_core, rc_d) + RT_STATE + RT_S_FINISHED
         rc_over: u64 = load64(rc_over_at)       // (the domain's own count, which it may have set to anything: decision 208)
-        if rc_over <= 0xFFFFFFFFFFFFFFFF - rc_count {
-            store64(rc_over_at, rc_over + rc_count)     // they are over (refresh_consumed clamps whatever this holds)
+        if rc_over <= 0xFFFFFFFFFFFFFFFF - rc_ring {
+            store64(rc_over_at, rc_over + rc_ring)      // they are over (refresh_consumed clamps whatever this holds)
         }
         store64(rc_block, 0)
         store64(rc_block + 8, 0)
@@ -772,10 +780,28 @@ fn runtime_release(rl_who: u64) {
     unsafe {
         store64(rl_pool + RT_STATE + RT_S_HELD + rl_place * 8, 0)
         rl_block: u64 = rt_block(rl_pool, rl_place)
-        if load64(rl_block + 8) != 0 and load64(rl_block + 16) == 0 {
-            store64(rl_block + 16, 1)
-            rt_queue_push(rl_pool, rl_place)
-            queue_domain(rl_core, rl_d)
+        if load64(rl_block + 8) != 0 {
+            if load64(rl_block + 16) == 0 {
+                store64(rl_block + 16, 1)
+                rt_queue_push(rl_pool, rl_place)
+                queue_domain(rl_core, rl_d)
+            }
+            // (what waits may be messages its own domain sent it while it waited for its `new`, which no count of Raven's
+            // includes: the domain is held, so the system is not idle until a turn has run them, decision 210)
+            hold_domain(rl_core, rl_d)
+        }
+    }
+}
+
+/// The domain has messages that no count of Raven's includes (decision 204): one is added to the count of unfinished messages
+/// for the whole domain, unless it is held already. A turn that ends with no message left takes it away (`run_domain_entry`),
+/// and so do a restart and a give-back (`runtime_discard`).
+fn hold_domain(hd_core: u64, hd_d: u64) {
+    hd_state: u64 = ring_state(hd_core, hd_d)
+    unsafe {
+        if load64(hd_state + RING_HOLD) == 0 {
+            pending_add(1)
+            store64(hd_state + RING_HOLD, 1)
         }
     }
 }
@@ -1836,8 +1862,9 @@ fn push_record(core: u64, rec: u64) {
 pub fn drain_rings() {
     unsafe {
         rt_rec: u64 = ring_scratch(1)
+        rt_held: u64 = load64(core_block(core_id()) + CORE_TEST_HOLD)      // (0 except in a test, decision 210)
         draining: loop rt_src: u64 in 0..4 {
-            if rt_src != core_id() {
+            if rt_src != core_id() and ((rt_held shr rt_src) and 1) == 0 {
                 taking: loop ring_pop(rt_src, rt_rec) != 0 {
                     handle_record(rt_rec)
                     pending_sub(1)              // the record is handled
@@ -2044,7 +2071,36 @@ pub fn wait_for_other_cores() {
 
 pub fn actors_waiting() -> u64 {
     unsafe {
+        if load64(core_block(core_id()) + CORE_TEST_TURNS) == 1 {
+            return 0                            // a test has stopped this core's turns (decision 210)
+        }
         return load64(actor_arena_base() + ACTOR_S_RUNQ_COUNT)
+    }
+}
+
+/// For tests (decision 210): core `th_core` leaves the ring from core `th_source` alone while `th_held` (its records wait there).
+pub fn test_hold_ring(th_core: u64, th_source: u64, th_held: bool) {
+    unsafe {
+        th_at: u64 = core_block(th_core) + CORE_TEST_HOLD
+        if th_held {
+            store64(th_at, load64(th_at) or (1 shl th_source))
+        } else {
+            store64(th_at, load64(th_at) and not (1 shl th_source))
+        }
+    }
+}
+
+/// For tests (decision 210): core `tl_core` runs `tl_turns` - 1 more turns and then none, until this is called again (0: no limit).
+pub fn test_limit_turns(tl_core: u64, tl_turns: u64) {
+    unsafe {
+        store64(core_block(tl_core) + CORE_TEST_TURNS, tl_turns)
+    }
+}
+
+/// For tests (decision 210): how many more turns core `tc_core` may run, plus one (0: no limit). 1 once it has run them all.
+pub fn test_turns_left(tc_core: u64) -> u64 {
+    unsafe {
+        return load64(core_block(tc_core) + CORE_TEST_TURNS)
     }
 }
 
@@ -2063,6 +2119,16 @@ fn run_queue_push(actor_ref: u64) {
 }
 
 pub fn run_one_turn() {
+    run_turn_now()
+    unsafe {
+        rt_turns_at: u64 = core_block(core_id()) + CORE_TEST_TURNS
+        if load64(rt_turns_at) > 1 {
+            store64(rt_turns_at, load64(rt_turns_at) - 1)        // a test limits this core's turns (decision 210)
+        }
+    }
+}
+
+fn run_turn_now() {
     rt_base: u64 = actor_arena_base()
     unsafe {
         rt_front: u64 = load64(rt_base + ACTOR_S_RUNQ_FIRST)
