@@ -1,0 +1,60 @@
+// A domain slot can be given back more than 65,536 times (decision 209). Until then a place's generation was the domain's count of
+// tenants shifted into the high 16 bits of the reference's generation, and the shift panicked in Raven at the 65,536th tenant
+// ("shl lost set bits"), whether the spawn came from outside the domain or from an actor in it.
+// Worked out: every domain of every core is marked as given back 65,536 times (its count set directly, as if it had been). A Worker
+// spawned now lives in domain 1 of core 1 and says 5; a Pool placed in a new domain places a Worker from its handler, which says 7.
+// expect: 5
+// expect: 7
+
+import actors: Domain, new_domain, run_until_idle
+import assembly: core_block
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+separate actor Pool {
+    d: val Domain
+
+    new(d: val Domain) {
+        .d = d
+    }
+
+    pub lossy on grow(n: u64, printer: Printer) {
+        w: Worker = spawn Worker(n) in .d
+        w.say(printer)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    unsafe {
+        marking: loop c: u64 in 0..4 {
+            store64(core_block(c) + 800, 65536)         // CORE_DOMAIN_GEN of domains 1, 2 and 3
+            store64(core_block(c) + 808, 65536)
+            store64(core_block(c) + 816, 65536)
+        }
+    }
+    w: Worker = spawn Worker(5)
+    w.say(printer)
+    run_until_idle()
+    d: Domain = new_domain()
+    pool: Pool = spawn Pool(copy(d)) in d
+    pool.grow(7, printer)
+    run_until_idle()
+}

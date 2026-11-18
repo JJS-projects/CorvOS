@@ -1,0 +1,54 @@
+// An actor in a domain can be revoked any number of times (decision 209). Until then its generation kept the domain's tenant in its
+// high 16 bits and counted revocations in the low 16, and the 65,536th revocation was a failure.
+// Worked out: test_main spawns a Sink in a domain of its own, keeps its first reference, and revokes it 70,000 times. A reliable send
+// with the first reference is Gone (3); one with the last is Delivered (1), and the Sink's total is then 1.
+// expect: 3
+// expect: 1
+// expect: 1
+
+import actors: Sent, run_until_idle
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Sink {
+    mut total: u64
+
+    new() {
+        .total = 0
+    }
+
+    pub reliable on firm(k: u64) {
+        .total += k
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.total)
+    }
+}
+
+fn report(result: Sent) {
+    match result {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(2)
+        Gone => print_u64(3)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    first: Sink = spawn Sink()
+    mut sink: Sink = first
+    revoking: loop i: u64 in 0..70000 {
+        sink = revoke(sink)
+    }
+    report(first.firm(1))
+    report(sink.firm(1))
+    run_until_idle()
+    sink.say(printer)
+    run_until_idle()
+}

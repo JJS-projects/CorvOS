@@ -259,6 +259,10 @@ as section 5 allows, and moves the actors' runtime into the domain; the fast pat
   `beside ref` clause and a declared group, because a mere holder of a reference could otherwise put its own code in a driver's domain).
 - **Raven keeps a table of the domain's actors in the control page (EL1 only)**: the place of each, its generation, its start stub and
   the arguments of its `new`. The domain's data holds the inbound ring, every actor's mailbox and fields and the domain's run queue.
+- **Generations in a domain come from one counter per domain slot** (decision 209), kept by Raven and bumped atomically: each place
+  put in it, each end and each revocation takes the next value, whichever tenant has the slot. No value is given twice in a slot, so
+  a reference to an actor of an earlier tenant never matches a later one at the same address; a slot that has given all 2^32 values
+  is not given out again.
 - **A send across domains** is checked by Raven against that table and copied as one record into the target's inbound ring. **A send
   inside a domain** needs no call into Raven. A domain is scheduled as a whole: one message a turn, with the time budget of a handler.
 - **A fault, a panic or an overrun fails the whole domain**, which restarts as a unit with its memory wiped; Raven runs each actor's `new`

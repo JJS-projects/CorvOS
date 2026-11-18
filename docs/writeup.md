@@ -37,9 +37,11 @@ never reaches whatever is later put in its place (decision 197). A driver is han
   capabilities made from the peripherals or from Raven, handed out like references. An actor in a domain cannot hand a device to
   one it places (`domain_spawn_devices`), nor place one in a domain it does not hold (`separate_spawns`).
 - **Raven does not trust what a domain says about itself.** The runtime that schedules the actors of a domain runs *in* the
-  domain (decision 203); Raven reads two numbers from its memory and clamps both to what it handed over, so a domain that lies
+  domain (decision 203); Raven clamps the two counts it reads from its memory to what it handed over, so a domain that lies
   about them cannot make the count of unfinished messages wrap or make Raven write outside a ring (`domain_liar`, the model
-  `inbound`).
+  `inbound`). Every number a domain gives Raven, in its memory or in a request, is bounded before Raven does arithmetic on it, so a
+  lie fails the domain and cannot panic Raven (decision 208, `domain_forged_spawn_words`, `domain_liar_restart`,
+  `domain_liar_queue`); before decision 208 three such numbers could, which an outside review found, not a test.
 
 **Not shown, and against it.** Actors that share a domain share everything the domain has (decision 205): the registers of a
 device given to one are reachable by the others, and a DMA service made for one can move data over the fields of another. That is what
@@ -73,7 +75,8 @@ with the same reference, a domain restarts as a unit with its memory wiped, and 
 - **A domain with several actors fails and restarts as one unit (decisions 201, 202, 206):** every actor's `new` runs again on the
   arguments kept for it, so every reference stays valid, also that of an actor another actor placed
   (`domain_fail_together`, `domain_spawn_restart`, `domain_spawn_crash`). A domain that is given back is wiped and used again
-  (`separate_recycle*`), so a system that restarts for ever no longer runs out of domains.
+  (`separate_recycle*`), so a system that restarts for ever no longer runs out of domains: each slot hands out about four billion
+  generations before it is retired (decision 209; until then the 65,536th tenant of a slot made Raven panic, `domain_tenant_65536`).
 - **Finding the faults before the field did:** a model checker for the protocols between cores (`python3 tools/modelcheck.py`: nine
   scenarios, each with its expected verdict), replayable schedules (`ICOUNT`) and fault injection in the harness (decision 195)
   found or confirmed bugs that a plain run would show one time in thirty. The accounting of unfinished messages was wrong at least three

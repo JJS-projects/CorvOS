@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: atomic_increment, domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import domain_runtime: RT_S_GEN, RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
 import hardware: counter_frequency, read_counter
 
@@ -94,6 +94,14 @@ CORE_DOMAIN_TABLE: u64 = 576
 CORE_DOMAIN_NEXT: u64 = 768
 CORE_DOMAIN_GEN: u64 = 800
 CORE_DOMAIN_SEEN: u64 = 832         // per domain, 64 bytes: a bit for each page of the pool that has ever been the first page of an actor's fields
+// The generations of a domain's places (decision 209), for each domain d (1 to 3), one word: a counter that only grows. Every place
+// put in the domain and every end and revocation of one takes the next value as its generation, whoever the tenant, so no
+// generation is ever given twice to anything in that domain, and a reference to an actor of an earlier tenant never matches. The
+// word counts the values given (the first is 0, as for an actor in the arena); when it has given the last one (PLACE_GEN_LAST, the
+// largest generation a reference holds) the domain is not given out again.
+CORE_PLACE_GEN: u64 = 1296          // (1024 to 1279 are the two scratch ring records of rings.s; 1288 is CORE_TIMER_SEQ)
+PLACE_GEN_LAST: u64 = 0xFFFFFFFF
+PLACE_GEN_NONE: u64 = 0x100000000      // what next_place_generation says when there is none left (no reference holds it)
 CORE_TIMER_SEQ: u64 = 1288
 CORE_TIMERS: u64 = 1536
 TIMER_SLOTS: u64 = 32
@@ -292,7 +300,12 @@ fn retire_domain(rd_who: u64) {
     unsafe {
         rd_header: u64 = rd_who - ACTOR_BEFORE_FIELDS
         store64(rd_header + ACTOR_H_FLAGS, load64(rd_header + ACTOR_H_FLAGS) or ACTOR_F_ENDED or ACTOR_F_RETIRED)
-        store64(rd_header + ACTOR_H_DOMAIN, load64(rd_header + ACTOR_H_DOMAIN) + (1 shl REF_GENERATION_SHIFT))
+        rd_generation: u64 = next_place_generation(rd_core, rd_domain)
+        if rd_generation != PLACE_GEN_NONE {
+            set_generation(rd_header, rd_generation)
+        }
+        // (with none left the old generation stays: the actor is ended, which refuses every send, and the domain, used up, is
+        // never given to a new tenant, decision 209)
     }
     unlink_from_parent(rd_who)
     if unretired_place_count(rd_core, rd_domain) == 0 {
@@ -339,6 +352,33 @@ fn place_table(pt_core: u64, pt_d: u64) -> u64 {
 fn domain_generation(dg_core: u64, dg_d: u64) -> u64 {
     unsafe {
         return load64(core_block(dg_core) + CORE_DOMAIN_GEN + (dg_d - 1) * 8)
+    }
+}
+
+/// Has domain `gu_d` of core `gu_core` given out every generation it has (decision 209)? Then it is never used again.
+fn generations_used_up(gu_core: u64, gu_d: u64) -> bool {
+    unsafe {
+        return load64(core_block(gu_core) + CORE_PLACE_GEN + (gu_d - 1) * 8) > PLACE_GEN_LAST
+    }
+}
+
+/// The next generation of domain `ng_d` of core `ng_core`, for a place put in it or one that ends or is revoked: a value no
+/// reference to anything in that domain has ever had (decision 209). PLACE_GEN_NONE if there is none left. Core 0 and the domain's
+/// own core both take values, so the counter is bumped atomically.
+fn next_place_generation(ng_core: u64, ng_d: u64) -> u64 {
+    unsafe {
+        ng_value: u64 = atomic_increment(core_block(ng_core) + CORE_PLACE_GEN + (ng_d - 1) * 8) - 1
+        if ng_value > PLACE_GEN_LAST {
+            return PLACE_GEN_NONE
+        }
+        return ng_value
+    }
+}
+
+/// Gives the actor whose header is at `sg_header` the generation `sg_generation` (bits 32 to 63 of its domain word).
+fn set_generation(sg_header: u64, sg_generation: u64) {
+    unsafe {
+        store64(sg_header + ACTOR_H_DOMAIN, (load64(sg_header + ACTOR_H_DOMAIN) and REF_ADDRESS_MASK) or (sg_generation shl REF_GENERATION_SHIFT))
     }
 }
 
@@ -697,7 +737,10 @@ fn runtime_clear(rc_who: u64) {
         rc_base: u64 = actor_arena_base()
         store64(rc_base + ACTOR_S_LOST, load64(rc_base + ACTOR_S_LOST) + rc_count)
         rc_over_at: u64 = domain_pool_base_of(rc_core, rc_d) + RT_STATE + RT_S_FINISHED
-        store64(rc_over_at, load64(rc_over_at) + rc_count)       // they are over (the domain's count, as the runtime keeps it)
+        rc_over: u64 = load64(rc_over_at)       // (the domain's own count, which it may have set to anything: decision 208)
+        if rc_over <= 0xFFFFFFFFFFFFFFFF - rc_count {
+            store64(rc_over_at, rc_over + rc_count)     // they are over (refresh_consumed clamps whatever this holds)
+        }
         store64(rc_block, 0)
         store64(rc_block + 8, 0)
     }
@@ -905,7 +948,9 @@ fn place_from_domain(pf_pool: u64) -> u64 {
         pf_args: u64 = domain_saved_x(3)
         pf_words: u64 = domain_saved_x(4)
         pf_handle: u64 = domain_saved_x(6)
-        if domain_saved_x(5) != 0 or pf_fields > 4096 or pf_words * 8 > DOMAIN_ARGS_SAVE {
+        // (every register is the domain's: bounded before any arithmetic, so no number it chooses can overflow here and panic
+        // Raven, decision 208)
+        if domain_saved_x(5) != 0 or pf_fields > 4096 or pf_words > DOMAIN_ARGS_SAVE / 8 {
             return 0
         }
         if pf_words > 0 and not pool_readable(pf_pool, pf_args, pf_words * 8) {
@@ -920,12 +965,16 @@ fn place_from_domain(pf_pool: u64) -> u64 {
         if not place_fits(pf_core, pf_d, pf_fields + pf_words) {
             return 0
         }
+        pf_generation: u64 = next_place_generation(pf_core, pf_d)
+        if pf_generation == PLACE_GEN_NONE {
+            return 0                                    // the domain has given out every generation (decision 209)
+        }
         pf_actor: u64 = take_place(pf_core, pf_d, pf_fields + pf_words)
         pf_header: u64 = pf_actor - ACTOR_BEFORE_FIELDS
         store64(pf_header + ACTOR_H_DISPATCHER, pf_dispatcher)
         store64(pf_header + ACTOR_H_ARGS, pf_actor + pf_fields * 8)
         store64(pf_header + ACTOR_H_DOMAIN,
-                pf_d or (pf_core shl 4) or ((domain_generation(pf_core, pf_d) shl 16) shl REF_GENERATION_SHIFT))
+                pf_d or (pf_core shl 4) or (pf_generation shl REF_GENERATION_SHIFT))
         store64(pf_header + ACTOR_H_START, pf_entry)
         store64(pf_header + ACTOR_H_ARGS_WORDS, pf_words)
         store64(pf_header + ACTOR_H_PARENT, 0)
@@ -1015,21 +1064,20 @@ pub fn revoke_impl(rv_ref: u64) -> u64 {
         if load64(rv_header + ACTOR_H_PARENT) != load64(rv_base + ACTOR_S_CURRENT_ACTOR) {
             panic("only the actor that spawned an actor can revoke it")
         }
-        mut rv_word: u64 = load64(rv_header + ACTOR_H_DOMAIN)
         rv_domain: u64 = domain_of(rv_target)
-        if rv_domain != 0 {
-            // (in a domain the high 16 bits of the generation are the domain's tenant; the low 16 count the revocations)
-            if ((rv_word shr REF_GENERATION_SHIFT) and 0xFFFF) == 0xFFFF {
-                panic("an actor in a domain can be revoked at most 65535 times")
-            }
-        }
-        rv_word += 1 shl REF_GENERATION_SHIFT
-        store64(rv_header + ACTOR_H_DOMAIN, rv_word)
-        if rv_domain != 0 {
+        if rv_domain == 0 {
+            store64(rv_header + ACTOR_H_DOMAIN, load64(rv_header + ACTOR_H_DOMAIN) + (1 shl REF_GENERATION_SHIFT))
+        } else {
+            // (in a domain the new generation is the next value of the domain's counter, decision 209)
             rv_core: u64 = core_of_actor(rv_target)
+            rv_generation: u64 = next_place_generation(rv_core, rv_domain)
+            if rv_generation == PLACE_GEN_NONE {
+                panic("this actor's domain has given out every generation: it cannot be revoked")
+            }
+            set_generation(rv_header, rv_generation)
             rv_place: u64 = place_index(rv_core, rv_domain, rv_target)
             if rv_place != RT_PLACES {
-                store64(domain_pool_base_of(rv_core, rv_domain) + RT_STATE + RT_S_GEN + rv_place * 8, rv_word shr REF_GENERATION_SHIFT)
+                store64(domain_pool_base_of(rv_core, rv_domain) + RT_STATE + RT_S_GEN + rv_place * 8, rv_generation)
             }
         }
     }
@@ -1128,13 +1176,17 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
             if rt_args_words * 8 > DOMAIN_ARGS_SAVE {
                 panic("the arguments of a separate actor's new are too long")
             }
+            rt_generation: u64 = next_place_generation(rt_core, rt_domain)
+            if rt_generation == PLACE_GEN_NONE {
+                panic("this domain has given out every generation an actor in it can have")    // (only `in d`: free_domain skips such a domain)
+            }
             rt_actor = take_place(rt_core, rt_domain, fields + rt_args_words)
-            // (the generation of an actor's place starts with that of its domain, so a reference to an actor of an earlier
-            // tenant of the same domain never matches one of this tenant)
+            // (the generation comes from the domain's counter, which no tenant shares a value of: a reference to an actor of an
+            // earlier tenant of the same domain never matches one of this tenant, decision 209)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DISPATCHER, dispatcher)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_ARGS, rt_actor + fields * 8)
             store64(rt_actor - ACTOR_BEFORE_FIELDS + ACTOR_H_DOMAIN,
-                    rt_domain or (rt_core shl 4) or ((domain_generation(rt_core, rt_domain) shl 16) shl REF_GENERATION_SHIFT))
+                    rt_domain or (rt_core shl 4) or (rt_generation shl REF_GENERATION_SHIFT))
             grant_devices(rt_core, rt_domain, rt_args, rt_args_words, rt_devices)
         }
         if rt_actor == 0 {
@@ -2234,7 +2286,7 @@ fn free_domain(dm_core: u64) -> u64 {
     mut dm_found: u64 = 0
     unsafe {
         searching: loop dm_k: u64 in 1..(DOMAINS + 1) {
-            if dm_found == 0 and domain_actor_of(dm_core, dm_k) == 0 {
+            if dm_found == 0 and domain_actor_of(dm_core, dm_k) == 0 and not generations_used_up(dm_core, dm_k) {
                 dm_found = dm_k
             }
         }
