@@ -215,3 +215,4 @@ is current). Open the full entry for the alternatives and the principle that set
 - 209 The generation of an actor in a domain comes from one counter per domain slot that only grows: a slot can be given back, and an actor revoked, any number of times (10b; found by an outside review, derived, open to review): What was wrong.
 - 210 A start that releases messages holds its domain; an end counts only ring messages as finished; two test-only hooks make a schedule between cores happen every time (10b; found by an outside review, derived, open to review): What was wrong.
 - 211 A domain is given back by its own core, between two of its turns, asked by a record from core 0 (10b; found by an outside review, derived, open to review): What was wrong.
+- 212 A lone domain that restarts keeps its actor's arguments in the actor's own header page; the DMA control block has its own place after them (10b; found by an outside review, derived, open to review): What was wrong.

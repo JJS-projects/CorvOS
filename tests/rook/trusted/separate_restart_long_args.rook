@@ -1,0 +1,71 @@
+// A `separate` actor alone in its domain that restarts keeps its arguments in its own header page while the domain is wiped, not in
+// Raven's arena (decision 212): until then they waited in an 8-word buffer of the arena, and a `new` with more than 8 words of
+// arguments (seven `Mmio`s are 14) overwrote what lies after it: the registers `call_protected` saves for a handler that fails.
+// Worked out: three Spacers take cores 1, 2 and 3 (decision 180's order), so the Big actor, with seven `Mmio` arguments (14 words),
+// lives in a domain of core 0. test_main notes the 6 words of core 0's arena after the 8-word buffer (byte 1728 on), makes Big fail
+// (the failure below) and lets its domain restart: the 6 words are as they were (1); before decision 212 they were Big's arguments.
+// Big's arguments came back whole: it cuts its whole seventh `Mmio`, the UART's page, again, and says 4096.
+// expect-failure: big crash at separate_restart_long_args.rook:35
+// expect: 1
+// expect: 4096
+
+import actors: run_until_idle
+import assembly: actor_arena_base
+import devices: Mmio
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Spacer {
+    pub lossy on idle() { }
+}
+
+separate actor Big {
+    last: val Mmio
+
+    new(a: val Mmio, b: val Mmio, c: val Mmio, d: val Mmio, e: val Mmio, f: val Mmio, g: val Mmio) {
+        .last = g
+    }
+
+    pub lossy on crash() {
+        panic("big crash")
+    }
+
+    pub lossy on say(to: Printer) {
+        discard .last.part(0, 0x1000)       // (panics unless the seventh `Mmio` came back whole: the UART's page, 4096 bytes)
+        to.show(4096)
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    printer: Printer = spawn Printer()
+    s1: Spacer = spawn Spacer()
+    s2: Spacer = spawn Spacer()
+    s3: Spacer = spawn Spacer()
+    big: Big = spawn Big(peripherals.part(0x200000, 0x1000), peripherals.part(0x202000, 0x1000), peripherals.part(0x203000, 0x1000),
+                         peripherals.part(0x204000, 0x1000), peripherals.part(0x205000, 0x1000), peripherals.part(0x206000, 0x1000),
+                         peripherals.part(0x201000, 0x1000))
+    run_until_idle()
+    unsafe {
+        saved: u64 = actor_arena_base() + 1728
+        w0: u64 = load64(saved)
+        w1: u64 = load64(saved + 8)
+        w2: u64 = load64(saved + 16)
+        w3: u64 = load64(saved + 24)
+        w4: u64 = load64(saved + 32)
+        w5: u64 = load64(saved + 40)
+        big.crash()
+        run_until_idle()
+        if load64(saved) == w0 and load64(saved + 8) == w1 and load64(saved + 16) == w2 and load64(saved + 24) == w3 and load64(saved + 32) == w4 and load64(saved + 40) == w5 {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    big.say(printer)
+    run_until_idle()
+}

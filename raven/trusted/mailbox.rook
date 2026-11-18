@@ -131,7 +131,11 @@ DOMAIN_PLACES: u64 = 8              // the actors one domain can hold in its lif
 DOMAIN_PAGE: u64 = 4096
 DOMAIN_CONTROL_PAGE: u64 = 16       // the page of the control page of the first place
 DOMAIN_INBOX_PAGE: u64 = 511        // the last page, where the message being handled is copied
-DOMAIN_ARGS_SAVE: u64 = 2800        // bytes of the control page below the header: where the arguments of `new` wait while a domain restarts
+// The page of a place's header (EL1 only), from its start: the arguments of `new` waiting while the domain restarts (DOMAIN_ARGS_SAVE
+// bytes), the control block of a DMA transfer for the domain (32 bytes, 32-byte aligned, dma.rook: only the first place's page is
+// used for it), then the header and mailbox, which end where the fields start (1264 bytes: from 0xB10). Decision 212.
+DOMAIN_ARGS_SAVE: u64 = 2784
+pub DOMAIN_DMA_BLOCK: u64 = DOMAIN_CONTROL + DOMAIN_ARGS_SAVE      // 0x10AE0: the control block of a DMA transfer, in the pool
 DOMAIN_OPEN: u64 = 1                // the state of a domain that is in use (domain_actor_of says 0 for a free one) ...
 DOMAIN_CLOSING: u64 = 2             // ... and one whose actors are being ended: nothing is placed in it any more ...
 DOMAIN_FREEING: u64 = 3             // ... and one being given back by its own core (decision 211): not free yet, and not run
@@ -1440,7 +1444,10 @@ fn wipe_domain(rt_who: u64) {
         rt_header: u64 = rt_who - ACTOR_BEFORE_FIELDS
         rt_kept: u64 = load64(rt_header + ACTOR_H_ARGS)
         rt_words: u64 = load64(rt_header + ACTOR_H_ARGS_WORDS)
-        rt_scratch: u64 = actor_arena_base() + ACTOR_MSG_BUFFER
+        // (the arguments wait at the start of the actor's own header page, which only EL1 reaches and the wipe leaves alone, as in
+        // `restart_domain`: up to DOMAIN_ARGS_SAVE bytes. Until decision 212 they waited in an 8-word buffer of Raven's arena, and
+        // more than 8 words overwrote what lies after it, among it the registers `call_protected` saves)
+        rt_scratch: u64 = rt_who - DOMAIN_PAGE
         saving: loop rt_w: u64 in 0..rt_words {
             store64(rt_scratch + rt_w * 8, load64(rt_kept + rt_w * 8))
         }
