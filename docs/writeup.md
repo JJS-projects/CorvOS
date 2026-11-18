@@ -81,11 +81,15 @@ with the same reference, a domain restarts as a unit with its memory wiped, and 
   scenarios, each with its expected verdict), replayable schedules (`ICOUNT`) and fault injection in the harness (decision 195)
   found or confirmed bugs that a plain run would show one time in thirty. The accounting of unfinished messages was wrong at least three
   times in milestone 9 (a message counted as over when its record was taken, a count that reached zero while a domain restarted,
-  messages the fast path put in a mailbox counted as finished) and each was found by a test, not by thought.
+  messages the fast path put in a mailbox counted as finished) and each was found by a test, not by thought. Two more were found
+  by an outside review, by thought (decision 210: a start from another core that released such messages without holding the
+  domain, and an end that counted them as finished); test-only hooks that hold a ring and stop a core's turns now make each of
+  these schedules happen every time (`domain_start_hold`, `domain_spawn_hold`, `domain_clear_fast`).
 
 **Not shown.** A restart that runs in the same moments as a spawn into the same domain (the table of places is written by one core
-and read by another, decision 202: not tested); one race of milestone 9 that showed once in about ten runs under load and not
-again, and for which there is no deterministic test (decision 206, the last row of that PR's bug checks). A driver killed while a device transfer is in flight (the DMA service copies inside a driver's pool, tested
+and read by another, decision 202: not tested); the race of milestone 9 that showed once in about ten runs under load is
+now shown every time, under a test hook, by `domain_spawn_hold` (decision 210), but nothing shows that no other such gap is left:
+the model checker does not model the hold of decision 204. A driver killed while a device transfer is in flight (the DMA service copies inside a driver's pool, tested
 on QEMU's DMA controller, decision 189; the case of a transfer to a device is not built; hardware.md item 26); the cost of a restart on real memory (a pool wipe is 2 MB). Raven's own bugs cannot be restarted by a
 supervisor: they stop the machine. A message to an actor on another core that finds the ring full for 5 ms is dropped
 (decision 186), which `lossy` allows and `reliable` reports as `MailboxFull`.
