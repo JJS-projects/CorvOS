@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Writes the hosted cases for `separate actor` (decisions 172 and 173): for each program below NAME.in and NAME.out
 (what Fledgling prints for it) in the tests/hosted directory of every stage that can see the difference. Run it
-again only to add a case, and read the new output."""
+again only to add a case, and read the new output. The functions that spawn are `test_main`: only an actor or the program's
+entry can spawn (decision 215)."""
 import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "bootstrap"))
 from fledgling.dump import dump_tokens, dump_tree, dump_declarations, dump_bodies, dump_asm, make_stream
 
 ACTOR = "separate actor Driver {\n    mut count: u64\n\n    new() {\n        .count = 0\n    }\n\n    lossy on add(n: u64) {\n        .count += n\n    }\n}\n"
-SPAWNED = ACTOR + "\nfn start() {\n    d: Driver = spawn Driver()\n    d.add(5)\n}\n"
+SPAWNED = ACTOR + "\nfn test_main() {\n    d: Driver = spawn Driver()\n    d.add(5)\n}\n"
 POINT = "struct Pt {\n    x: u64\n    y: u64\n}\n"
 cases = {
     # (stage, name): (source, is a stream stage)
@@ -23,7 +24,7 @@ cases = {
     ("bodiesdump", "separate_new_struct"): POINT + "separate actor Dev {\n    mut p: u64\n\n    new(q: val Pt) {\n        .p = 0\n    }\n}\n",
     ("asmdump", "separate_spawned"): SPAWNED,
     ("asmdump", "separate_beside_plain"): ("actor Plain {\n    lossy on ping() {\n    }\n}\n\n" + ACTOR +
-                                          "\nfn start() {\n    p: Plain = spawn Plain()\n    d: Driver = spawn Driver()\n}\n"),
+                                          "\nfn test_main() {\n    p: Plain = spawn Plain()\n    d: Driver = spawn Driver()\n}\n"),
 }
 REFERENCE = {"lexdump": dump_tokens, "parsedump": dump_tree, "declsdump": dump_declarations,
              "bodiesdump": lambda s: dump_bodies(s, ownership=True, actors=True, bodies="all"), "asmdump": dump_asm}

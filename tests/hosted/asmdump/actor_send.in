@@ -26,7 +26,7 @@ actor Counter: Add {
         .count += p.a
     }
 }
-fn f() {
+fn test_main() {
     c: Counter = spawn Counter(10)
     a: Add = narrow(c, Add)
     discard a.add(1)

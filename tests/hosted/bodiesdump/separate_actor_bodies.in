@@ -11,7 +11,7 @@ separate actor Driver {
     }
 }
 
-fn start() {
+fn test_main() {
     d: Driver = spawn Driver()
     d.add(5)
 }

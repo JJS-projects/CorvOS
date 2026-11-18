@@ -16,7 +16,7 @@ separate actor Driver {
     }
 }
 
-fn start() {
+fn test_main() {
     p: Plain = spawn Plain()
     d: Driver = spawn Driver()
 }
