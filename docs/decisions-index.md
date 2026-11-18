@@ -217,3 +217,4 @@ is current). Open the full entry for the alternatives and the principle that set
 - 211 A domain is given back by its own core, between two of its turns, asked by a record from core 0 (10b; found by an outside review, derived, open to review): What was wrong.
 - 212 A lone domain that restarts keeps its actor's arguments in the actor's own header page; the DMA control block has its own place after them (10b; found by an outside review, derived, open to review): What was wrong.
 - 213 When core 0 reuses an ended actor's block, the block's size is never cleared, so another core walking the arena never sees 0 (10b; found by an outside review, derived, open to review): What was wrong.
+- 214 Small fixes from the outside review: a domain's lost messages are counted once; the harness reports a missing image instead of crashing; and a correction to decision 203 (10b; derived, open to review): Lost messages.

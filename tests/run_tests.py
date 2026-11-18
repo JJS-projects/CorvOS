@@ -379,7 +379,7 @@ class BootTest:
     def run_on(self, machine):
         image = os.path.join(ROOT, self.image)
         if not board_mode() and not os.path.exists(image):
-            return False, missing_image(image)
+            return False, missing_image(image), ""
 
         def progress(lines):
             n = 0
@@ -561,7 +561,7 @@ class RookTest:
     def run_once(self, machine):
         image = os.path.join(ROOT, self.image)
         if not board_mode() and not os.path.exists(image):
-            return False, missing_image(image)
+            return False, missing_image(image), ""
 
         if board_mode() and self.input:
             return True, "skipped: input is not typed into a board", ""
@@ -763,7 +763,7 @@ class HostedTest:
         if board_mode():
             return True, "skipped: hosted programs are not run on a board", ""
         if not os.path.exists(image):
-            return False, missing_image(image)
+            return False, missing_image(image), ""
         if self.sources:
             stream = self.stream()
             data = stream.encode() + END_OF_INPUT
@@ -1142,6 +1142,20 @@ def check_wrong_expectations_fail():
             setattr(test, key, value)
         if test.run()[0]:
             return f"passed with {what}"
+    return None
+
+
+def check_missing_image():
+    """A Rook test whose image is missing fails with a message that says so; until decision 214 it crashed the harness (it gave
+    back two values where three are expected) and was reported as "compiler crashed"."""
+    test = RookTest.from_file(os.path.join(ROOT, "tests", "rook", "quickstart_sample.rook"))
+    test.image = os.path.join("build", "no-such-image.img")
+    try:
+        result = test.run()
+    except Exception as error:          # (the bug: an exception instead of a result)
+        return f"the harness raised {error!r}"
+    if result[0] or "missing" not in result[1]:
+        return f"expected a failure that names the missing image, got {result[:2]!r}"
     return None
 
 
@@ -1885,6 +1899,8 @@ HARNESS_TESTS = [
                 "exactly", check_log_cases),
     HarnessTest("harness/machines", "Tests run on a 1 GB and a 512 MB Raspberry Pi machine",
                 check_machines),
+    HarnessTest("harness/missing_image", "A Rook test whose image is missing fails and says so, without crashing the harness",
+                check_missing_image),
     HarnessTest("harness/wrong_expectations", "A Rook test with a wrong fault or QEMU-log "
                 "expectation fails", check_wrong_expectations_fail),
     HarnessTest("harness/echo_expectations", "A Rook test that expects an echo fails unless the "

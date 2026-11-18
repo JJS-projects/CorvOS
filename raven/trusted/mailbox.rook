@@ -642,18 +642,8 @@ fn place_index(pi_core: u64, pi_d: u64, pi_who: u64) -> u64 {
 fn refresh_consumed(rc_core: u64, rc_d: u64) {
     rc_state: u64 = ring_state(rc_core, rc_d)
     rc_pool: u64 = domain_pool_base_of(rc_core, rc_d)
+    rc_taken: u64 = note_taken(rc_core, rc_d)
     unsafe {
-        rc_produced: u64 = load64(rc_state + RING_PRODUCED)
-        rc_seen: u64 = load64(rc_state + RING_SEEN)
-        mut rc_taken: u64 = load64(rc_pool + RT_STATE + RT_S_CONSUMED)
-        if rc_taken > rc_produced {
-            rc_taken = rc_produced
-        }
-        if rc_taken > rc_seen {
-            store64(rc_state + RING_SEEN, rc_taken)
-        } else {
-            rc_taken = rc_seen
-        }
         mut rc_over: u64 = load64(rc_pool + RT_STATE + RT_S_FINISHED)
         if rc_over > rc_taken {
             rc_over = rc_taken
@@ -663,6 +653,25 @@ fn refresh_consumed(rc_core: u64, rc_d: u64) {
             pending_sub(rc_over - rc_done)
             store64(rc_state + RING_DONE, rc_over)
         }
+    }
+}
+
+/// How many of the records Raven has put in the domain's ring its runtime has taken: its own number, clamped to what Raven put there and
+/// never going back, kept in RING_SEEN. Changes nothing else (no count of unfinished messages).
+fn note_taken(nt_core: u64, nt_d: u64) -> u64 {
+    nt_state: u64 = ring_state(nt_core, nt_d)
+    unsafe {
+        nt_produced: u64 = load64(nt_state + RING_PRODUCED)
+        nt_seen: u64 = load64(nt_state + RING_SEEN)
+        mut nt_taken: u64 = load64(domain_pool_base_of(nt_core, nt_d) + RT_STATE + RT_S_CONSUMED)
+        if nt_taken > nt_produced {
+            nt_taken = nt_produced
+        }
+        if nt_taken > nt_seen {
+            store64(nt_state + RING_SEEN, nt_taken)
+            return nt_taken
+        }
+        return nt_seen
     }
 }
 
@@ -760,6 +769,7 @@ fn runtime_clear(rc_who: u64) {
     if rc_place == RT_PLACES {
         return
     }
+    discard note_taken(rc_core, rc_d)           // (what is in the mailbox now has been taken from the ring: a discard does not count it again)
     unsafe {
         rc_block: u64 = rt_block(domain_pool_base_of(rc_core, rc_d), rc_place)
         mut rc_count: u64 = load64(rc_block + 8)
@@ -848,8 +858,13 @@ fn runtime_discard(rd_core: u64, rd_d: u64) {
             } else {
                 pending_sub(rd_produced - rd_done)  // every message not over is over now
             }
-            rd_base: u64 = actor_arena_base()
-            store64(rd_base + ACTOR_S_LOST, load64(rd_base + ACTOR_S_LOST) + (rd_produced - rd_done))
+            // lost: only the records the runtime never took; those it took and had not run waited in a mailbox, which was emptied
+            // and counted before the pool was wiped (`runtime_clear`, which notes how far the ring was read first; decision 214)
+            rd_seen: u64 = load64(rd_state + RING_SEEN)
+            if rd_produced > rd_seen {
+                rd_base: u64 = actor_arena_base()
+                store64(rd_base + ACTOR_S_LOST, load64(rd_base + ACTOR_S_LOST) + (rd_produced - rd_seen))
+            }
         }
         if load64(rd_state + RING_HOLD) != 0 {
             store64(rd_state + RING_HOLD, 0)
