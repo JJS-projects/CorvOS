@@ -1143,6 +1143,7 @@ class Checker:
             sig = actor.new_sig
             self.check_args(f"`spawn {e.name}`", sig.params if sig else [], e.args, e.pos,
                             sig=sig)
+            self.require_actor_code("spawn", e.pos)
             e.actor, e.sig = actor, sig
             e.args_words = sum(words(ty) for ty, _ in sig.params) if sig else 0
             e.args_slot = self.alloc(max(1, e.args_words))
@@ -1310,7 +1311,20 @@ class Checker:
                                    "one already waiting stands for a second notice",
                                    e.args[1].pos)
             e.stopped = self.handler_numbers["stopped"] + 1
+        self.require_actor_code("watch", e.pos)
         return UNIT
+
+    def require_actor_code(self, what, pos):
+        """`spawn`, `stop`, `watch` and `revoke` are written in an actor's own code (its `new` and its handlers)
+        or in the program's entry function (`test_main`, and Raven's `kernel_main`), never in another function or in a
+        struct's method: whoever starts, ends, watches or revokes an actor is then always an actor, or the program itself,
+        and an actor in a domain cannot reach a plain `spawn` through a function (decision 215, the owner's choice)."""
+        if self.receiver is not None and is_actor(self.receiver[0]):
+            return
+        if self.receiver is None and self.fn is not None and self.fn.decl.name in ("test_main", "kernel_main"):
+            return
+        raise CompileError(f"only an actor or the program's entry (`test_main`) can `{what}`: "
+                           f"move it into the actor responsible for it", pos)
 
     def stop_call(self, e):
         """`stop()` ends the actor whose handler this is; `stop(actor)` ends one this actor (or
@@ -1326,6 +1340,7 @@ class Checker:
         ty = self.expr(e.args[0])
         if not is_actor(ty) and not (is_aggregate(ty) and ty.name == "Domain"):
             raise CompileError(f"`stop` takes an actor reference or a `Domain`, not {ty}", e.args[0].pos)
+        self.require_actor_code("stop", e.pos)
         return UNIT
 
     def revoke_call(self, e):
@@ -1339,6 +1354,7 @@ class Checker:
         ty = self.expr(e.args[0])
         if not is_actor(ty):
             raise CompileError(f"`revoke` takes a reference to an actor, not {ty}", e.args[0].pos)
+        self.require_actor_code("revoke", e.pos)
         return ty
 
     def build_with_new(self, e, st):

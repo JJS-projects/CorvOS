@@ -1147,6 +1147,15 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   `revoke` yet (a compile error). Messages already in its mailbox are delivered; so a holder that sent just before still has them run.
 - It differs from a `Valve` (`raven/valve.rook`) in being a mechanism of Raven's, for any actor, with nothing in the path of a message.
 
+### 11.18b Where actors are started and ended (decision 215, the owner's choice)
+
+- `spawn`, `stop`, `watch` and `revoke` are written only in an actor's own code (its `new` and its handlers) or in the program's entry
+  (`test_main`; Raven's `kernel_main` too). A function or a struct's method that does any of them is an error: "only an actor or the
+  program's entry (`test_main`) can `spawn`: move it into the actor responsible for it". So whoever starts, ends, watches or revokes an
+  actor is always an actor, or the program itself, which is the one Raven records as its spawner (the only one that can `stop` or
+  `revoke` it), and a `separate` actor cannot reach a plain `spawn` through a function (it used to compile and then fail its domain).
+- A spawn that is wrong in itself (an unknown actor, wrong arguments) is told that first; the place is checked last.
+
 ### 11.19 Rules settled while building generics (step 5c)
 
 - **Declaring and writing.** `struct Pair<A, B> { ... }` and `enum Option<T> { ... }`; a use writes

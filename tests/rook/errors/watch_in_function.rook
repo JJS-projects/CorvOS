@@ -1,0 +1,14 @@
+// A function cannot watch an actor: only an actor or test_main can (decision 215).
+// error: 13:5: only an actor or the program's entry (`test_main`) can `watch`: move it into the actor responsible for it
+
+interface Lifecycle {
+    lossy on restarted()
+}
+
+actor Plain {
+    lossy on hi() { }
+}
+
+fn follow(p: Plain, who: Lifecycle) {
+    watch(p, who)
+}

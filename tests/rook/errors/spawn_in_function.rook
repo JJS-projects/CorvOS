@@ -1,0 +1,17 @@
+// A function cannot spawn, so an actor in a domain cannot reach a plain spawn through one (decision 215).
+// error: 9:16: only an actor or the program's entry (`test_main`) can `spawn`: move it into the actor responsible for it
+
+actor Plain {
+    lossy on hi() { }
+}
+
+fn helper() {
+    p: Plain = spawn Plain()
+    p.hi()
+}
+
+separate actor Sep {
+    pub lossy on go() {
+        helper()
+    }
+}

@@ -155,10 +155,10 @@ Counter__Start:
     ldr x1, [x17, #0]
     b Counter__new
 
-// fn f (line 28)
-    .global f
+// fn test_main (line 28)
+    .global test_main
     .balign 4
-f:
+test_main:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
     sub sp, sp, #80
@@ -213,7 +213,7 @@ f:
     sub x2, x29, #72
     mov x3, #2
     bl raven_send
-.Lret_f_11:
+.Lret_test_main_11:
     mov sp, x29
     ldp x29, x30, [sp], #16
     ret

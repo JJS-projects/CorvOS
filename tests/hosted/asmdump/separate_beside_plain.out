@@ -139,10 +139,10 @@ Driver__Start:
     mov x17, x2
     b Driver__new
 
-// fn start (line 18)
-    .global start
+// fn test_main (line 18)
+    .global test_main
     .balign 4
-start:
+test_main:
     stp x29, x30, [sp, #-16]!
     mov x29, sp
     sub sp, sp, #32
@@ -167,7 +167,7 @@ start:
     mov x6, #0
     bl raven_spawn_separate
     str x0, [x29, #-32]
-.Lret_start_10:
+.Lret_test_main_10:
     mov sp, x29
     ldp x29, x30, [sp], #16
     ret

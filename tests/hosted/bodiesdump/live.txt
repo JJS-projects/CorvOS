@@ -398,3 +398,8 @@ tests/rook/errors/spawn_domain_actor_in_new.rook
 tests/rook/errors/revoke_in_domain.rook
 tests/rook/errors/revoke_not_actor.rook
 tests/rook/errors/revoke_no_argument.rook
+tests/rook/errors/spawn_in_function.rook
+tests/rook/errors/stop_in_function.rook
+tests/rook/errors/watch_in_function.rook
+tests/rook/errors/revoke_in_function.rook
+tests/rook/errors/spawn_in_struct_method.rook

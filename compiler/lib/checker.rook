@@ -4912,6 +4912,9 @@ pub struct Checker {
         if .failed {
             return 0
         }
+        if not .require_actor_code(e, "spawn") {
+            return 0
+        }
         mut words: u64 = 0
         summing: loop k: u64 in 0..(rows.len()) {
             words += .words_of_type(.params.get(rows.get(k)).ty)
@@ -5000,7 +5003,32 @@ pub struct Checker {
             stopped = .handler_number_of("stopped") + 1
         }
         .set_note(e, CHK_NOTE_STOPPED, stopped)
+        if not .require_actor_code(e, "watch") {
+            return 0
+        }
         return .unit
+    }
+
+    /// `spawn`, `stop`, `watch` and `revoke` are written in an actor's own code (its `new` and its handlers) or in the
+    /// program's entry function (`test_main`, and Raven's `kernel_main`), never in another function or in a struct's method: whoever
+    /// starts, ends, watches or revokes an actor is then always an actor, or the program itself, and an actor in a domain cannot reach a
+    /// plain `spawn` through a function (decision 215, the owner's choice). False, with the error said, if `e` is not in such code.
+    mut fn require_actor_code(e: u64, what: Bytes) -> bool {
+        if .recv != 0 {
+            if .types.get(.recv).kind == CHK_ACTOR {
+                return true
+            }
+        } else {
+            name: Text = .name_of(.sigs.get(.cur_sig).decl)
+            if name.same_as("test_main") or name.same_as("kernel_main") {
+                return true
+            }
+        }
+        .fail_node(e)
+        .say("only an actor or the program's entry (`test_main`) can `")
+        .say(what)
+        .say("`: move it into the actor responsible for it")
+        return false
     }
 
     fn handler_number_of(name: Bytes) -> u64 {
@@ -5035,6 +5063,9 @@ pub struct Checker {
             .say_type(ty)
             return 0
         }
+        if not .require_actor_code(e, "stop") {
+            return 0
+        }
         return .unit
     }
 
@@ -5060,6 +5091,9 @@ pub struct Checker {
             .fail_node(args.get(0))
             .say("`revoke` takes a reference to an actor, not ")
             .say_type(ty)
+            return 0
+        }
+        if not .require_actor_code(e, "revoke") {
             return 0
         }
         return ty

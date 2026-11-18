@@ -29,10 +29,10 @@ Program
               Name 9:19 n : u64 slot=1
         File a.rook
     File a.rook
-  Fn 13:1 start nslots=3
+  Fn 13:1 test_main nslots=3
     Params
     none
-    Block 13:12
+    Block 13:16
       Decl 14:5 d slot=1
         Type 14:8 Driver
         Spawn 14:17 Driver : Driver args_slot=0
