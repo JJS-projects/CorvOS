@@ -1,0 +1,61 @@
+// When an actor of a domain ends with messages in its mailbox, only those that came through the ring are counted as finished
+// (decision 210): those its own domain sent it by the fast path were never in Raven's count, and counting them would make the next
+// ring records look finished before they run (the bug decision 206 fixed in the runtime, and the review's finding 5 here).
+// Worked out: A and B share domain d on core 1. B is sent `fill(a)` (one ring record, which B's turn finishes: the domain's count of
+// finished messages is 1) and sends A three messages by the fast path. Core 1 is limited to that one turn, so they wait in A's
+// mailbox; then test_main stops A. Ending A empties its mailbox: the count of finished messages must stay 1 (before decision 210 it
+// became 4). Core 1 runs again and the system settles with nothing unfinished (0).
+// expect: 1
+// expect: 0
+
+import actors: Domain, new_domain, run_until_idle
+import domain_runtime: RT_STATE, RT_S_FINISHED, rt_block
+import mailbox: test_limit_turns, test_turns_left, unfinished_messages, wait_for_other_cores
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Target {
+    pub lossy on note(k: u64) { }
+}
+
+separate actor Filler {
+    pub lossy on fill(a: Target) {
+        a.note(1)
+        a.note(2)
+        a.note(3)
+    }
+}
+
+fn test_main() {
+    d: Domain = new_domain()                    // on core 1
+    a: Target = spawn Target() in d                       // place 0: its fields are at 0x11000 of the pool
+    b: Filler = spawn Filler() in d
+    run_until_idle()
+    test_limit_turns(1, 2)                      // B's turn, then none
+    b.fill(a)
+    unsafe {
+        pool: u64 = actor_address(a) - 0x11000
+        waiting: loop rt_i: u64 in 0..50000000 {
+            if test_turns_left(1) == 1 {
+                break waiting
+            }
+            wait_for_other_cores()
+        }
+        stop(a)
+        emptying: loop rt_j: u64 in 0..50000000 {
+            if load64(rt_block(pool, 0) + 8) == 0 {
+                break emptying              // (A's mailbox emptied: the count was written before)
+            }
+            wait_for_other_cores()
+        }
+        print_u64(load64(pool + RT_STATE + RT_S_FINISHED))
+    }
+    test_limit_turns(1, 0)
+    run_until_idle()
+    print_u64(unfinished_messages())
+}

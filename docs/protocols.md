@@ -30,6 +30,8 @@ where nothing can happen and the work is not finished. It finds the shortest cou
 | generations: a domain slot is given to one tenant after another while a holder keeps a reference to an earlier one | the generation is a count of tenants in a few bits, which wraps | **invariant broken** (7 steps: the stale reference matches a later tenant) | the reason the tenant count may not wrap |
 | | the same count, and a tenant that does not fit the bits panics | **deadlock** (4 steps: the slot can never be used again) | the form until decision 209 (16 bits, `shl` panicked at the 65,536th tenant) |
 | | one counter per slot that only grows, taken by every place, end and revocation; a used-up slot is not given out again | verified (14 states) | decision 209 |
+| give_back: a held domain on core c is given back while core c ends one more turn of it | core 0 gives it back itself, reading and writing core c's ring numbers | **invariant broken** (4 steps: both cores take the hold away, the count of unfinished messages wraps) | the form until decision 211 (found by review, not by a test) |
+| | core c gives it back between two of its turns, asked by a record | verified (8 states) | decision 211; `domain_given_back_by_own_core` checks that core 0 no longer does it |
 
 `harness/model_check` runs all of them and fails if a form gives another verdict: the old forms must still show their bug (a
 model that stops finding it is wrong) and the current forms must be verified.

@@ -208,13 +208,16 @@ ring_scratch:
 
 // u64 domain_actor_of(core, d) / void domain_set_actor_of(core, d, actor) / u64 domain_pool_base_of(core, d): the
 // same as domain_actor, domain_set_actor and domain_pool_base for another core's domains. Core 0 sets one of
-// another core's up when it places an actor there, before any message tells that core about it.
+// another core's up when it places an actor there, before any message tells that core about it. The state is read with
+// an acquire and written with a release (decision 211): a domain's own core wipes its pool and then marks it free, and core 0,
+// which takes a free domain and writes into its pool, must see the wipe done before it sees the domain free.
     .global domain_actor_of
 domain_actor_of:
     ldr     x2, =domain_tramp
     add     x2, x2, x0, lsl #12
     add     x2, x2, #(T_ACTORS - 8)
-    ldr     x0, [x2, x1, lsl #3]
+    add     x2, x2, x1, lsl #3
+    ldar    x0, [x2]
     ret
 
     .global domain_set_actor_of
@@ -222,7 +225,8 @@ domain_set_actor_of:
     ldr     x3, =domain_tramp
     add     x3, x3, x0, lsl #12
     add     x3, x3, #(T_ACTORS - 8)
-    str     x2, [x3, x1, lsl #3]
+    add     x3, x3, x1, lsl #3
+    stlr    x2, [x3]
     ret
 
     .global domain_pool_base_of

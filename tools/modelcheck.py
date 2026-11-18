@@ -24,6 +24,10 @@ scenarios are the ones that produced real bugs in milestones 6 and 7, each in th
           `tenant_wrap`:  the generation is a count of tenants in a few bits, which wraps (a stale reference matches).
           `tenant_bits`:  the same count, but one that does not fit panics (the form until decision 209: the slot is lost).
           `slot_counter`: one counter per slot that only grows; a used-up slot is not given out again (the current form).
+  give_back  a held domain on core c is given back while core c ends one more turn of it.
+          `core_0`:   core 0 gives it back itself, reading and writing core c's words (until decision 211: the hold is taken
+                      away twice and the count wraps).
+          `own_core`: core c gives it back, asked by a record, between two of its turns (the current form).
 
 `EXPECTED` says which form must be verified and which must show a counterexample. The tool exits 1 if a result differs: a
 model that no longer finds the old bug, or finds one in the current design, is wrong or the design changed. It checks models
@@ -412,6 +416,54 @@ def generations(mode, limit=3, tenants=4):
     return explore((0, 0, None, None, False, False), step, finished, invariant)
 
 
+# ---- give_back: a domain on core c is given back while core c may still be ending a turn of it (decision 211) ---------------
+
+def give_back(mode):
+    # state: (c_at, z_at, hold, pending, c_saw, z_saw)
+    # The domain's last turn ended with work, so it is held: one in the count of unfinished messages (pending = 1, hold = 1). Its
+    # actors have ended, and its entry is still in core c's run queue. Core c ends one more turn of it: it reads the hold and, as
+    # the turn found nothing, takes it away (pending - 1). The domain is given back, which also takes the hold away if it is set.
+    # "core_0": core 0 gives it back itself, reading and writing core c's words (the form until decision 211), so the two
+    #           read-then-write steps can interleave.
+    # "own_core": core 0 sends core c a record and core c gives it back between two of its turns (decision 211).
+    def step(s):
+        c_at, z_at, hold, pending, c_saw, z_saw = s
+        # core c: the end of its turn, then (own_core) the give-back
+        if c_at == "turn":
+            yield "core c reads the hold at the end of its turn", ("turn_act", z_at, hold, pending, hold, z_saw)
+        elif c_at == "turn_act":
+            if c_saw:
+                yield "core c takes the hold away", ("after", z_at, 0, pending - 1, c_saw, z_saw)
+            else:
+                yield "core c finds no hold", ("after", z_at, hold, pending, c_saw, z_saw)
+        elif c_at == "after" and mode == "own_core" and z_at == "sent":
+            yield "core c reads the hold to give the domain back", ("discard_act", z_at, hold, pending, hold, z_saw)
+        elif c_at == "discard_act":
+            if c_saw:
+                yield "core c's give-back takes the hold away", ("done", "done", 0, pending - 1, c_saw, z_saw)
+            else:
+                yield "core c gives the domain back", ("done", "done", hold, pending, c_saw, z_saw)
+        # core 0
+        if z_at == "start":
+            if mode == "core_0":
+                yield "core 0 reads the hold to give the domain back", (c_at, "discard_act", hold, pending, c_saw, hold)
+            else:
+                yield "core 0 sends core c a record: give it back", (c_at, "sent", hold, pending, c_saw, z_saw)
+        elif z_at == "discard_act":
+            if z_saw:
+                yield "core 0 takes the hold away", (c_at, "done", 0, pending - 1, c_saw, z_saw)
+            else:
+                yield "core 0 gives the domain back", (c_at, "done", hold, pending, c_saw, z_saw)
+
+    def finished(s):
+        return s[1] == "done" and s[0] in ("after", "done")
+
+    def invariant(s):
+        return s[3] >= 0            # the count of unfinished messages went below 0 (it wraps: the system is never idle again)
+
+    return explore(("turn", "start", 1, 1, 0, 0), step, finished, invariant)
+
+
 EXPECTED = {
     ("flood", "unbounded"): "stuck",
     ("flood", "bounded"): "ok",
@@ -436,8 +488,10 @@ EXPECTED = {
     ("generations", "tenant_wrap"): "invariant",
     ("generations", "tenant_bits"): "stuck",
     ("generations", "slot_counter"): "ok",
+    ("give_back", "core_0"): "invariant",
+    ("give_back", "own_core"): "ok",
 }
-SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight, "inbound": inbound, "restart_ring": restart_ring, "generations": generations}
+SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight, "inbound": inbound, "restart_ring": restart_ring, "generations": generations, "give_back": give_back}
 
 
 def run_all():

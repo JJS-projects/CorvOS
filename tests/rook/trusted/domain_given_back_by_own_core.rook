@@ -1,0 +1,83 @@
+// A domain is given back by its own core, between two of its turns (decision 211): core 0 makes every reference and handle stale at
+// once, but it no longer wipes the pool or touches the domain's ring numbers while the domain's core may still be ending a turn of
+// it (the model `give_back`: two cores each took the domain's hold away, and the count of unfinished messages wrapped).
+// Worked out: a Holder in domain d on core 1 is sent two messages, and core 1 is limited to one turn (decision 210's hook): the turn
+// ends with work left, so the domain is held. test_main stops d; core 1 ends the Holder and asks core 0 to give the domain back. Core
+// 1 is then told to leave its ring from core 0 alone, and test_main lets core 0 handle that request: the domain is now being given
+// back (state 3) and its pool is not wiped yet (1). Before decision 211 core 0 had wiped it and marked it free here (0). When core 1
+// takes its ring again, it gives the domain back: free, and wiped (1). The system settles with nothing unfinished (0), and a new
+// Worker says 5.
+// expect: 1
+// expect: 1
+// expect: 0
+// expect: 5
+
+import actors: Domain, new_domain, run_until_idle
+import assembly: domain_actor_of
+import domain_runtime: RT_STATE, RT_S_ENDED
+import mailbox: drain_rings, test_hold_ring, test_limit_turns, unfinished_messages, wait_for_other_cores
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Holder {
+    pub lossy on note(k: u64) { }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()                    // domain 1 of core 1
+    holder: Holder = spawn Holder() in d
+    run_until_idle()
+    test_limit_turns(1, 2)                      // one turn, which leaves a message: the domain is held
+    holder.note(1)
+    holder.note(2)
+    unsafe {
+        pool: u64 = actor_address(holder) - 0x11000
+        stop(d)
+        ending: loop rt_i: u64 in 0..50000000 {
+            if load64(pool + RT_STATE + RT_S_ENDED) == 1 {
+                break ending                    // core 1 has ended the Holder ...
+            }
+            wait_for_other_cores()
+        }
+        settling: loop rt_k: u64 in 0..100000 {
+            wait_for_other_cores()              // ... and sent core 0 its end
+        }
+        test_hold_ring(1, 0, true)
+        drain_rings()                           // core 0 handles the end: the domain is to be given back
+        if domain_actor_of(1, 1) == 3 and load64(pool + 0x10000) != 0x5EC0C1EA9ED0C0DE {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+        test_hold_ring(1, 0, false)
+        test_limit_turns(1, 0)
+        run_until_idle()
+        if domain_actor_of(1, 1) == 0 and load64(pool + 0x10000) == 0x5EC0C1EA9ED0C0DE {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    print_u64(unfinished_messages())
+    worker: Worker = spawn Worker(5)
+    worker.say(printer)
+    run_until_idle()
+}

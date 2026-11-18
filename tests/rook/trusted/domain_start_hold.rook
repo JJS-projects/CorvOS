@@ -1,0 +1,100 @@
+// A message an actor's own domain sends it while it waits for its `new` holds the domain when that `new` has run (decision 210): the
+// count of unfinished messages is not 0 until the message has been handled, also when the actor was spawned from another core.
+// Worked out: a Sender lives in domain d on core 1; a Relay lives alone on core 2. Core 1 is told to leave its ring from core 0
+// alone (decision 210's test hook), so when test_main spawns Late in d the record that starts Late waits there, and Late is held.
+// test_main sends Late's reference to the Sender the long way, through the Relay on core 2, and the Sender sends Late `say` by the
+// fast path: it waits in Late's mailbox, in no count of Raven's, and the Sender notes that it has sent it (1). Then core 1 is
+// stopped from running turns and its ring from core 0 is let go: core 1 starts Late, and Late's message waits. The count of
+// unfinished messages must not be 0 now (1). Before decision 210 the start released the message without holding the domain, the
+// count was 0, and a core waiting for the system to be idle went on while Late's message had not run (the review's finding 4).
+// Then core 1 runs again and Late says 7.
+// expect: 1
+// expect: 1
+// expect: 7
+
+import actors: Domain, new_domain, run_until_idle
+import domain_runtime: RT_STATE, RT_S_HELD
+import mailbox: test_hold_ring, test_limit_turns, unfinished_messages, wait_for_other_cores
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Late {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+}
+
+separate actor Sender {
+    mut done: u64
+
+    new() {
+        .done = 0
+    }
+
+    pub lossy on poke(a: Late, to: Printer) {
+        a.say(to)
+        .done = 1
+    }
+}
+
+separate actor Relay {
+    pub lossy on pass(a: Late, b: Sender, to: Printer) {
+        b.poke(a, to)
+    }
+}
+
+/// Waits until the word at `rt_at` is `rt_want`, for a long while at most; whether it was.
+fn rt_wait_for(rt_at: u64, rt_want: u64) -> bool {
+    waiting: loop rt_i: u64 in 0..50000000 {
+        unsafe {
+            if load64(rt_at) == rt_want {
+                return true
+            }
+        }
+        wait_for_other_cores()
+    }
+    return false
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    d: Domain = new_domain()                    // on core 1
+    b: Sender = spawn Sender() in d
+    relay: Relay = spawn Relay()                // alone, on core 2
+    run_until_idle()
+    test_hold_ring(1, 0, true)
+    a: Late = spawn Late(7) in d                   // its start waits in core 1's ring from core 0
+    relay.pass(a, b, printer)
+    unsafe {
+        pool: u64 = actor_address(b) - 0x11000
+        if rt_wait_for(actor_address(b), 1) {
+            print_u64(1)                        // the Sender has sent Late its message
+        } else {
+            print_u64(0)
+        }
+        test_limit_turns(1, 1)                  // core 1 runs no turn from now on ...
+        test_hold_ring(1, 0, false)             // ... but takes its records: Late starts
+        discard rt_wait_for(pool + RT_STATE + RT_S_HELD + 8, 0)       // (Late is place 1: its `new` has run)
+        settling: loop rt_k: u64 in 0..100000 {
+            wait_for_other_cores()              // (and the record that started it is counted as handled)
+        }
+        if unfinished_messages() > 0 {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    test_limit_turns(1, 0)
+    run_until_idle()
+}
