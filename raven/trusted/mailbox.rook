@@ -1252,11 +1252,16 @@ fn spawn_common(fields: u64, dispatcher: u64, rt_entry: u64, rt_args: u64,
             mut rt_generation: u64 = 0
             rt_free: u64 = take_free_block(rt_size)
             if rt_free != 0 {
-                // The memory of an actor that ended, the same size: cleared, and with the generation its place has now.
+                // The memory of an actor that ended, the same size: cleared, and with the generation its place has now. Its domain word
+                // (its size and generation) is not cleared: another core's `valid_actor` may be walking the arena by those sizes at this
+                // moment, and a size of 0 made it give up and fail a domain whose request was good (decision 213). The word is written
+                // again below with the same size, in one store.
                 rt_generation = load64(rt_free + ACTOR_H_DOMAIN) shr REF_GENERATION_SHIFT
                 rt_next = rt_free
                 clearing_block: loop rt_c: u64 in 0..(rt_size / 8) {
-                    store64(rt_next + rt_c * 8, 0)
+                    if rt_c != ACTOR_H_DOMAIN / 8 {
+                        store64(rt_next + rt_c * 8, 0)
+                    }
                 }
             } else {
                 if rt_next + rt_size > actor_arena_limit() {

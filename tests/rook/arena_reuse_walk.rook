@@ -1,0 +1,50 @@
+// Raven checks that a domain's send names an actor it made by walking core 0's arena block by block, from another core; core 0 reuses
+// the block of an actor that ended for the next one of the same size. While it did, the block's size read as 0 for a moment (the
+// block was zeroed whole before its size was written back), and a walk that met it gave up: a domain sending to a plain actor stored
+// after that block was failed for a request it may make ("domain 1 made a request it may not"). Decision 213: the size is never
+// cleared. A stress test, not a proof: core 0 ends and spawns a Churn 300 times while a Blaster on core 1 sends, 2,000 times a round,
+// to a Target stored after the Churn's block (a stale reference: Raven walks the arena to check that it names something it made, then
+// drops the send without using a ring, so the sends are quick). No domain fails, and the system settles: 1.
+// expect: 1
+
+import actors: run_until_idle
+import print: print_u64
+
+actor Churn {
+    lossy on idle() { }
+}
+
+actor Target {
+    mut seen: u64                               // (a field, so it is not the Churn's size and its block is never reused here)
+
+    new() {
+        .seen = 0
+    }
+
+    lossy on ping() {
+        .seen += 1
+    }
+}
+
+separate actor Blaster {
+    pub lossy on blast(to: Target, times: u64) {
+        sending: loop rt_i: u64 in 0..times {
+            to.ping()
+        }
+    }
+}
+
+fn test_main() {
+    mut churn: Churn = spawn Churn()            // first in core 0's arena ...
+    target: Target = spawn Target()             // ... and the Target after it
+    blaster: Blaster = spawn Blaster()          // alone, on core 1
+    stop(target)                                // (a stale reference: Raven walks the arena to check it, then drops the send, without a ring)
+    run_until_idle()
+    rounds: loop rt_k: u64 in 0..300 {
+        blaster.blast(target, 2000)
+        stop(churn)
+        churn = spawn Churn()                   // the same block again
+    }
+    run_until_idle()
+    print_u64(1)
+}
