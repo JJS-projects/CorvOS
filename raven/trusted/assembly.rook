@@ -68,6 +68,9 @@ pub extern fn rings_waiting() -> u64
 pub extern fn pending_add(n: u64)
 pub extern fn pending_sub(n: u64)
 pub extern fn pending_load() -> u64
+
+/// Adds 1 to the word at `address` and returns the new value, atomically across cores (decision 209).
+pub extern fn atomic_increment(address: u64) -> u64
 pub extern fn core_wait_event()
 pub extern fn core_pause()
 pub extern fn ring_scratch(i: u64) -> u64

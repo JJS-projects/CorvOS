@@ -75,7 +75,8 @@ with the same reference, a domain restarts as a unit with its memory wiped, and 
 - **A domain with several actors fails and restarts as one unit (decisions 201, 202, 206):** every actor's `new` runs again on the
   arguments kept for it, so every reference stays valid, also that of an actor another actor placed
   (`domain_fail_together`, `domain_spawn_restart`, `domain_spawn_crash`). A domain that is given back is wiped and used again
-  (`separate_recycle*`), so a system that restarts for ever no longer runs out of domains.
+  (`separate_recycle*`), so a system that restarts for ever no longer runs out of domains: each slot hands out about four billion
+  generations before it is retired (decision 209; until then the 65,536th tenant of a slot made Raven panic, `domain_tenant_65536`).
 - **Finding the faults before the field did:** a model checker for the protocols between cores (`python3 tools/modelcheck.py`: nine
   scenarios, each with its expected verdict), replayable schedules (`ICOUNT`) and fault injection in the harness (decision 195)
   found or confirmed bugs that a plain run would show one time in thirty. The accounting of unfinished messages was wrong at least three

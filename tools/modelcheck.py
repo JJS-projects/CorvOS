@@ -20,6 +20,11 @@ scenarios are the ones that produced real bugs in milestones 6 and 7, each in th
           `no_flag`: the message is handled when it arrives (the first form of decision 181).
           `flag`:    the actor is marked STARTING: the message waits for the start (the current form).
 
+  generations  a domain slot is given to one tenant after another; a holder keeps a reference to an earlier one.
+          `tenant_wrap`:  the generation is a count of tenants in a few bits, which wraps (a stale reference matches).
+          `tenant_bits`:  the same count, but one that does not fit panics (the form until decision 209: the slot is lost).
+          `slot_counter`: one counter per slot that only grows; a used-up slot is not given out again (the current form).
+
 `EXPECTED` says which form must be verified and which must show a counterexample. The tool exits 1 if a result differs: a
 model that no longer finds the old bug, or finds one in the current design, is wrong or the design changed. It checks models
 that I wrote by hand from the code: it finds what the models allow, not what the assembly does (decision 195 says so).
@@ -358,6 +363,55 @@ def restart_ring(mode):
     return explore(("before", 0, 0), step, finished, invariant)
 
 
+# ---- generations: a stale reference must never match a later tenant of the same slot (decision 209) -------------------------
+
+def generations(mode, limit=3, tenants=4):
+    # state: (count, placed, live, held, matched, over)
+    # One domain slot, one place in it, given to a tenant, ended and given back again. `live` is (tenant, generation) of the actor
+    # in the place now (None: the slot is free), `held` the reference a holder kept, `matched` whether a send with it reached a
+    # later tenant. `count` is what the generation is made from:
+    # "tenant_wrap":  the number of tenants so far, kept in 1 bit (it wraps): the generation is that number (the shape of the 16
+    #                 tenant bits of decision 202, made small).
+    # "tenant_bits":  the same number, but a tenant that does not fit the bits panics instead of wrapping (what `shl` did, until
+    #                 decision 209): the slot can never be used again and Raven stops.
+    # "slot_counter": one counter per slot, which only grows: a place and an end each take the next value; when there is none
+    #                 left the slot is never given out again (decision 209). `limit` values in all.
+    def step(s):
+        count, placed, live, held, matched, over = s
+        if over:
+            return
+        if live is not None:
+            if held is None:
+                yield "a holder keeps a reference to the tenant", (count, placed, live, live, matched, over)
+            if held is not None and held[1] == live[1]:
+                yield "the holder sends: the generation matches", (count, placed, live, held, matched or held[0] != live[0], over)
+            ended = count + 1 if mode == "slot_counter" and count < limit else count
+            gone = count + 1 if mode != "slot_counter" else ended
+            yield "the tenant ends and the slot is given back", (gone, placed, None, held, matched, over)
+            return
+        if placed == tenants:
+            yield "no more tenants", (count, placed, None, held, matched, True)
+            return
+        if mode == "slot_counter":
+            if count >= limit:
+                yield "every generation of the slot is used: it is not given out again", (count, placed, None, held, matched, True)
+                return
+            yield "a new tenant is placed", (count + 1, placed + 1, (placed, count + 1), held, matched, over)
+        elif mode == "tenant_wrap":
+            yield "a new tenant is placed", (count, placed + 1, (placed, count % 2), held, matched, over)
+        elif count < 2:
+            yield "a new tenant is placed", (count, placed + 1, (placed, count), held, matched, over)
+        # (tenant_bits with a count that does not fit: the placement panics, nothing can happen: stuck)
+
+    def finished(s):
+        return s[5]
+
+    def invariant(s):
+        return not s[4]             # a reference to an earlier tenant reached a later one
+
+    return explore((0, 0, None, None, False, False), step, finished, invariant)
+
+
 EXPECTED = {
     ("flood", "unbounded"): "stuck",
     ("flood", "bounded"): "ok",
@@ -379,8 +433,11 @@ EXPECTED = {
     ("restart_ring", "reset"): "ok",
     ("start", "no_flag"): "invariant",
     ("start", "flag"): "ok",
+    ("generations", "tenant_wrap"): "invariant",
+    ("generations", "tenant_bits"): "stuck",
+    ("generations", "slot_counter"): "ok",
 }
-SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight, "inbound": inbound, "restart_ring": restart_ring}
+SCENARIOS = {"flood": flood, "wake": wake, "start": start, "reuse": reuse, "recycle": recycle, "retire": retire, "inflight": inflight, "inbound": inbound, "restart_ring": restart_ring, "generations": generations}
 
 
 def run_all():

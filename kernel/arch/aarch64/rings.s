@@ -171,6 +171,19 @@ pending_load:
     ldar    x0, [x1]
     ret
 
+// u64 atomic_increment(address): adds 1 to the word at `address` and returns the new value, in one step that no other core
+// can interleave with (load-exclusive / store-exclusive, acquire and release, as pending_add). A domain slot's counter of
+// generations (decision 209) is bumped by core 0 (a spawn, an end, a revoke) and by the domain's own core (a spawn from inside
+// the domain): a plain load and store could lose one and hand out the same generation twice.
+    .global atomic_increment
+atomic_increment:
+1:  ldaxr   x1, [x0]
+    add     x1, x1, #1
+    stlxr   w2, x1, [x0]
+    cbnz    w2, 1b
+    mov     x0, x1
+    ret
+
 // void core_wait_event(void): sleeps until another core executes `sev` (ring_push does), or an interrupt, unless one
 // already has.
     .global core_wait_event

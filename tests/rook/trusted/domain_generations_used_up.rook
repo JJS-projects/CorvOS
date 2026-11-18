@@ -1,0 +1,63 @@
+// A domain slot whose counter of generations has given its last value is never given out again (decision 209): a reference to its
+// last tenant can then never match a new one, because there is none.
+// Worked out: the counter of domain 1 of every core is set to its last value (0xFFFFFFFF: one generation left). The first Worker
+// lives in domain 1 of core 1 and takes that last generation; it is stopped, so its domain is given back, used up. Three more Workers
+// go to cores 2, 3 and 0 (Raven's order, decision 180), and the fifth to core 1 again: not in domain 1, which is used up, but in
+// domain 2, so at another address (1). The reference to the first Worker is stale: a reliable send is Gone (3). The fifth says 5.
+// expect: 1
+// expect: 3
+// expect: 5
+
+import actors: Sent, run_until_idle
+import assembly: core_block
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+separate actor Worker {
+    n: u64
+
+    new(n: u64) {
+        .n = n
+    }
+
+    pub lossy on say(to: Printer) {
+        to.show(.n)
+    }
+
+    pub reliable on ping() { }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    unsafe {
+        marking: loop c: u64 in 0..4 {
+            store64(core_block(c) + 1296, 0xFFFFFFFF)       // CORE_PLACE_GEN of domain 1: one generation left
+        }
+    }
+    first: Worker = spawn Worker(1)
+    stop(first)
+    run_until_idle()
+    w2: Worker = spawn Worker(2)
+    w3: Worker = spawn Worker(3)
+    w4: Worker = spawn Worker(4)
+    fifth: Worker = spawn Worker(5)
+    unsafe {
+        if actor_address(fifth) != actor_address(first) {
+            print_u64(1)
+        } else {
+            print_u64(0)
+        }
+    }
+    match first.ping() {
+        Delivered => print_u64(1)
+        MailboxFull => print_u64(2)
+        Gone => print_u64(3)
+    }
+    fifth.say(printer)
+    run_until_idle()
+}
