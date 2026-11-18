@@ -1,0 +1,14 @@
+// A struct's method cannot spawn: only an actor or test_main can (decision 215).
+// error: 12:16: only an actor or the program's entry (`test_main`) can `spawn`: move it into the actor responsible for it
+
+actor Plain {
+    lossy on hi() { }
+}
+
+struct Maker {
+    n: u64
+
+    fn make() -> Plain {
+        return spawn Plain()
+    }
+}

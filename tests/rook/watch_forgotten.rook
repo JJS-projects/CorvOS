@@ -50,22 +50,20 @@ actor Watcher: Lifecycle {
     }
 }
 
-fn watch_all(service: Service, tally: Tally) {
-    making: loop i: u64 in 0..14 {
-        watcher: Watcher = spawn Watcher(service, tally)
-    }
-}
-
 fn test_main() {
     tally: Tally = spawn Tally()
     first: Service = spawn Service()
-    watch_all(first, tally)
+    watching_first: loop i: u64 in 0..14 {        // (written here: only an actor or test_main can spawn, decision 215)
+        watcher: Watcher = spawn Watcher(first, tally)
+    }
     stop(first)
     run_until_idle()
     tally.show()
     run_until_idle()
     second: Service = spawn Service()
-    watch_all(second, tally)
+    watching_second: loop j: u64 in 0..14 {
+        watcher: Watcher = spawn Watcher(second, tally)
+    }
     stop(second)
     run_until_idle()
     tally.show()
