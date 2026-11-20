@@ -97,8 +97,10 @@ pub struct Timer {
     id: u64
 
     /// After `ms` milliseconds (at most an hour) the actor `to` is sent `tick(token)`, once. False if all the timers are in
-    /// use. A timeout that is renewed is a new `after` with a new token; the old one's tick arrives too, with the old token,
-    /// and the handler tells them apart. Periodic work is `after` again in `tick`.
+    /// use, when asked on core 0, which keeps them; asked from an actor on another core it is true when the request is sent, and
+    /// a request that finds every timer in use is dropped and counted in `dropped_messages()` of core 0 (decision 216). A
+    /// timeout that is renewed is a new `after` with a new token; the old one's tick arrives too, with the old token, and the
+    /// handler tells them apart. Periodic work is `after` again in `tick`.
     pub fn after(ms: u64, to: Tick, token: u64) -> bool {
         unsafe {
             return raven_timer_after(actor_reference(to), handler_number("tick"), ms, token) != 0

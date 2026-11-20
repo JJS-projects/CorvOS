@@ -1,0 +1,90 @@
+// A timer asked for by an actor on another core when every timer is in use is not lost silently (decision 216): the actor was told
+// `true` when it sent the request (only core 0 keeps the timers and knows), so the timer that core 0 cannot arm is counted with the
+// dropped messages, as its `tick` would have been.
+// Worked out: test_main arms all 32 timers (200 ms), 16 for each of two Counters, so their ticks fit their mailboxes. An Asker on
+// core 1 then asks for one more: it is told true (1). When everything has settled, 32 ticks have arrived and the dropped messages
+// have grown by exactly 1, the timer core 0 could not arm. Before decision 216 they did not grow (0): the timer was lost unseen.
+// expect: 1
+// expect: 32
+// expect: 1
+
+import actors: Tick, Timer, dropped_messages, make_timer, run_until_idle
+import devices: Mmio
+import print: print_u64
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Counter: Tick {
+    mut ticks: u64
+
+    new() {
+        .ticks = 0
+    }
+
+    lossy on tick(token: u64) {
+        .ticks += 1
+    }
+
+    pub lossy on add_to(total: Total) {
+        total.add(.ticks)
+    }
+}
+
+actor Total {
+    mut sum: u64
+
+    new() {
+        .sum = 0
+    }
+
+    pub lossy on add(n: u64) {
+        .sum += n
+    }
+
+    pub lossy on show() {
+        print_u64(.sum)
+    }
+}
+
+separate actor Asker {
+    timer: val Timer
+
+    new(timer: val Timer) {
+        .timer = timer
+    }
+
+    pub lossy on ask(to: Counter, printer: Printer) {
+        if .timer.after(1, narrow(to, Tick), 99) {
+            printer.show(1)
+        } else {
+            printer.show(0)
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    timer: Timer = make_timer(peripherals)
+    printer: Printer = spawn Printer()
+    one: Counter = spawn Counter()
+    two: Counter = spawn Counter()
+    total: Total = spawn Total()
+    asker: Asker = spawn Asker(copy(timer))     // on core 1
+    run_until_idle()
+    before: u64 = dropped_messages()
+    arming: loop i: u64 in 0..16 {
+        discard timer.after(200, narrow(one, Tick), i)
+        discard timer.after(200, narrow(two, Tick), i)
+    }
+    asker.ask(one, printer)
+    run_until_idle()
+    one.add_to(total)
+    two.add_to(total)
+    run_until_idle()
+    total.show()
+    run_until_idle()
+    print_u64(dropped_messages() - before)
+}

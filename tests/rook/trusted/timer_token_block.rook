@@ -1,0 +1,48 @@
+// A timer that fires does not write over Raven's other words in core 0's block (decision 216). Its token used to pass through
+// "a word of the block that nothing else uses", byte 1296, which decision 209 then gave to the counter of generations of domain 1
+// of core 0: every timer that fired set that counter to its token, so it could go back and give a generation twice.
+// Worked out: three Spacers take cores 1, 2 and 3, so the Holder lives in domain 1 of core 0, which has given one generation (the
+// counter is 1). A timer with token 77 fires and the Clock is told 77; the counter is still what it was: 1. Before decision 216 it
+// was 77 after the tick.
+// expect: 77
+// expect: 1
+
+import actors: Tick, Timer, make_timer, run_until_idle
+import assembly: core_block
+import devices: Mmio
+import print: print_u64
+
+actor Clock: Tick {
+    lossy on tick(token: u64) {
+        print_u64(token)
+    }
+}
+
+separate actor Spacer {
+    pub lossy on idle() { }
+}
+
+separate actor Holder {
+    pub lossy on idle() { }
+}
+
+fn test_main(peripherals: Mmio) {
+    timer: Timer = make_timer(peripherals)
+    clock: Clock = spawn Clock()
+    s1: Spacer = spawn Spacer()
+    s2: Spacer = spawn Spacer()
+    s3: Spacer = spawn Spacer()
+    holder: Holder = spawn Holder()             // domain 1 of core 0
+    run_until_idle()
+    unsafe {
+        counter: u64 = core_block(0) + 1296     // CORE_PLACE_GEN of domain 1 (mailbox.rook)
+        before: u64 = load64(counter)
+        discard timer.after(1, narrow(clock, Tick), 77)
+        run_until_idle()
+        if load64(counter) == before {
+            print_u64(before)
+        } else {
+            print_u64(load64(counter))
+        }
+    }
+}
