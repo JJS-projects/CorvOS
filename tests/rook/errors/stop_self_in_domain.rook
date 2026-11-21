@@ -1,0 +1,8 @@
+// An actor in a domain cannot stop itself yet: Raven would refuse it and fail the domain (decision 217).
+// error: 6:9: an actor in a domain can't `stop` yet
+
+separate actor Far {
+    pub lossy on quit() {
+        stop()
+    }
+}

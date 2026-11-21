@@ -403,3 +403,6 @@ tests/rook/errors/stop_in_function.rook
 tests/rook/errors/watch_in_function.rook
 tests/rook/errors/revoke_in_function.rook
 tests/rook/errors/spawn_in_struct_method.rook
+tests/rook/errors/stop_self_in_domain.rook
+tests/rook/errors/stop_in_domain.rook
+tests/rook/errors/watch_in_domain.rook

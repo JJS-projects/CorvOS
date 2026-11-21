@@ -449,7 +449,8 @@ domain_enter:
     add     x13, x13, #STACK_TOP
     str     x13, [x12, #F_SP]
     str     x1, [x12, #F_ELR]
-    str     xzr, [x12, #F_SPSR]         // EL0t, interrupts unmasked (the budget timer must be able to fire)
+    mov     x13, #0x40                  // EL0t, IRQ and SError unmasked (the budget timer must be able to fire; an SError fails
+    str     x13, [x12, #F_SPSR]         // the domain, domain_serror), FIQ masked: Raven uses none (decision 217)
     b       resume_current
 
 // u64 domain_resume(result): continues a domain that stopped with REASON_CALL, with `result` in its x0.
@@ -577,7 +578,8 @@ fault:
 domain_irq:
     save_user
     mrs     x1, cntp_ctl_el0
-    tbz     x1, #2, 1f                  // ISTATUS: the timer condition is met
+    tbz     x1, #0, 1f                  // ENABLE and ISTATUS: armed and due (ISTATUS alone is UNKNOWN when disarmed, decision 217)
+    tbz     x1, #2, 1f
     msr     cntp_ctl_el0, xzr           // disarm
     isb
     mov     x0, #REASON_TIMEOUT
@@ -605,6 +607,15 @@ domain_irq:
     str     x3, [x2, #48]
     b       resume_current
 2:  b       resume_current              // nothing pending: the source withdrew before we looked (decision 183): go on
+
+// SError from EL0 (vector 11): an asynchronous abort while a domain ran, such as a device access of its driver that the bus
+// refused. It is the domain's: it fails (REASON_FAULT, "domain N faulted"), and the core goes on, instead of halting in
+// exception_report as it did (decision 217). An SError at EL1 is Raven's and still halts.
+    .global domain_serror
+domain_serror:
+    save_user
+    mov     x0, #REASON_FAULT
+    b       leave_domain
 
 // What the stub at the end of a handler does: `svc #0`.
     .global domain_return_stub

@@ -54,6 +54,8 @@ ring_push:
     stp     x10, x11, [x9, #112]
     add     x5, x5, #1
     stlr    x5, [x4]                    // the tail, with release: the slot is complete before the reader can see it
+    dsb     st                          // ... and visible before the interrupt below (a Device write) can wake the reader: a
+                                        // release does not hold back later stores (decision 217)
     sev
     ldr     x9, =0x40000080             // x0 is still `dst`. Every core sleeps in `wfi` (QEMU spins a core in `wfe`, which cost
     add     x9, x9, x0, lsl #4          // four busy threads for each test: decision 191), which `sev` does not wake: raise its

@@ -1631,7 +1631,7 @@ pub fn watch_impl(watched_ref: u64, watcher_ref: u64, number: u64, stopped_plus_
         return                                  // it is not there any more: nothing to watch
     }
     watched: u64 = watched_ref and REF_ADDRESS_MASK
-    watcher: u64 = watcher_ref and REF_ADDRESS_MASK
+    watcher: u64 = watcher_ref                  // the whole reference, generation too: a watch is told only to the actor that asked (decision 217)
     unsafe {
         rt_core: u64 = core_of_actor(watched)
         if rt_core != core_id() {
@@ -1677,7 +1677,8 @@ fn watch_here(watched: u64, watcher: u64, number: u64, stopped_plus_one: u64) {
     }
 }
 
-/// The watcher in a watch record's second word (bit 0 says it wants `stopped`).
+/// The watcher in a watch record's second word: its whole reference, address and generation, so that a watcher that has ended,
+/// and whatever has its memory since, is not told (decision 217). Bit 0 says it wants `stopped` (an address is 8-byte aligned).
 fn watcher_of(rt_tag: u64) -> u64 {
     return (rt_tag shr 1) shl 1
 }
@@ -1699,7 +1700,7 @@ fn drop_watches(rt_who: u64) {
         }
         dropping: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
-            if watcher_of(load64(rt_record + 8)) == rt_who {
+            if (watcher_of(load64(rt_record + 8)) and REF_ADDRESS_MASK) == rt_who {
                 store64(rt_record, 0)
                 store64(rt_record + 8, 0)
             }
@@ -1717,8 +1718,7 @@ fn notify_restarted(rt_who: u64) {
         telling: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
             if load64(rt_record) == rt_who {
-                rt_watcher: u64 = watcher_of(load64(rt_record + 8))
-                discard route_message(reference_to(rt_watcher), rt_number, 0, 0, true)
+                discard route_message(watcher_of(load64(rt_record + 8)), rt_number, 0, 0, true)     // (stale: refused)
             }
         }
     }
@@ -1734,9 +1734,8 @@ fn notify_stopped(rt_who: u64) {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
             if load64(rt_record) == rt_who {
                 rt_tag: u64 = load64(rt_record + 8)
-                rt_watcher: u64 = watcher_of(rt_tag)
                 if (rt_tag and 1) != 0 {
-                    discard route_message(reference_to(rt_watcher), rt_number, 0, 0, true)
+                    discard route_message(watcher_of(rt_tag), rt_number, 0, 0, true)     // (stale: refused)
                 }
                 store64(rt_record, 0)
                 store64(rt_record + 8, 0)

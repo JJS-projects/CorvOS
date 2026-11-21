@@ -1,0 +1,12 @@
+// An actor in a domain cannot stop another actor yet (decision 217).
+// error: 10:9: an actor in a domain can't `stop` yet
+
+actor Plain {
+    lossy on hi() { }
+}
+
+separate actor Far {
+    pub lossy on end_it(p: Plain) {
+        stop(p)
+    }
+}

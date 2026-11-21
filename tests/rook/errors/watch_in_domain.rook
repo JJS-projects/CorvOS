@@ -1,0 +1,18 @@
+// An actor in a domain cannot watch yet (decision 217).
+// error: 14:9: an actor in a domain can't `watch` yet
+
+interface Lifecycle {
+    lossy on restarted()
+}
+
+actor Plain {
+    lossy on hi() { }
+}
+
+separate actor Far: Lifecycle {
+    pub lossy on follow(p: Plain) {
+        watch(p, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() { }
+}
