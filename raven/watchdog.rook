@@ -1,9 +1,17 @@
-// A watchdog: tells its owner when it has not been fed for a time (decision 196). Written on the timer's tokens, in ordinary
-// Rook: every `beat` is a new timeout with a new token, and only the newest one counts when its tick arrives. What happens
-// on expiry is the owner's decision, so the watchdog needs to know nothing about the actor it watches (a supervisor can stop
-// it, a motor can brake). It arms itself when it is made, so an actor that never feeds it expires after `ms`.
+// A watchdog: tells its owner when it has not been fed for a time (decision 196). What happens on expiry is the owner's decision,
+// so the watchdog needs to know nothing about the actor it watches (a supervisor can stop it, a motor can brake). It arms itself
+// when it is made, so an actor that never feeds it expires after `ms`.
+//
+// It holds one timer at most (decision 219, the owner's choice). A `beat` only notes the time; when its timer's `tick` comes, it
+// expires if a whole `ms` has gone by since the last beat, and otherwise arms itself again for the time that is left. (Until
+// decision 219 every beat armed a new timer, and the old ones kept their places until they fired: fed more than about 32 times
+// in its time, it used up the system's 32 timers, `after` failed, and if the feeding then stopped it never expired.) If no timer
+// can be armed even so, it tells its owner it has expired at once: a false alarm is better than a watchdog that is silent.
 
 import actors: Tick, Timer
+import hardware: counter_frequency, read_counter
+
+WATCHDOG_DEFAULT_HZ: u64 = 19200000     // the counter's rate if the firmware did not set it (time.rook, hardware.md 12)
 
 /// Whom a watchdog tells.
 pub interface Expired {
@@ -19,25 +27,47 @@ pub actor Watchdog: Tick, Heartbeat {
     timer: val Timer
     owner: Expired
     ms: u64
-    mut watching: u64
+    per_ms: u64                     // ticks of the counter in a millisecond
+    mut last_beat: u64              // the counter when it was last fed, or made
+    mut armed: bool                 // its one timer is armed
 
-    /// A watchdog of `ms` milliseconds, armed now.
+    /// A watchdog of `ms` milliseconds, armed by the first beat it sends itself (at its first turn).
     new(timer: val Timer, owner: Expired, ms: u64) {
+        mut hz: u64 = counter_frequency()
+        if hz == 0 {
+            hz = WATCHDOG_DEFAULT_HZ
+        }
         .timer = timer
         .owner = owner
         .ms = ms
-        .watching = 1
-        discard timer.after(ms, narrow(self, Tick), 1)
+        .per_ms = hz / 1000
+        .last_beat = read_counter()
+        .armed = false
+        self.beat()                         // the first beat arms it (a `new` sets each field once, so it cannot note it here)
     }
 
     lossy on beat() {
-        .watching += 1
-        discard .timer.after(.ms, narrow(self, Tick), .watching)
+        .last_beat = read_counter()
+        if not .armed {
+            .armed = .timer.after(.ms, narrow(self, Tick), 0)       // (it had expired, or could not be armed: watching again)
+            if not .armed {
+                .owner.expired()
+            }
+        }
     }
 
     lossy on tick(token: u64) {
-        if token == .watching {
+        .armed = false
+        quiet: u64 = read_counter() - .last_beat
+        window: u64 = .ms * .per_ms
+        if quiet >= window {
             .owner.expired()
+        } else {
+            left: u64 = window - quiet          // fed since the timer was armed: wait for the rest, rounded up, so never early
+            .armed = .timer.after((left + .per_ms - 1) / .per_ms, narrow(self, Tick), 0)
+            if not .armed {
+                .owner.expired()
+            }
         }
     }
 }

@@ -14,7 +14,7 @@
 // a struct or enum counting as its size (decision 135).
 
 import actors: Sent
-import assembly: atomic_increment, domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, spawn_count, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
+import assembly: atomic_increment, domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import domain_runtime: rt_ring_messages_in, RT_S_GEN, RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
 import hardware: counter_frequency, read_counter
 
@@ -160,9 +160,9 @@ REASON_REPORTED: u64 = 5            // Raven's own: it panicked and Raven has sa
 // 2 to 5 depend on the kind, 6 to 13 are message words, 14 the actor that was running when it was made, 15 a flag.
 REC_SEND: u64 = 1                   // a message: 2 handler number, 3 words, 15 = 1: drop it if that handler is queued
 REC_START: u64 = 2                  // run `new`: 2 its start stub, 3 argument words, 4 = 1: the actor is restarted in place
-REC_WATCH: u64 = 3                  // watch_impl: 2 watcher, 3 handler `restarted`, 4 handler `stopped` plus one
+REC_NOTIFY: u64 = 3                 // to core 0: the actor (word 1) has restarted (word 2 = 0) or stopped (1); core 0 keeps the watches (decision 218)
 REC_STOP: u64 = 4                   // end the actor
-REC_DROP_WATCHES: u64 = 5           // a watcher ended or restarted: forget its watches
+REC_DROP_WATCHES: u64 = 5           // to core 0: a watcher on another core ended or restarted: forget its watches
 REC_TIMER: u64 = 6                  // arm a timer on core 0 (decision 196): 2 handler number, 3 deadline, 4 token
 REC_RETIRE: u64 = 7                 // an actor in a domain has ended (decision 197): core 0 gives its domain back
 REC_FREE_DOMAIN: u64 = 8            // core 0 to a domain's own core: give domain (word 1) back now (decision 211)
@@ -1632,19 +1632,12 @@ pub fn watch_impl(watched_ref: u64, watcher_ref: u64, number: u64, stopped_plus_
     }
     watched: u64 = watched_ref and REF_ADDRESS_MASK
     watcher: u64 = watcher_ref                  // the whole reference, generation too: a watch is told only to the actor that asked (decision 217)
-    unsafe {
-        rt_core: u64 = core_of_actor(watched)
-        if rt_core != core_id() {
-            // The core of the actor watched keeps the watch, and sends `restarted` and `stopped` itself.
-            rt_rec: u64 = ring_scratch(0)
-            store64(rt_rec, REC_WATCH)
-            store64(rt_rec + 8, watched)
-            store64(rt_rec + 16, watcher)
-            store64(rt_rec + 24, number)
-            store64(rt_rec + 32, stopped_plus_one)
-            push_record(rt_core, rt_rec)
-            return
-        }
+    // Every watch is kept by core 0, whichever core the actor watched is on (decision 218, the owner's choice): `watch` is written
+    // only in a plain actor or `test_main` (decisions 215 and 217), which run on core 0, so a table that is full fails the watcher's
+    // own handler here. (Until decision 218 the core of the actor watched kept it, and a full table there panicked while that core
+    // took the record, outside any handler: the core halted.) The core of an actor that restarts or stops tells core 0 (REC_NOTIFY).
+    if core_id() != 0 {
+        panic("watches are kept by core 0")
     }
     watch_here(watched, watcher, number, stopped_plus_one)
 }
@@ -1683,20 +1676,18 @@ fn watcher_of(rt_tag: u64) -> u64 {
     return (rt_tag shr 1) shl 1
 }
 
-/// Forgets what `rt_who` watches (it restarts or ends).
+/// Forgets what `rt_who` watches (it restarts or ends). The watches are core 0's (decision 218): another core tells it.
 fn drop_watches(rt_who: u64) {
     rt_base: u64 = actor_arena_base()
     unsafe {
-        // The watches are kept by the core of the actor watched, which may be another: tell them all.
-        if core_of_actor(rt_who) == core_id() and domain_of(rt_who) == 0 {
-            telling: loop rt_c: u64 in 0..4 {
-                if rt_c != core_id() and spawn_count() != 0 {
-                    rt_rec: u64 = ring_scratch(0)
-                    store64(rt_rec, REC_DROP_WATCHES)
-                    store64(rt_rec + 8, rt_who)
-                    push_record(rt_c, rt_rec)
-                }
-            }
+        if core_id() != 0 {
+            // (a watcher in a domain: `test_main` may name one as the watcher; an actor of another core that watches nothing costs a
+            // record here, which only restarts and ends send)
+            rt_rec: u64 = ring_scratch(0)
+            store64(rt_rec, REC_DROP_WATCHES)
+            store64(rt_rec + 8, rt_who)
+            push_record(0, rt_rec)
+            return
         }
         dropping: loop rt_i: u64 in 0..ACTOR_WATCH_MAX {
             rt_record: u64 = rt_base + ACTOR_WATCHES + rt_i * 16
@@ -1708,10 +1699,25 @@ fn drop_watches(rt_who: u64) {
     }
 }
 
+/// Tells core 0, which keeps the watches (decision 218), that `nt_who` has restarted (`nt_stopped` false) or stopped.
+fn notify_core0(nt_who: u64, nt_stopped: bool) {
+    unsafe {
+        nt_rec: u64 = ring_scratch(0)
+        store64(nt_rec, REC_NOTIFY)
+        store64(nt_rec + 8, nt_who)
+        store64(nt_rec + 16, if nt_stopped { 1 } else { 0 })
+        push_record(0, nt_rec)
+    }
+}
+
 /// `rt_who` has restarted and its `new` has run again: tell each watcher with the message
 /// `restarted`. It is lossy: one already waiting stands for this one, and a full mailbox
-/// drops it.
+/// drops it. On another core than 0 it tells core 0, which keeps the watches (decision 218).
 fn notify_restarted(rt_who: u64) {
+    if core_id() != 0 {
+        notify_core0(rt_who, false)
+        return
+    }
     rt_base: u64 = actor_arena_base()
     unsafe {
         rt_number: u64 = load64(rt_base + ACTOR_S_RESTARTED)
@@ -1725,8 +1731,13 @@ fn notify_restarted(rt_who: u64) {
 }
 
 /// `rt_who` has ended: tell each watcher that asked for it the message `stopped` (lossy: one
-/// already waiting stands for this one), then forget the watches on it, which can never fire.
+/// already waiting stands for this one), then forget the watches on it, which can never fire. On another core than 0 it tells
+/// core 0 (decision 218); its record comes before any that a later tenant of the same place could send, as a ring keeps its order.
 fn notify_stopped(rt_who: u64) {
+    if core_id() != 0 {
+        notify_core0(rt_who, true)
+        return
+    }
     rt_base: u64 = actor_arena_base()
     unsafe {
         rt_number: u64 = load64(rt_base + ACTOR_S_STOPPED)
@@ -1954,8 +1965,12 @@ fn handle_record(rt_rec: u64) {
             }
         } else if rt_kind == REC_START {
             start_here(rt_who, load64(rt_rec + 16), load64(rt_rec + 24), load64(rt_rec + 32), rt_rec + REC_PAYLOAD)
-        } else if rt_kind == REC_WATCH {
-            watch_here(rt_who, load64(rt_rec + 16), load64(rt_rec + 24), load64(rt_rec + 32))
+        } else if rt_kind == REC_NOTIFY {
+            if load64(rt_rec + 16) != 0 {
+                notify_stopped(rt_who)
+            } else {
+                notify_restarted(rt_who)
+            }
         } else if rt_kind == REC_STOP {
             end_actor(rt_who)
         } else if rt_kind == REC_RETIRE {

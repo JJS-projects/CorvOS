@@ -1,0 +1,83 @@
+// Watches are kept by core 0, so a table that is full fails the watcher that asked, not a core (decision 218, the owner's choice).
+// Until decision 218 the core of the actor watched kept them, and the 15th watch of an actor on core 1 panicked there while core
+// 1 took the record, outside any handler: core 1 halted, with every actor on it.
+// Worked out: Far lives on core 1. Fifteen Watchers each watch it in a handler; the table holds 14, so the 15th's handler fails
+// (the failure below; that Watcher restarts, watching nothing) and the others are kept. Far still answers: 5. Far then fails (the second failure), restarts, and core 1 tells core 0,
+// which tells each of the 14 Watchers `restarted`; each tells the Tally, which counts 14.
+// expect-failure: too many watches at mailbox.rook:*
+// expect-failure: far fails at watch_many_remote.rook:47
+// expect: 5
+// expect: 14
+
+import actors: run_until_idle
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+}
+
+actor Printer {
+    lossy on show(n: u64) {
+        print_u64(n)
+    }
+}
+
+actor Tally {
+    mut told: u64
+
+    new() {
+        .told = 0
+    }
+
+    pub lossy on add() {
+        .told += 1
+    }
+
+    pub lossy on show() {
+        print_u64(.told)
+    }
+}
+
+separate actor Far {
+    pub lossy on say(to: Printer) {
+        to.show(5)
+    }
+
+    pub lossy on fail() {
+        panic("far fails")
+    }
+}
+
+actor Watcher: Lifecycle {
+    tally: Tally
+
+    new(tally: Tally) {
+        .tally = tally
+    }
+
+    pub lossy on follow(far: Far) {
+        watch(far, narrow(self, Lifecycle))
+    }
+
+    lossy on restarted() {
+        .tally.add()
+    }
+}
+
+fn test_main() {
+    printer: Printer = spawn Printer()
+    tally: Tally = spawn Tally()
+    far: Far = spawn Far()                      // on core 1
+    run_until_idle()
+    watching: loop i: u64 in 0..15 {
+        w: Watcher = spawn Watcher(tally)
+        w.follow(far)
+    }
+    run_until_idle()
+    far.say(printer)
+    run_until_idle()
+    far.fail()
+    run_until_idle()
+    tally.show()
+    run_until_idle()
+}
