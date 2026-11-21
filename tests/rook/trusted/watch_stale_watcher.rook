@@ -6,7 +6,7 @@
 // from core 0, decision 210's hook, to make that certain), and sent the notice to whatever lived at the old address: the fresh
 // Watcher printed 98. Since decision 217 the record keeps the whole reference, which is stale; since decision 218 core 0 keeps
 // the watches and forgets the old Watcher's at once. Either way nothing is printed.
-// expect-failure: far fails at watch_stale_watcher.rook:23
+// expect-failure: far fails at watch_stale_watcher.rook:24
 // expect: 1
 
 import actors: run_until_idle
