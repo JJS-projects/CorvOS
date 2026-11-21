@@ -77,6 +77,15 @@ ACTOR_S_CURRENT_ACTOR: u64 = 1096   // the actor whose handler or `new` is runni
 ACTOR_S_IN_NEW: u64 = 1104          // 1 while that actor's `new` is running
 pub ACTOR_S_LOST: u64 = 1112            // messages lost because the actor they were for failed or ended
 pub ACTOR_S_RESTARTS: u64 = 1120        // actors restarted so far
+// Each core's block (assembly core_block: its domain_tramp page, 4 KB, EL1 only), every byte that has a use (decision 216: two of
+// these were once given twice):
+//     0 to 223      domain.s: Raven's registers, TTBR0s, the domain table's word (T_*), and fault injection at 200 to 223 (below)
+//     224 to 511    domain.s: the registers of a domain that stopped (T_FRAME), with SP_EL1 at 512 while a domain runs
+//     512 to 1023   the free list of actors, the tables of places, the next page, the domains' generations, the pages seen (below)
+//     1024 to 1279  rings.s: two scratch ring records (ring_scratch)
+//     1288          CORE_TIMER_SEQ        1296 to 1319  CORE_PLACE_GEN       1320  CORE_TEST_HOLD
+//     1328          CORE_TEST_TURNS       1336          CORE_TIMER_TOKEN     1344 to 1535  free
+//     1536 to 3583  CORE_TIMERS (core 0)  3584 to 3775  CORE_DOMAIN_RING     3776 to 4095  free
 // Fault injection (a test sets it), in words of the core's block (assembly core_block): fail the handler that is run this many
 // handlers after it was armed (0: off) ...
 CORE_INJECT_NEXT: u64 = 200
@@ -107,6 +116,7 @@ PLACE_GEN_NONE: u64 = 0x100000000      // what next_place_generation says when t
 // two cores that a test needs happen every time, instead of once in ten runs.
 CORE_TEST_HOLD: u64 = 1320
 CORE_TEST_TURNS: u64 = 1328
+CORE_TIMER_TOKEN: u64 = 1336        // core 0: the token of the timer being delivered, the payload of its `tick` (decision 216)
 CORE_TIMER_SEQ: u64 = 1288
 CORE_TIMERS: u64 = 1536
 TIMER_SLOTS: u64 = 32
@@ -1956,7 +1966,12 @@ fn handle_record(rt_rec: u64) {
         } else if rt_kind == REC_DROP_WATCHES {
             drop_watches(rt_who)
         } else if rt_kind == REC_TIMER {
-            discard timer_arm_here(load64(rt_rec + 24), rt_who, load64(rt_rec + 16), load64(rt_rec + 32))
+            if not timer_arm_here(load64(rt_rec + 24), rt_who, load64(rt_rec + 16), load64(rt_rec + 32)) {
+                // every timer is in use: the actor that asked, on another core, was told `true` when it sent the request, so the
+                // timer that is lost is counted with the dropped messages, as its `tick` would have been (decision 216)
+                rt_full: u64 = actor_arena_base()
+                store64(rt_full + ACTOR_S_DROPPED, load64(rt_full + ACTOR_S_DROPPED) + 1)
+            }
         }
     }
 }
@@ -2368,7 +2383,8 @@ pub fn deliver_timers() {
             tm_entry: u64 = tm_block + CORE_TIMERS + tm_best * TIMER_ENTRY
             tm_target: u64 = load64(tm_entry + 8)
             tm_handler: u64 = load64(tm_entry + 16)
-            tm_token: u64 = tm_block + CORE_TIMER_SEQ + 8       // the token goes through a word of the block that nothing else uses
+            tm_token: u64 = tm_block + CORE_TIMER_TOKEN         // the token goes through a word of its own (decision 216: it was
+                                                                // byte 1296, which decision 209 gave to a counter of generations)
             store64(tm_token, load64(tm_entry + 24))
             store64(tm_entry + 8, 0)                            // the slot is free
             if not route_message(tm_target, tm_handler, tm_token, 1, false) {
