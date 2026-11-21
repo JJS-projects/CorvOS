@@ -1,0 +1,31 @@
+// A watchdog that cannot arm a timer tells its owner it has expired at once (decision 219): a false alarm is better than a
+// watchdog that is silent. Until decision 219 it discarded `after`'s answer and was never told anything.
+// Worked out: test_main arms all 32 timers (they go to a Sink, which ignores them), then makes a watchdog: its first beat cannot
+// arm a timer, so the owner is told at once: 1. (The 32 ticks come later and change nothing.)
+// expect: 1
+
+import actors: Tick, Timer, make_timer, run_until_idle
+import devices: Mmio
+import print: print_u64
+import watchdog: Expired, Watchdog
+
+actor Owner: Expired {
+    lossy on expired() {
+        print_u64(1)
+    }
+}
+
+actor Sink: Tick {
+    lossy on tick(token: u64) { }
+}
+
+fn test_main(peripherals: Mmio) {
+    timer: Timer = make_timer(peripherals)
+    owner: Owner = spawn Owner()
+    sink: Sink = spawn Sink()
+    filling: loop i: u64 in 0..32 {
+        discard timer.after(100, narrow(sink, Tick), i)
+    }
+    dog: Watchdog = spawn Watchdog(copy(timer), narrow(owner, Expired), 50)
+    run_until_idle()
+}
