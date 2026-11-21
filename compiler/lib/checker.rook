@@ -4960,6 +4960,11 @@ pub struct Checker {
             .say("write `watch(actor, narrow(self, Restarts))`: the actor to watch, and who to tell")
             return 0
         }
+        if .in_separate_actor() {
+            .fail_node(e)
+            .say("an actor in a domain can't `watch` yet")
+            return 0
+        }
         target: u64 = .expr(args.get(0), 0, 0)
         if .failed {
             return 0
@@ -5013,6 +5018,12 @@ pub struct Checker {
     /// program's entry function (`test_main`, and Raven's `kernel_main`), never in another function or in a struct's method: whoever
     /// starts, ends, watches or revokes an actor is then always an actor, or the program itself, and an actor in a domain cannot reach a
     /// plain `spawn` through a function (decision 215, the owner's choice). False, with the error said, if `e` is not in such code.
+    /// Is the code being checked a `separate` actor's (its `new` or a handler)? Raven refuses its `stop`, `watch` and `revoke`, so the
+    /// compiler does too (rook.md 4; decision 217 for `stop` and `watch`).
+    fn in_separate_actor() -> bool {
+        return .recv != 0 and .types.get(.recv).kind == CHK_ACTOR and .is_separate(.recv)
+    }
+
     mut fn require_actor_code(e: u64, what: Bytes) -> bool {
         if .recv != 0 {
             if .types.get(.recv).kind == CHK_ACTOR {
@@ -5043,6 +5054,11 @@ pub struct Checker {
         if args.len() > 1 {
             .fail_node(e)
             .say("write `stop()` to end this actor, or `stop(actor)` to end one you spawned")
+            return 0
+        }
+        if .in_separate_actor() {
+            .fail_node(e)
+            .say("an actor in a domain can't `stop` yet")
             return 0
         }
         if args.len() == 0 {
@@ -5078,7 +5094,7 @@ pub struct Checker {
             .say("`revoke` takes one argument: the actor reference to cut off")
             return 0
         }
-        if .recv != 0 and .types.get(.recv).kind == CHK_ACTOR and .is_separate(.recv) {
+        if .in_separate_actor() {
             .fail_node(e)
             .say("an actor in a domain can't `revoke` yet")
             return 0

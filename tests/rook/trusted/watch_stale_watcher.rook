@@ -1,0 +1,78 @@
+// A watch is told only to the actor that asked for it, not to whatever later has its memory (decision 217): a watch record keeps
+// the watcher's whole reference, address and generation, and a stale one is refused like any stale reference.
+// Worked out: an old Watcher (id 0) watches Far, on core 1, whose core keeps the watch. Core 1 is held off its ring from core 0
+// (decision 210's hook), so it does not hear that the old Watcher has been stopped; a fresh Watcher (id 1), which watches nothing,
+// takes its memory and says 1. Far fails (the failure below) through a Poker on core 2, and core 1 tells Far's watchers that it
+// restarted: the record still names the old Watcher. Before decision 217 it was sent to whatever lived at that address, and the
+// fresh Watcher printed 98; now the old reference is stale and nothing is printed.
+// expect-failure: far fails at watch_stale_watcher.rook:23
+// expect: 1
+
+import actors: run_until_idle
+import assembly: raven_arena_address
+import mailbox: test_hold_ring, wait_for_other_cores
+import print: print_u64
+
+interface Lifecycle {
+    lossy on restarted()
+    lossy on stopped()
+}
+
+separate actor Far {
+    pub lossy on quit() {
+        panic("far fails")
+    }
+}
+
+separate actor Poker {
+    pub lossy on poke(far: Far) {
+        far.quit()
+    }
+}
+
+actor Watcher: Lifecycle {
+    id: u64
+
+    new(id: u64, far: Far, watching: bool) {
+        .id = id
+        if watching {
+            watch(far, narrow(self, Lifecycle))
+        }
+    }
+
+    pub lossy on hello() {
+        print_u64(.id)
+    }
+
+    lossy on restarted() {
+        print_u64(98)                           // only a watcher of Far may be told this
+    }
+
+    lossy on stopped() { }
+}
+
+fn test_main() {
+    far: Far = spawn Far()                      // core 1
+    poker: Poker = spawn Poker()                // core 2
+    old: Watcher = spawn Watcher(0, far, true)  // its watch is kept by core 1
+    run_until_idle()
+    test_hold_ring(1, 0, true)                  // core 1 does not hear of old's end yet
+    stop(old)
+    fresh: Watcher = spawn Watcher(1, far, false)   // old's memory, same size: a new actor that watches nothing
+    fresh.hello()
+    poker.poke(far)                             // through core 2: Far stops itself on core 1 and tells its watchers
+    unsafe {
+        restarts: u64 = raven_arena_address() + 0x10000 + 1120     // core 1's count of restarts (ACTOR_S_RESTARTS)
+        ending: loop i: u64 in 0..50000000 {
+            if load64(restarts) != 0 {
+                break ending
+            }
+            wait_for_other_cores()
+        }
+        settle: loop k: u64 in 0..100000 {
+            wait_for_other_cores()
+        }
+    }
+    test_hold_ring(1, 0, false)
+    run_until_idle()
+}

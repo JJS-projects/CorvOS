@@ -1287,6 +1287,8 @@ class Checker:
         if len(e.args) != 2:
             raise CompileError("write `watch(actor, narrow(self, Restarts))`: the actor to "
                                "watch, and who to tell", e.pos)
+        if self.in_separate_actor():
+            raise CompileError("an actor in a domain can't `watch` yet", e.pos)
         target = self.expr(e.args[0])
         if not is_actor(target):
             raise CompileError(f"`watch` takes an actor reference to watch, not {target}",
@@ -1314,6 +1316,12 @@ class Checker:
         self.require_actor_code("watch", e.pos)
         return UNIT
 
+    def in_separate_actor(self):
+        """Is the code being checked a `separate` actor's (its `new` or a handler)? Raven refuses its `stop`, `watch` and
+        `revoke`, so the compiler does too (rook.md 4; decision 217 for `stop` and `watch`)."""
+        return (self.receiver is not None and is_actor(self.receiver[0])
+                and getattr(self.receiver[0].decl, "separate", False))
+
     def require_actor_code(self, what, pos):
         """`spawn`, `stop`, `watch` and `revoke` are written in an actor's own code (its `new` and its handlers)
         or in the program's entry function (`test_main`, and Raven's `kernel_main`), never in another function or in a
@@ -1332,6 +1340,8 @@ class Checker:
         if len(e.args) > 1:
             raise CompileError("write `stop()` to end this actor, or `stop(actor)` to end one "
                                "you spawned", e.pos)
+        if self.in_separate_actor():
+            raise CompileError("an actor in a domain can't `stop` yet", e.pos)
         if not e.args:
             if self.receiver is None or not is_actor(self.receiver[0]) or self.in_new:
                 raise CompileError("`stop()` ends the actor it is in, so it only works in one of "
@@ -1348,8 +1358,7 @@ class Checker:
         and gives back a new one (decision 207)."""
         if len(e.args) != 1:
             raise CompileError("`revoke` takes one argument: the actor reference to cut off", e.pos)
-        if (self.receiver is not None and is_actor(self.receiver[0])
-                and getattr(self.receiver[0].decl, "separate", False)):
+        if self.in_separate_actor():
             raise CompileError("an actor in a domain can't `revoke` yet", e.pos)
         ty = self.expr(e.args[0])
         if not is_actor(ty):

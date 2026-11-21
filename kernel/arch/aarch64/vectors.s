@@ -17,6 +17,8 @@ vectors:
     b       domain_sync                 // from a domain at EL0 (domain.s): nothing may be touched before it saves
     .elseif \kind == 9
     b       domain_irq
+    .elseif \kind == 11
+    b       domain_serror               // an SError while a domain ran (domain.s): its domain fails, the core goes on (decision 217)
     .else
     mov     x0, #\kind
     b       exception_report
@@ -30,7 +32,9 @@ irq_entry:
     stp     x0, x1, [sp, #-16]!         // the interrupted code's registers: the overrun
     stp     x2, x3, [sp, #-16]!         // path never returns, the other restores them
     mrs     x1, cntp_ctl_el0
-    tbz     x1, #2, 1f                  // ISTATUS (bit 2): the timer condition is met
+    and     x1, x1, #5                  // ENABLE (bit 0) and ISTATUS (bit 2): the timer is armed and its condition is met. ISTATUS
+    cmp     x1, #5                      // alone is UNKNOWN while ENABLE is 0 (after timer_disarm), which QEMU reads as 0 and a
+    b.ne    1f                          // board may not (decision 217, hardware.md item 30)
     msr     cntp_ctl_el0, xzr           // disarm, so it can't fire again while we report
     isb
     mrs     x2, tpidr_el1               // (this core's block, domain.s) The budget of a handler in a protection domain ran out while Raven
