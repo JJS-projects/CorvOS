@@ -1,11 +1,12 @@
 // A watch is told only to the actor that asked for it, not to whatever later has its memory (decision 217): a watch record keeps
 // the watcher's whole reference, address and generation, and a stale one is refused like any stale reference.
-// Worked out: an old Watcher (id 0) watches Far, on core 1, whose core keeps the watch. Core 1 is held off its ring from core 0
-// (decision 210's hook), so it does not hear that the old Watcher has been stopped; a fresh Watcher (id 1), which watches nothing,
-// takes its memory and says 1. Far fails (the failure below) through a Poker on core 2, and core 1 tells Far's watchers that it
-// restarted: the record still names the old Watcher. Before decision 217 it was sent to whatever lived at that address, and the
-// fresh Watcher printed 98; now the old reference is stale and nothing is printed.
-// expect-failure: far fails at watch_stale_watcher.rook:23
+// Worked out: an old Watcher (id 0) watches Far, on core 1, and is stopped; a fresh Watcher (id 1), which watches nothing, takes
+// its memory and says 1. Far fails (the failure below) through a Poker on core 2, and its watchers are told it restarted. Before
+// decision 217 the core of the actor watched kept the watch, heard of the old Watcher's end late (core 1 is held off its ring
+// from core 0, decision 210's hook, to make that certain), and sent the notice to whatever lived at the old address: the fresh
+// Watcher printed 98. Since decision 217 the record keeps the whole reference, which is stale; since decision 218 core 0 keeps
+// the watches and forgets the old Watcher's at once. Either way nothing is printed.
+// expect-failure: far fails at watch_stale_watcher.rook:24
 // expect: 1
 
 import actors: run_until_idle

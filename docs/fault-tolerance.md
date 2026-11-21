@@ -74,7 +74,8 @@ actor Guard: Lifecycle {
   restarting through one interface before the watcher runs count once (`rook/watch_absorbed`). A count
   is a safety valve against a crash loop, not an exact log. There is no time window: "N restarts"
   means since the supervisor itself last started (a supervisor restart resets its count).
-- **14 watches** share one table for the whole system; a 15th panics (decision 149).
+- **14 watches** share one table for the whole system, kept by core 0; a 15th panics in the watcher's handler (decisions 149 and
+  218: until 218 a watch of an actor on another core was kept there, and a full table halted that core).
 - **A stack that runs out is a panic.** Every compiled function checks, as it begins, that its frame stays above
   a limit 8 KB over the bottom of the 256 KB boot stack, and panics `stack overflow` if not (decision 164;
   `rook/stack_overflow_panics`, `rook/stack_overflow_actor`). In a handler that is a restart like any other. Code
@@ -101,4 +102,4 @@ actor Guard: Lifecycle {
 
 ## Timeouts and a watchdog (decision 196)
 
-A timeout is a message: `timer.after(ms, narrow(self, Tick), token)` sends `tick(token)` once. A renewed timeout is a new `after` with a new token and the handler ignores the ticks whose token is not the newest (`tests/rook/timer_deadman.rook`: a motor that brakes unless the controller keeps setting its duty). `Watchdog` (raven/watchdog.rook) packages that: it is fed with `beat`, and tells its owner `expired` when no beat came for its time; the owner decides (a supervisor stops the actor, a motor brakes). The resolution is a millisecond and a tick may be late, never early: not a hard real-time guarantee.
+A timeout is a message: `timer.after(ms, narrow(self, Tick), token)` sends `tick(token)` once. A renewed timeout is a new `after` with a new token and the handler ignores the ticks whose token is not the newest (`tests/rook/timer_deadman.rook`: a motor that brakes unless the controller keeps setting its duty). `Watchdog` (raven/watchdog.rook) packages that: it is fed with `beat`, and tells its owner `expired` when no beat came for its time; the owner decides (a supervisor stops the actor, a motor brakes). It holds one timer at most: a beat notes the time, and when its tick comes it expires or arms itself again for the time that is left; if it cannot arm a timer at all it tells its owner it has expired at once (decision 219: until then every beat armed a timer of its own, and a watchdog fed more than about 32 times in its time used up the system's timers and never expired). The resolution is a millisecond and a tick may be late, never early: not a hard real-time guarantee.

@@ -1,0 +1,43 @@
+// A watchdog fed many times within its time still expires when the feeding stops (decision 219): it holds one timer at most.
+// Until decision 219 every beat armed a timer of its own; fed 40 times within 300 ms it asked for 41 of the system's 32 timers,
+// the newest beats could not be armed, and when the feeding stopped no timer carried the newest token: it never expired.
+// Worked out: a Feeder feeds a 300 ms watchdog 40 times in a row and stops; the watchdog expires once: 1.
+// expect: 1
+
+import actors: Timer, make_timer, run_until_idle
+import devices: Mmio
+import print: print_u64
+import watchdog: Expired, Heartbeat, Watchdog
+
+actor Owner: Expired {
+    lossy on expired() {
+        print_u64(1)
+    }
+}
+
+actor Feeder {
+    mut left: u64
+    dog: Heartbeat
+
+    new(dog: Heartbeat) {
+        .dog = dog
+        .left = 40
+    }
+
+    pub lossy on feed() {
+        if .left > 0 {
+            .left -= 1
+            .dog.beat()
+            self.feed()
+        }
+    }
+}
+
+fn test_main(peripherals: Mmio) {
+    timer: Timer = make_timer(peripherals)
+    owner: Owner = spawn Owner()
+    dog: Watchdog = spawn Watchdog(copy(timer), narrow(owner, Expired), 300)
+    feeder: Feeder = spawn Feeder(narrow(dog, Heartbeat))
+    feeder.feed()
+    run_until_idle()
+}

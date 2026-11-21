@@ -1117,8 +1117,9 @@ milestone 3 (steps 3a to 3c are done), the rest after. It is being built in thre
   ends instead, and its watchers are not told (the end notice comes with `stop`, step 7c).
 - **A child restarted in place with its parent** counts as restarted: its watchers are told.
 - **A watch ends** when the watcher restarts or ends, so `new` is the place to set it up. Watching
-  the same actor twice is one watch. All watches in the system share a table of 14; a 15th
-  panics with "too many watches" in the watcher (derived; open to review, decision 149).
+  the same actor twice is one watch. All watches in the system share a table of 14, kept by core 0 whichever core the
+  actor watched is on (decision 218); a 15th panics with "too many watches" in the watcher, which fails its handler
+  (derived; open to review, decision 149).
 
 ### 11.18 Rules settled while building `stop` and `Gone` (step 7c)
 
