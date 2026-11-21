@@ -578,9 +578,8 @@ fault:
 domain_irq:
     save_user
     mrs     x1, cntp_ctl_el0
-    and     x1, x1, #5                  // ENABLE and ISTATUS: armed and due (ISTATUS alone is UNKNOWN when disarmed, decision 217)
-    cmp     x1, #5
-    b.ne    1f
+    tbz     x1, #0, 1f                  // ENABLE and ISTATUS: armed and due (ISTATUS alone is UNKNOWN when disarmed, decision 217)
+    tbz     x1, #2, 1f
     msr     cntp_ctl_el0, xzr           // disarm
     isb
     mov     x0, #REASON_TIMEOUT

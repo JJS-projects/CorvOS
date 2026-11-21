@@ -32,9 +32,9 @@ irq_entry:
     stp     x0, x1, [sp, #-16]!         // the interrupted code's registers: the overrun
     stp     x2, x3, [sp, #-16]!         // path never returns, the other restores them
     mrs     x1, cntp_ctl_el0
-    and     x1, x1, #5                  // ENABLE (bit 0) and ISTATUS (bit 2): the timer is armed and its condition is met. ISTATUS
-    cmp     x1, #5                      // alone is UNKNOWN while ENABLE is 0 (after timer_disarm), which QEMU reads as 0 and a
-    b.ne    1f                          // board may not (decision 217, hardware.md item 30)
+    tbz     x1, #0, 1f                  // ENABLE (bit 0) and ISTATUS (bit 2): the timer is armed and its condition is met. ISTATUS
+    tbz     x1, #2, 1f                  // alone is UNKNOWN while ENABLE is 0 (after timer_disarm), which QEMU reads as 0 and a
+                                        // board may not (decision 217, hardware.md item 30)
     msr     cntp_ctl_el0, xzr           // disarm, so it can't fire again while we report
     isb
     mrs     x2, tpidr_el1               // (this core's block, domain.s) The budget of a handler in a protection domain ran out while Raven
