@@ -20,12 +20,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STAGES = [
     ("hello", "boot", "Raven starts, the console works", "1-16", "the LED code in hardware.md; serial wiring and baud (7, 8, 16)"),
     ("actors", "rook/actors_basic", "actors and messages on core 0 with the MMU and caches on", "20", "item 20 first: SCTLR_VALUE in mmu.s, caches off"),
-    ("echo_irq", "rook/echo_interrupt", "a UART receive interrupt reaches an actor; type a line and it comes back", "17-19", "items 18 and 19 (timer and interrupt controller routing)"),
+    ("echo_irq", "rook/echo_interrupt", "a UART receive interrupt reaches an actor; type a line and it comes back", "17-19, 30", "items 18 and 19 (timer and interrupt controller routing); item 30 if the core stops at the first interrupt with a report of a handler over its time budget"),
     ("cores", "rook/trusted/cores_online", "cores 1 to 3 come up", "22", "item 22: the spin table addresses; SMPEN"),
     ("el0", "rook/trusted/domain_returns", "code runs at EL0 in a domain and comes back", "21", "item 21: tlbi and ic around the TTBR0 writes"),
     ("fault", "rook/trusted/domain_fault_other_domain", "a domain touching another's memory faults and is reported", "21", "item 21 again; the page tables"),
     ("separate", "rook/separate_basic", "a compiled separate actor runs in its own domain", "21", "item 21"),
-    ("rings", "rook/separate_cross_core_order", "messages between cores arrive in order", "23", "item 23: cache coherence between cores (SMPEN, item 22)"),
+    ("rings", "rook/separate_cross_core_order", "messages between cores arrive in order", "23, 32", "item 23: cache coherence between cores (SMPEN, item 22); item 32 if they arrive, but each about 1 ms late"),
     ("two_domains", "rook/separate_two_domains", "two domains on two cores keep their own data", "21, 23", "items 21 and 23"),
     ("demo6", "rook/trusted/two_core_demo", "milestone 6: the two-core demo, a failure on one core leaves the other alone", "20-23", "docs/milestone6.md"),
     ("device", "rook/separate_device", "a domain reads a device's registers (the UART's ID registers)", "24", "item 24: Device attributes at EL0"),
@@ -33,12 +33,15 @@ STAGES = [
     ("driver", "rook/separate_uart_driver", "milestone 7: the UART driver in a domain, killed mid-use; type hello, then !llo (the driver crashes and restarts), then world", "24, 25", "decision 184"),
     ("dma", "rook/trusted/dma_copy", "a driver copies inside its pool through the DMA service; bad requests are refused", "26", "item 26: the bus alias 0xC0000000, cache maintenance, the channel registers (0x3F007000)"),
     ("storm", "rook/separate_driver_storm", "a driver that fails on every interrupt is stopped by its spawner; type xy", "25", "decision 190"),
-    ("timer", "rook/timer_order", "timers are messages: three timers arrive in order of their times", "18", "item 18: the generic timer's frequency and compare register"),
-    ("recycle", "rook/separate_recycle", "milestone 8: 5 rounds of 12 separate actors, each round ending them all so their domains are used again", "27", "item 27: the tlbi after the device table is cleared"),
+    ("timer", "rook/timer_order", "timers are messages: three timers arrive in order of their times", "18, 30", "item 18: the generic timer's frequency and compare register; item 30: the timer's ENABLE and ISTATUS"),
+    ("recycle", "rook/separate_recycle", "milestone 8: 5 rounds of 12 separate actors, each round ending them all so their domains are used again", "27, 29", "item 27: the tlbi after the device table is cleared; item 29: the counter of generations (atomic) and the give-back on the domain's own core (decisions 209 and 211)"),
     ("share", "rook/domain_share", "milestone 9: two actors share one domain; one's header page is not reachable by the other", "28", "item 28: the page remap and its tlbi"),
     ("fast", "rook/trusted/domain_fast_send", "a send inside a domain goes straight to the mailbox, a full mailbox is told", "29", "item 29: what core 0 and a domain's core write into the same pool, and in what order"),
     ("spawn", "rook/domain_spawn", "an actor in a domain places another in its domain", "28, 29", "items 28 and 29"),
+    ("watch_remote", "rook/watch_many_remote", "decision 218: watches of an actor on another core are kept by core 0; the 15th fails its watcher, not a core", "23, 29", "items 23 and 29: the notice records from the actor's core to core 0"),
+    ("watchdog", "rook/watchdog_fed_often", "decision 219: a watchdog fed 40 times expires once when the feeding stops", "18, 30", "items 18 and 30: the timer"),
 ]
+# Item 31 (an SError while a domain runs fails the domain) has no stage: nothing here makes a device report a bus error.
 
 
 def source_of(test):
