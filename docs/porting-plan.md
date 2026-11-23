@@ -11,7 +11,7 @@ rest is derived and open to review. The contract it produces is
 | Phase | What | State |
 |---|---|---|
 | 0 | Groundwork: decision 220, this plan, `tools/image-identity.py`, the skeleton of [porting.md](porting.md) | done (#98) |
-| 1 | A board layer | 1.1 in review (decision 221); 1.2, 1.3 not started |
+| 1 | A board layer | 1.1 done (#99, decision 221); 1.2 in review (decision 222); 1.3 not started |
 | 2 | The architecture contract | not started |
 | 3 | A harness that knows about architectures | not started |
 | 4 | The thin emit layer, in both compilers | not started; **4.1 goes to the owner before anything is built** |
@@ -80,6 +80,14 @@ local peripherals at `0x40000000`); `raven/main.rook` has a third copy of the co
 - **1.2** A new `kernel/board/pizero2w/board.inc` (pulled in with `.include`) names the
   board addresses now written inline in the assembly. The Makefile gains
   `BOARD ?= pizero2w`.
+
+  *Built in 1.2 (decision 222):* beyond the interrupt-controller, mailbox and spin-table
+  addresses, `board.inc` names the UART's base, the RAM size and the peripherals' range for
+  the MMU map, and the firmware's load address (`KERNEL_START`, which `link.ld` repeats and
+  `harness/board_assembly` compares). Left where they are: `POOL_BASE` (`0x14000000`, the
+  domains' pools, in `domain.s` and `rings.s`) is Raven's layout of RAM, not a fact of the
+  board, though it is chosen to fit this board's 512 MB; and the per-core strides (4 and 16
+  bytes), which go with the code that uses them in 1.3.
 - **1.3** The board-specific interrupt and mailbox code becomes board macros (not calls,
   so the hot paths stay identical):
   - the peripheral-interrupt read and acknowledge in `irq_entry` and `domain_irq`;

@@ -1,6 +1,8 @@
 // Support for Raven's actors (raven/trusted/actors.rook): the arena they live in,
 // and the jump from the scheduler into an actor's dispatcher.
 
+    .include "board.inc"                // the board's addresses (kernel/board/$(BOARD)/board.inc)
+
     .section .text
 
 // void call_dispatch(dispatcher, actor, handler, payload)
@@ -92,19 +94,19 @@ handler_table_end:
     ret
 
 // void irq_init(void): lets the physical timer interrupt the core, and unmasks IRQs.
-// The Pi's per-core interrupt controller (ARM local peripherals, 0x40000000) routes
-// the non-secure physical timer, bit 1 of CORE0_TIMER_IRQCNTL (0x40000040), to the
+// The Pi's per-core interrupt controller (ARM local peripherals, board.inc) routes
+// the non-secure physical timer, bit 1 of CORE0_TIMER_IRQCNTL, to the
 // core's IRQ; each core has its own register, 4 bytes on from the last (decision 178).
     .global irq_init
 irq_init:
     msr     cntp_ctl_el0, xzr           // the timer starts disarmed
-    ldr     x0, =0x40000040             // CORE0_TIMER_IRQCNTL; core n's is 4 * n further
+    ldr     x0, =CORE0_TIMER_IRQCNTL    // core n's is 4 * n further
     mrs     x2, mpidr_el1
     and     x2, x2, #3
     add     x0, x0, x2, lsl #2
     mov     w1, #10                     // nCNTPNSIRQ (bit 1) and nCNTVIRQ (bit 3) -> IRQ. The virtual timer is the idle
     str     w1, [x0]                    // backstop of idle_until_interrupt, below
-    ldr     x0, =0x40000050             // CORE0_MBOX_IRQCNTL; core n's is 4 * n further
+    ldr     x0, =CORE0_MBOX_IRQCNTL     // core n's is 4 * n further
     add     x0, x0, x2, lsl #2
     mov     w1, #1                      // mailbox 0 -> IRQ: how another core wakes this one from `wfi` (rings.s)
     str     w1, [x0]
@@ -113,13 +115,13 @@ irq_init:
     ret
 
 // void irq_enable_source(u64 line): lets peripheral interrupt `line` (32 to 63) through
-// the Pi's interrupt controller (IRQ enable 2, 0x3F00B214).
+// the Pi's interrupt controller (IRQ enable 2).
     .global irq_enable_source
 irq_enable_source:
     sub     x0, x0, #32
     mov     w1, #1
     lsl     w1, w1, w0
-    ldr     x2, =0x3F00B214
+    ldr     x2, =IRQ_ENABLE_2
     str     w1, [x2]
     ret
 

@@ -9,6 +9,8 @@
 // `sev` wakes a core waiting in `wfe`. A global count of messages not yet handled (pending_*) tells a core that is
 // waiting for everything to settle whether any other core is still at work.
 
+    .include "board.inc"                // the board's addresses (kernel/board/$(BOARD)/board.inc)
+
     .equ RING_SLOTS,    32
     .equ RING_STRIDE_SHIFT, 13              // 8192 bytes a ring
     .equ T_ACTORS,      128                 // domain.s: the actor in each domain of a core (0: free)
@@ -57,7 +59,7 @@ ring_push:
     dsb     st                          // ... and visible before the interrupt below (a Device write) can wake the reader: a
                                         // release does not hold back later stores (decision 217)
     sev
-    ldr     x9, =0x40000080             // x0 is still `dst`. Every core sleeps in `wfi` (QEMU spins a core in `wfe`, which cost
+    ldr     x9, =CORE0_MBOX0_SET        // x0 is still `dst`. Every core sleeps in `wfi` (QEMU spins a core in `wfe`, which cost
     add     x9, x9, x0, lsl #4          // four busy threads for each test: decision 191), which `sev` does not wake: raise its
     mov     w10, #1                     // mailbox 0 interrupt (its write-set register, 16 bytes on for each core; vectors.s
     str     w10, [x9]                   // clears it). `sev` is kept for a core that is still in a `wfe` of the boot code.

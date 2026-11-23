@@ -26,11 +26,12 @@
 // and can be continued with domain_resume), FAULT (it did something its table does not allow) or TIMEOUT
 // (the time budget timer fired).
 
+    .include "board.inc"                // the board's addresses (kernel/board/$(BOARD)/board.inc)
+
     .equ NDOMAINS,      3
     .equ POOL_BASE,     0x14000000          // physical; core c's domain d has its pool at POOL_BASE + (3 * c + d - 1) * 2 MB, above the 256 MB region
     .equ POOL_L2_FIRST, 160                 // POOL_BASE >> 21: the L2 index of domain 1's pool
     .equ STACK_TOP,     0x10000             // the stack starts 64 KB into the pool
-    .equ KERNEL_START,  0x80000
     .equ CONTROL_PAGE,  16                  // the page of a pool that only EL1 reaches (0x10000)
 
     // Descriptors (see mmu.s for the bits). nG is set in all of them; AP is bits 7:6.
@@ -41,7 +42,8 @@
     .equ D_TRAMP,       0x0060000000000F07      // AP 00: EL1 only, read/write, never executed
     .equ D_POOL,        0x0060000000000F47      // AP 01: read/write at EL0 and EL1, never executed
     .equ D_DEVICE,      0x0060000000000E43      // page, attribute 0 (Device-nGnRE), outer shareable, AF, nG, AP 01, never executed
-    .equ DEVICE_FIRST,  504                     // L2 index of 0x3F000000: the peripherals are L2 entries 504 to 511
+    .equ DEVICE_FIRST,  PERIPHERALS_BASE >> 21  // L2 index of the peripherals' first 2 MB block (504 on this board)
+    .equ DEVICE_LAST,   (PERIPHERALS_END >> 21) - 1   // ... and of their last (511)
 
     .equ REASON_DONE,    0
     .equ REASON_FAULT,   1
@@ -188,7 +190,7 @@ domain_map_device_of:
     lsr     x6, x2, #21                 // the 2 MB block
     cmp     x6, #DEVICE_FIRST
     b.lo    8f
-    cmp     x6, #511
+    cmp     x6, #DEVICE_LAST
     b.hi    8f
     and     x7, x2, #0xfff
     cbnz    x7, 8f                      // page aligned
@@ -587,18 +589,18 @@ domain_irq:
 1:  mrs     x2, mpidr_el1               // a record for this core in a ring (mailbox 0, decision 183): clear it, the domain goes on
     and     x2, x2, #3
     lsl     x2, x2, #2
-    ldr     x0, =0x40000060             // CORE0_IRQ_SOURCE; + 4 * core
+    ldr     x0, =CORE0_IRQ_SOURCE       // + 4 * core
     ldr     w1, [x0, x2]
     tbz     w1, #4, 3f
-    ldr     x0, =0x400000C0             // mailbox 0 write-clear; + 16 * core
+    ldr     x0, =CORE0_MBOX0_CLEAR      // + 16 * core
     lsl     x2, x2, #2
     mov     w1, #-1
     str     w1, [x0, x2]
     b       resume_current
-3:  ldr     x0, =0x3F00B208             // IRQ pending 2: sources 32 to 63
+3:  ldr     x0, =IRQ_PENDING_2          // sources 32 to 63
     ldr     w1, [x0]
     cbz     w1, 2f
-    ldr     x2, =0x3F00B220             // disable IRQs 2: switch off what fired
+    ldr     x2, =IRQ_DISABLE_2          // switch off what fired
     str     w1, [x2]
     mrs     x2, tpidr_el1
     ldr     x2, [x2, #T_ARENA]

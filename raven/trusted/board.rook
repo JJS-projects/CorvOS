@@ -1,8 +1,9 @@
 module public
 
 // The facts of the board Raven runs on, the Raspberry Pi Zero 2 W (BCM2837; QEMU's raspi3b and raspi3ap), in one
-// place: a port to another board changes this file (decision 221; docs/porting.md, the board contract).
-// harness/board_numbers fails if one of these numbers is written in another of Raven's Rook files.
+// place: a port to another board changes this file and kernel/board/BOARD/board.inc, the same facts for the assembly
+// (decisions 221 and 222; docs/porting.md, the board contract). harness/board_numbers fails if one of these numbers is
+// written in another of Raven's Rook files, and harness/board_assembly if board.inc does not agree.
 //
 // Public, so that Raven's untrusted files (main.rook, time.rook, watchdog.rook) can import it: each is a number,
 // and a number is not authority in Rook. A device is reached only through an `Mmio`, which only devices.rook makes.

@@ -40,10 +40,27 @@ Raven's Rook code above these layers is the same on every port.
   written as a literal in another of Raven's Rook files. `0x200000` is exempt by value: it is
   also the size of a 2 MB pool. The compiler programs and the tests still write the UART's
   offset themselves (see the plan);
-- in assembly, `kernel/board/$(BOARD)/board.inc`: the interrupt-controller, mailbox and
-  spin-table addresses, and the macros for the board's interrupt read and acknowledge,
-  the mailbox write that interrupts another core, releasing the secondary cores, and
-  setting up interrupts.
+- in assembly, `kernel/board/$(BOARD)/board.inc` (1.2, decision 222), `.equ` names that the
+  `.s` files under `kernel/arch/` pull in with `.include "board.inc"`; the Makefile adds
+  `-I kernel/board/$(BOARD)`, with `BOARD ?= pizero2w`:
+
+  | Name | What it is | Pi Zero 2 W |
+  |---|---|---|
+  | `KERNEL_START` | where the firmware loads the image and jumps (`link.ld` must agree) | `0x80000` |
+  | `RAM_BYTES` | RAM, mapped from 0 by `mmu.s` | 512 MB |
+  | `PERIPHERALS_BASE`, `PERIPHERALS_END` | the device registers (Device memory) | `0x3F000000` to `0x40000000` |
+  | `UART0_BASE` | the early console's PL011 (`uart.s`) | `0x3F201000` |
+  | `IRQ_PENDING_2`, `IRQ_ENABLE_2`, `IRQ_DISABLE_2` | the interrupt controller, peripheral sources 32 to 63 | `0x3F00B208`, `B214`, `B220` |
+  | `LOCAL_PERIPHERALS_BASE` | per-core interrupt routing and mailboxes, mapped as 1 GB of Device memory | `0x40000000` |
+  | `CORE0_TIMER_IRQCNTL`, `CORE0_MBOX_IRQCNTL`, `CORE0_IRQ_SOURCE`, `CORE0_MBOX0_SET`, `CORE0_MBOX0_CLEAR` | core 0's routing, cause and mailbox 0 registers; core n's are 4 n (16 n for a mailbox) further | `0x40000040` to `0x400000C0` |
+  | `SPIN_TABLE` | where the firmware's stub waits for cores 1 to 3 | `0xe0` |
+
+  `harness/board_assembly` fails if `board.inc` and `board.rook` (or `link.ld`) disagree, or
+  if one of these addresses (64 KB or more) is written as a number in another file under
+  `kernel/`. Still in the architecture files and due in 1.3: the code that uses these
+  registers (which bit, the per-core strides), which becomes board macros for the
+  board's interrupt read and acknowledge, the mailbox write that interrupts another core,
+  releasing the secondary cores, and setting up interrupts.
 
 ## The architecture contract
 

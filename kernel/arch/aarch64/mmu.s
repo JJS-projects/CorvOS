@@ -5,14 +5,17 @@
 //   0x00000000 - 0x1FFFFFFF  RAM (512 MB: what every supported board has), Normal, read/write, never executed,
 //                            except the kernel image, mapped in 4 KB pages: code read-only + executable,
 //                            constants read-only, data and bss read/write
-//   0x3F000000 - 0x3FFFFFFF  the BCM2837 peripherals, Device-nGnRE (accesses neither reordered nor merged)
-//   0x40000000 - 0x7FFFFFFF  the ARM local peripherals (timer and mailbox control), Device-nGnRE
+//   PERIPHERALS_BASE to PERIPHERALS_END  the BCM2837 peripherals, Device-nGnRE (accesses neither reordered nor merged)
+//   1 GB at LOCAL_PERIPHERALS_BASE       the ARM local peripherals (timer and mailbox control), Device-nGnRE
+//   (board.inc: 0x3F000000 to 0x3FFFFFFF and 0x40000000 to 0x7FFFFFFF on this board)
 //   anything else            unmapped
 //
 // 4 KB granule, 39-bit addresses (T0SZ = 25), so the walk starts at level 1: L1 entries are 1 GB, L2 entries
 // 2 MB, L3 entries 4 KB. The kernel image must end below 4 MB (link.ld asserts it): two L3 tables cover it.
 // Everything is EL1 only (no EL0 access). The page tables are built here, at boot, from the section
 // boundaries link.ld names, with the MMU off; caches are switched on together with the MMU.
+
+    .include "board.inc"                // the board's addresses (kernel/board/$(BOARD)/board.inc)
 
     .section .text
 
@@ -36,8 +39,7 @@
     .equ SCTLR_VALUE,   0x30d81805              // RES1 bits 0x30d00800, M (bit 0), C (bit 2), I (bit 12), WXN (bit 19):
                                                 // writable memory is never executable. A (alignment) and SA stay off, as before
 
-    .equ KERNEL_START,  0x80000                 // where the image is loaded (link.ld)
-    .equ DEVICE_FIRST,  504                     // L2 index of 0x3F000000 (0x3F000000 >> 21)
+    .equ DEVICE_FIRST,  PERIPHERALS_BASE >> 21  // L2 index of the peripherals' first 2 MB block (504 on this board)
 
 // void mmu_enable(void): builds the tables and turns the MMU and the caches on (mmu_activate, below, is the second
 // half, which every core runs). Uses x0-x13; keeps x19.
@@ -47,10 +49,10 @@ mmu_enable:
     add     x1, x9, #0x1000             // x1 = L2
     add     x2, x9, #0x2000             // x2 = L3 (first of two, contiguous)
 
-    // L1: entry 0 -> L2 (0 - 1 GB), entry 1 = a 1 GB Device block (0x40000000: the ARM local peripherals)
+    // L1: entry 0 -> L2 (0 - 1 GB), entry 1 = a 1 GB Device block (LOCAL_PERIPHERALS_BASE: the ARM local peripherals)
     orr     x3, x1, #DESC_TABLE
     str     x3, [x9]
-    mov     x3, #0x40000000
+    mov     x3, #LOCAL_PERIPHERALS_BASE
     ldr     x4, =DESC_DEVICE
     orr     x3, x3, x4
     str     x3, [x9, #8]
@@ -62,16 +64,16 @@ mmu_enable:
     orr     x6, x6, x4
     str     x6, [x1, x5, lsl #3]
     add     x5, x5, #1
-    cmp     x5, #256
+    cmp     x5, #(RAM_BYTES >> 21)
     b.lo    1b
-    // ... Device blocks for 0x3F000000 - 0x3FFFFFFF (indices 504 - 511) ...
+    // ... Device blocks for the peripherals (indices DEVICE_FIRST to 511) ...
     ldr     x4, =DESC_DEVICE
     mov     x5, #DEVICE_FIRST
 2:  lsl     x6, x5, #21
     orr     x6, x6, x4
     str     x6, [x1, x5, lsl #3]
     add     x5, x5, #1
-    cmp     x5, #512
+    cmp     x5, #(PERIPHERALS_END >> 21)
     b.lo    2b
     // ... and the first two blocks (0 - 4 MB, the kernel image) point to the L3 tables
     orr     x3, x2, #DESC_TABLE
