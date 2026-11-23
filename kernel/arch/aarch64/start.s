@@ -11,6 +11,8 @@
 //   - BSS zeroed, stack set up, exception vectors installed
 //   - the MMU and the caches on, an identity map (mmu.s)
 
+    .include "board.inc"                // the board's addresses (kernel/board/$(BOARD)/board.inc)
+
     .section .text.boot, "ax"
     .global _start
 _start:
@@ -90,13 +92,13 @@ halt:
     b       halt
 
 // void cores_release(void): lets cores 1-3 go. The firmware (QEMU's raspi3b and raspi3ap do, and the Pi's own stub
-// does) holds them in a loop that waits for an address in a "spin table": 0xe0 for core 1, 0xe8 for core 2, 0xf0 for
+// does) holds them in a loop that waits for an address in a "spin table" (board.inc): 0xe0 for core 1, 0xe8 for core 2, 0xf0 for
 // core 3. They arrive at secondary_entry at EL2 (or EL1) with the MMU and the caches off, so the table is cleaned to
 // memory, not left in this core's cache.
     .global cores_release
 cores_release:
     ldr     x1, =secondary_entry
-    mov     x2, #0xe0
+    mov     x2, #SPIN_TABLE
     mov     x3, #3
 1:  str     x1, [x2]
     dc      civac, x2

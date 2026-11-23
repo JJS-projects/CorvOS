@@ -8,7 +8,11 @@ OBJDUMP := $(CROSS)objdump
 PYTHON  ?= python3
 
 BUILD   := build
-ASFLAGS := -march=armv8-a
+# The board (decision 222, docs/porting.md): its addresses for the assembly are kernel/board/$(BOARD)/board.inc,
+# which the kernel's .s files pull in with `.include "board.inc"`.
+BOARD   ?= pizero2w
+BOARD_INC := kernel/board/$(BOARD)/board.inc
+ASFLAGS := -march=armv8-a -I kernel/board/$(BOARD)
 LDFLAGS := -T kernel/link.ld --no-warn-rwx-segments
 
 FLEDGLING_SRCS := $(wildcard bootstrap/fledgling/*.py)
@@ -53,15 +57,15 @@ all: $(KERNEL)
 # Every generated file depends on this Makefile, so changing a flag or a rule
 # (or switching to a branch that has) rebuilds it instead of reusing objects
 # built the old way.
-$(BUILD)/normal/%.o: %.s Makefile
+$(BUILD)/normal/%.o: %.s $(BOARD_INC) Makefile
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) -o $@ $<
 
-$(BUILD)/fault/%.o: %.s Makefile
+$(BUILD)/fault/%.o: %.s $(BOARD_INC) Makefile
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) --defsym FAULT_TEST=1 -o $@ $<
 
-$(BUILD)/rooktest/%.o: %.s Makefile
+$(BUILD)/rooktest/%.o: %.s $(BOARD_INC) Makefile
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) --defsym ROOK_TEST=1 -o $@ $<
 

@@ -1460,6 +1460,74 @@ def check_board_numbers():
     return None
 
 
+BOARD_INC = os.path.join(ROOT, "kernel", "board", "pizero2w", "board.inc")
+
+
+def board_inc_values(path=BOARD_INC):
+    """The `.equ` names of a board.inc and their values (decision 222). An expression may use numbers, earlier
+    names, + - * << >> and parentheses."""
+    values = {}
+    for raw in open(path):
+        m = re.match(r"\s*\.equ\s+(\w+),\s*([^/]+?)\s*(//.*)?$", raw)
+        if not m:
+            continue
+        expr = re.sub(r"0x[0-9A-Fa-f]+", lambda x: str(int(x.group(), 16)), m.group(2))
+        if not re.fullmatch(r"[\w\s+\-*()<>]+", expr):
+            raise ValueError(f"board.inc: cannot read `{m.group(2)}`")
+        values[m.group(1)] = eval(expr, {"__builtins__": {}}, dict(values))
+    return values
+
+
+def board_address_uses(values, kernel_dir=os.path.join(ROOT, "kernel"), board_path=BOARD_INC):
+    """`file:line: NAME` for each address of the board (64 KB or more, so that small offsets and counts are not
+    confused with one) written as a number in an assembly file other than board.inc; comments do not count."""
+    by_value = {}
+    for name, value in values.items():
+        if value >= 0x10000:
+            by_value.setdefault(value, name)
+    uses = []
+    for path in sorted(glob.glob(os.path.join(kernel_dir, "**", "*.s"), recursive=True) +
+                       glob.glob(os.path.join(kernel_dir, "**", "*.inc"), recursive=True)):
+        if os.path.abspath(path) == os.path.abspath(board_path):
+            continue
+        for number, raw in enumerate(open(path), 1):
+            for literal in re.findall(r"\b(0x[0-9A-Fa-f]+|\d+)\b", raw.split("//")[0]):
+                if int(literal, 0) in by_value:
+                    uses.append(f"{os.path.relpath(path, ROOT)}:{number}: {by_value[int(literal, 0)]}")
+    return uses
+
+
+def check_board_assembly():
+    """The board's addresses for the assembly are in kernel/board/pizero2w/board.inc (decision 222): it agrees with
+    board.rook and with link.ld's load address, and no other file under kernel/ writes one of its addresses as a
+    number. Checked on a copy of kernel/ with the interrupt controller's address written back into vectors.s."""
+    import shutil
+    import tempfile
+    values = board_inc_values()
+    rook, _ = board_number_uses()
+    link = re.search(r"^\s*\.\s*=\s*(0x[0-9A-Fa-f]+|\d+)\s*;", open(os.path.join(ROOT, "kernel", "link.ld")).read(), re.M)
+    agree = [("PERIPHERALS_BASE", values.get("PERIPHERALS_BASE"), rook["PERIPHERALS_BASE"]),
+             ("PERIPHERALS_END", values.get("PERIPHERALS_END"), rook["PERIPHERALS_BASE"] + rook["PERIPHERALS_SIZE"]),
+             ("UART0_BASE", values.get("UART0_BASE"), rook["PERIPHERALS_BASE"] + rook["UART0_OFFSET"]),
+             ("RAM_BYTES", values.get("RAM_BYTES"), rook["RAM_BYTES"]),
+             ("KERNEL_START", values.get("KERNEL_START"), int(link.group(1), 0) if link else None)]
+    for name, here, there in agree:
+        if here is None or here != there:
+            return f"board.inc's {name} is {here}, but board.rook or link.ld says {there}"
+    uses = board_address_uses(values)
+    if uses:
+        return "an address of the board is written outside board.inc: " + "; ".join(uses)
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = os.path.join(tmp, "kernel")
+        shutil.copytree(os.path.join(ROOT, "kernel"), copy)
+        with open(os.path.join(copy, "arch", "aarch64", "vectors.s"), "a") as f:
+            f.write(f"    ldr     x0, =0x{values['IRQ_PENDING_2']:X}      // written back\n")
+        uses = board_address_uses(values, copy, os.path.join(copy, "board", "pizero2w", "board.inc"))
+        if len(uses) != 1 or "IRQ_PENDING_2" not in uses[0]:
+            return f"an address written back into vectors.s was not found: {uses}"
+    return None
+
+
 def check_image_identity():
     """tools/image-identity.py (decision 220) passes identical images, names one that differs (with the first
     differing line of its assembly) or is missing, lists a new one without failing, and reads its list of images
@@ -1998,6 +2066,8 @@ HARNESS_TESTS = [
                 check_soak_tool),
     HarnessTest("harness/board_numbers", "The board's numbers are written only in raven/trusted/board.rook, which "
                 "gives every fact a board must", check_board_numbers),
+    HarnessTest("harness/board_assembly", "The board's addresses for the assembly are written only in its board.inc, "
+                "which agrees with board.rook and link.ld", check_board_assembly),
     HarnessTest("harness/image_identity", "tools/image-identity.py passes identical images and names one that "
                 "differs, is missing or is new", check_image_identity),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "

@@ -11,9 +11,8 @@
 // On real hardware the PL011 is wired to Bluetooth by default; config.txt
 // must contain dtoverlay=disable-bt (see tools/sdcard/config.txt).
 
-    .equ MMIO_BASE,     0x3F000000
+    .include "board.inc"                // the board's addresses (kernel/board/$(BOARD)/board.inc)
 
-    .equ UART0_BASE,    MMIO_BASE + 0x201000
     .equ UART_DR,       0x00
     .equ UART_FR,       0x18
     .equ FR_TXFF,       5               // transmit FIFO full
