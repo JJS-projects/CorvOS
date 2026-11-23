@@ -1408,6 +1408,7 @@ def check_image_identity():
     differing line of its assembly) or is missing, lists a new one without failing, and reads its list of images
     from the Makefile, which must still name the kernel and the test images."""
     import importlib.util
+    import shutil
     import tempfile
     spec = importlib.util.spec_from_file_location("image_identity", os.path.join(ROOT, "tools", "image-identity.py"))
     tool = importlib.util.module_from_spec(spec)
@@ -1440,6 +1441,7 @@ def check_image_identity():
             return "a one-byte difference passed"
         if "DIFFERS  sub/b.img" not in lines or not any("line 1:" in l and "#2" in l for l in lines):
             return f"the difference was not named with its line: {lines}"
+        shutil.copyfile(os.path.join(base, "sub", "b.img"), os.path.join(here, "sub", "b.img"))  # only a.img is wrong now
         lines = []
         if tool.compare(base, ["a.img", "sub/b.img"], here, ["sub/b.img"], lines.append) or "MISSING  a.img" not in lines:
             return f"a missing image passed or was not named: {lines}"
