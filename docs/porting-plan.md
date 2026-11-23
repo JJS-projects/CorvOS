@@ -10,8 +10,8 @@ rest is derived and open to review. The contract it produces is
 
 | Phase | What | State |
 |---|---|---|
-| 0 | Groundwork: decision 220, this plan, `tools/image-identity.py`, the skeleton of [porting.md](porting.md) | in review |
-| 1 | A board layer | not started |
+| 0 | Groundwork: decision 220, this plan, `tools/image-identity.py`, the skeleton of [porting.md](porting.md) | done (#98) |
+| 1 | A board layer | 1.1 in review (decision 221); 1.2, 1.3 not started |
 | 2 | The architecture contract | not started |
 | 3 | A harness that knows about architectures | not started |
 | 4 | The thin emit layer, in both compilers | not started; **4.1 goes to the owner before anything is built** |
@@ -69,6 +69,14 @@ local peripherals at `0x40000000`); `raven/main.rook` has a third copy of the co
   `COUNTER_DEFAULT_HZ`, and the UART's base. The six files above import from it. A new
   test, `harness/board_numbers`, fails if any of those numbers appears in another Rook
   file.
+
+  *Found while building 1.1 (decision 221):* `time.rook`, `watchdog.rook` and `main.rook`
+  are not trusted files, so `board.rook` is `module public` (numbers only). It also holds
+  `REGION_SIZE` and `GPIO_OFFSET`, board facts the list above did not name. The test covers
+  Raven's files only: the UART's offset `0x201000` is also written in all seven compiler
+  programs (`compiler/*.rook`) and about 35 tests, and the error tests write board addresses
+  on purpose (a forged `Mmio`). Whether the compiler programs should import it too is open
+  for the owner.
 - **1.2** A new `kernel/board/pizero2w/board.inc` (pulled in with `.include`) names the
   board addresses now written inline in the assembly. The Makefile gains
   `BOARD ?= pizero2w`.

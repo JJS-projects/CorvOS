@@ -1,17 +1,17 @@
 // Waiting for a length of real time, from the ARM generic timer.
 
+import board: COUNTER_DEFAULT_HZ
 import hardware: counter_frequency, read_counter
 
-// The rate the firmware is believed to set on the Pi Zero 2 W, used if
-// counter_frequency() reads 0 (docs/hardware.md; unverified on hardware).
-DEFAULT_FREQUENCY: u64 = 19200000
+// If counter_frequency() reads 0, the board's COUNTER_DEFAULT_HZ is used: the rate
+// the firmware is believed to set (board.rook, docs/hardware.md; unverified on hardware).
 
 /// Waits at least `ms` milliseconds. (Loop counts can't do this: with the MMU
 /// off the speed of a loop isn't known.)
 pub fn wait_ms(ms: u64) {
     mut ticks_per_second: u64 = counter_frequency()
     if ticks_per_second == 0 {
-        ticks_per_second = DEFAULT_FREQUENCY
+        ticks_per_second = COUNTER_DEFAULT_HZ
     }
     began_at: u64 = read_counter()
     ticks_to_wait: u64 = ms * (ticks_per_second / 1000)

@@ -7,12 +7,12 @@ module public
 // (decision 96). Every other `Mmio` is a `part` of the one made here.
 
 import assembly: core_online_mark, cores_release
+import board: PERIPHERALS_BASE, PERIPHERALS_SIZE
 import main: kernel_main
 
-/// Every device register on the BCM2837 (Pi Zero 2 W, QEMU raspi3b), as seen
-/// with the MMU off.
-PERIPHERALS_BASE: u64 = 0x3F000000
-PERIPHERALS_SIZE: u64 = 0x01000000
+// Every device register, as seen with the MMU off, is in the PERIPHERALS_SIZE
+// bytes at PERIPHERALS_BASE, the board's (board.rook): the one `Mmio` made here
+// covers exactly them.
 
 /// A range of device registers. Reads and writes are checked against the
 /// range, so code holding an `Mmio` can reach exactly those registers.

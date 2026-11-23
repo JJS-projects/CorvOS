@@ -1,0 +1,30 @@
+module public
+
+// The facts of the board Raven runs on, the Raspberry Pi Zero 2 W (BCM2837; QEMU's raspi3b and raspi3ap), in one
+// place: a port to another board changes this file (decision 221; docs/porting.md, the board contract).
+// harness/board_numbers fails if one of these numbers is written in another of Raven's Rook files.
+//
+// Public, so that Raven's untrusted files (main.rook, time.rook, watchdog.rook) can import it: each is a number,
+// and a number is not authority in Rook. A device is reached only through an `Mmio`, which only devices.rook makes.
+
+// Every device register, as seen with the MMU off: the root `Mmio` covers exactly this.
+pub PERIPHERALS_BASE: u64 = 0x3F000000
+pub PERIPHERALS_SIZE: u64 = 0x01000000
+
+// Where the UART (a PL011) and the GPIO block sit within the peripherals.
+pub UART0_OFFSET: u64 = 0x201000
+pub GPIO_OFFSET: u64 = 0x200000
+
+// The bus alias of RAM that bypasses the caches: a device's address for RAM is the physical one plus this.
+pub DMA_BUS_ALIAS: u64 = 0xC0000000
+
+// The RAM every supported board has: 512 MB. No Rook code reads it yet; the region below lies inside it.
+pub RAM_BYTES: u64 = 0x20000000
+
+// The region for batch jobs (region.rook): 256 MB at physical 64 MB, clear of the kernel image at 0x80000 and of the
+// part the GPU takes from the top of RAM.
+pub REGION_BASE: u64 = 0x4000000
+pub REGION_SIZE: u64 = 0x10000000
+
+// The counter's rate if the firmware did not set it (hardware.md 12; unverified on the board).
+pub COUNTER_DEFAULT_HZ: u64 = 19200000

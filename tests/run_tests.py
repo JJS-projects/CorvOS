@@ -1403,6 +1403,61 @@ def check_soak_tool():
     return None
 
 
+BOARD_FILE = os.path.join(ROOT, "raven", "trusted", "board.rook")
+# The facts a board must give (decision 221, docs/porting.md), and the board's numbers that also mean
+# something else in Raven, so they cannot be told apart by value: 0x200000 is the GPIO block's offset and
+# the size of a 2 MB pool.
+BOARD_NAMES = ("PERIPHERALS_BASE", "PERIPHERALS_SIZE", "UART0_OFFSET", "GPIO_OFFSET", "DMA_BUS_ALIAS", "RAM_BYTES",
+               "REGION_BASE", "REGION_SIZE", "COUNTER_DEFAULT_HZ")
+BOARD_NUMBERS_SHARED = {0x200000}
+
+
+def board_number_uses(board_path=BOARD_FILE, raven_dir=os.path.join(ROOT, "raven")):
+    """(the board's constants by name, and `file:line: name` for each number of the board written as a literal in
+    another of Raven's Rook files)."""
+    from fledgling.lexer import lex
+    tokens = lex(open(board_path).read(), board_path)
+    constants = {}
+    for i, t in enumerate(tokens):
+        if t.kind == "ident" and i + 4 < len(tokens) and tokens[i + 1].kind == ":" and tokens[i + 3].kind == "=" \
+                and tokens[i + 4].kind == "int":
+            constants[t.text] = tokens[i + 4].value
+    by_value = {v: n for n, v in constants.items() if v not in BOARD_NUMBERS_SHARED}
+    uses = []
+    for path in sorted(glob.glob(os.path.join(raven_dir, "**", "*.rook"), recursive=True)):
+        if os.path.abspath(path) == os.path.abspath(board_path):
+            continue
+        for t in lex(open(path).read(), path):
+            if t.kind == "int" and t.value in by_value:
+                uses.append(f"{os.path.relpath(path, ROOT)}:{t.pos.line}: {by_value[t.value]}")
+    return constants, uses
+
+
+def check_board_numbers():
+    """The board's facts are in raven/trusted/board.rook (decision 221): it names each fact a board must give, and
+    none of its numbers is written in another of Raven's Rook files, however it is spelled. Checked on a copy of
+    Raven with 19_200_000 written back into time.rook and the alias into dma.rook, which must be found."""
+    import shutil
+    import tempfile
+    constants, uses = board_number_uses()
+    missing = [n for n in BOARD_NAMES if n not in constants]
+    if missing:
+        return f"board.rook does not give {', '.join(missing)}"
+    if uses:
+        return "a number of the board is written outside board.rook: " + "; ".join(uses)
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = os.path.join(tmp, "raven")
+        shutil.copytree(os.path.join(ROOT, "raven"), copy)
+        for name, line in (("time.rook", "WRONG: u64 = 19_200_000\n"),
+                           (os.path.join("trusted", "dma.rook"), "WRONG_TOO: u64 = 0xc000_0000\n")):
+            with open(os.path.join(copy, name), "a") as f:
+                f.write(line)
+        _, uses = board_number_uses(os.path.join(copy, "trusted", "board.rook"), copy)
+        if len(uses) != 2 or "COUNTER_DEFAULT_HZ" not in uses[0] + uses[1] or "DMA_BUS_ALIAS" not in uses[0] + uses[1]:
+            return f"numbers of the board written back were not all found: {uses}"
+    return None
+
+
 def check_image_identity():
     """tools/image-identity.py (decision 220) passes identical images, names one that differs (with the first
     differing line of its assembly) or is missing, lists a new one without failing, and reads its list of images
@@ -1939,6 +1994,8 @@ HARNESS_TESTS = [
                 "exactly", check_icount_schedules),
     HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
                 check_soak_tool),
+    HarnessTest("harness/board_numbers", "The board's numbers are written only in raven/trusted/board.rook, which "
+                "gives every fact a board must", check_board_numbers),
     HarnessTest("harness/image_identity", "tools/image-identity.py passes identical images and names one that "
                 "differs, is missing or is new", check_image_identity),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
