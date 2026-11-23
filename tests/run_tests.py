@@ -1436,7 +1436,8 @@ def board_number_uses(board_path=BOARD_FILE, raven_dir=os.path.join(ROOT, "raven
 def check_board_numbers():
     """The board's facts are in raven/trusted/board.rook (decision 221): it names each fact a board must give, and
     none of its numbers is written in another of Raven's Rook files, however it is spelled. Checked on a copy of
-    Raven with 19_200_000 written back into time.rook and the alias into dma.rook, which must be found."""
+    Raven with the board's own rate written back into time.rook (in decimal with underscores) and its DMA alias into
+    dma.rook (in hexadecimal with underscores), which must be found whatever the board's numbers are."""
     import shutil
     import tempfile
     constants, uses = board_number_uses()
@@ -1448,8 +1449,9 @@ def check_board_numbers():
     with tempfile.TemporaryDirectory() as tmp:
         copy = os.path.join(tmp, "raven")
         shutil.copytree(os.path.join(ROOT, "raven"), copy)
-        for name, line in (("time.rook", "WRONG: u64 = 19_200_000\n"),
-                           (os.path.join("trusted", "dma.rook"), "WRONG_TOO: u64 = 0xc000_0000\n")):
+        hz, alias = constants["COUNTER_DEFAULT_HZ"], constants["DMA_BUS_ALIAS"]
+        for name, line in (("time.rook", f"WRONG: u64 = {hz:_d}\n"),
+                           (os.path.join("trusted", "dma.rook"), f"WRONG_TOO: u64 = 0x{alias:_x}\n")):
             with open(os.path.join(copy, name), "a") as f:
                 f.write(line)
         _, uses = board_number_uses(os.path.join(copy, "trusted", "board.rook"), copy)
