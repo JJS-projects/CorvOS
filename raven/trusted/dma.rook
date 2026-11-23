@@ -7,10 +7,10 @@
 // An internal module: application code can't import it (decision 142).
 
 import assembly: cache_flush_range, domain_pool_base_of
+import board: DMA_BUS_ALIAS
 import devices: Mmio
 import hardware: counter_frequency, read_counter
 import mailbox: DOMAIN_DMA_BLOCK, core_of_actor, domain_of, is_current, range_hits_control_page
-
 DMA_DATA_START: u64 = 0x11000       // the first byte of a pool a device may touch: after the guard page, the stack (0x1000 to
                                     // 0x10000) and the control page (0x10000 to 0x11000, the actor's header and mailbox,
                                     // which only Raven reaches); it is where the actor's fields begin
@@ -51,7 +51,7 @@ pub fn dma_window(dw_owner: u64, dw_offset: u64, dw_length: u64) -> u64 {
 // of the BCM2835 DMA controller and says whether it was done. The controller's registers are Raven's: no driver is given
 // the `Mmio` of a DMA channel.
 
-DMA_BUS: u64 = 0xC0000000           // the bus alias of RAM that bypasses the caches: a device's address is the physical one + this
+// A device's address for RAM is the physical one + DMA_BUS_ALIAS, the board's alias that bypasses the caches (board.rook)
 DMA_TI_COPY: u64 = 0x110            // transfer information: source and destination addresses both increment
 DMA_CS_ACTIVE: u64 = 1
 DMA_CS_END: u64 = 2
@@ -99,8 +99,8 @@ fn dma_copy(dc_owner: u64, dc_channel: Mmio, dc_enable: Mmio, dc_number: u64, dc
         dc_block: u64 = dc_to - dc_dst + DOMAIN_DMA_BLOCK       // the pool's base + the control block's offset: in the first place's
                                                                 // EL1-only page, after the arguments a restart keeps there (decision 212)
         store32(dc_block, DMA_TI_COPY wrap u32)
-        store32(dc_block + 4, (DMA_BUS + dc_from) wrap u32)
-        store32(dc_block + 8, (DMA_BUS + dc_to) wrap u32)
+        store32(dc_block + 4, (DMA_BUS_ALIAS + dc_from) wrap u32)
+        store32(dc_block + 8, (DMA_BUS_ALIAS + dc_to) wrap u32)
         store32(dc_block + 12, dc_length wrap u32)
         store32(dc_block + 16, 0)
         store32(dc_block + 20, 0)
@@ -108,7 +108,7 @@ fn dma_copy(dc_owner: u64, dc_channel: Mmio, dc_enable: Mmio, dc_number: u64, dc
         cache_flush_range(dc_from, dc_length)
         cache_flush_range(dc_to, dc_length)
         dc_enable.write32(0xF0, dc_enable.read32(0xF0) or (1 shl (dc_number wrap u32)))
-        dc_channel.write32(0x04, (DMA_BUS + dc_block) wrap u32)
+        dc_channel.write32(0x04, (DMA_BUS_ALIAS + dc_block) wrap u32)
         dc_channel.write32(0x00, DMA_CS_ACTIVE wrap u32)
         dc_start: u64 = read_counter()
         dc_limit: u64 = DMA_WAIT_MS * (counter_frequency() / 1000)

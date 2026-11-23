@@ -34,6 +34,8 @@ A file outside a trusted directory (`raven/trusted/`, `tests/rook/support/truste
 `tests/rook/trusted/`). Such a file cannot use `unsafe` or declare `extern fn`, and it can
 import only the modules that say `module public` (`tests/public-surface.txt` lists every name
 they offer). Raven's own untrusted files (`pl011.rook`, `valve.rook`) are held to the same rules.
+`board` (decision 221) is public and offers only numbers, the board's addresses and rates: knowing
+where the peripherals are gives no way to reach them, which takes an `Mmio` (route 1 below).
 
 ## The routes, and what closes each
 

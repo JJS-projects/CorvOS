@@ -16,6 +16,7 @@
 import actors: Sent
 import assembly: atomic_increment, domain_turn_address, domain_pool_page_el1, domain_reset_pool_map, pool_wipe_range, domain_unmap_devices_of, core_block, domain_map_device_of, raven_arena_address, pool_wipe, core_id, core_pause, domain_actor_of, domain_pool_base_of, domain_pools_end, domain_pools_start, domain_set_actor_of, pending_add, pending_load, pending_sub, ring_pending, ring_pop, ring_push, ring_scratch, rings_waiting, spawn_next_core, domain_budget_begin, domain_budget_end, domain_wipe_data, domain_actor, domain_call_number, domain_enter, domain_pool_base, domain_report, domain_report_panic, domain_resume, domain_saved_x, domain_set_actor, domain_wipe, image_rodata_end, image_rodata_start, actor_failed, actor_arena_base, actor_arena_limit, call_dispatch, call_protected, handler_table_end, handler_table_start, irq_enable_source, irq_take_pending, rook_budget_panic, timer_arm, timer_disarm
 import domain_runtime: rt_ring_messages_in, RT_S_GEN, RT_S_FINISHED, RT_FIRST_PAGE, RT_PLACES, RT_RING, RT_RING_SLOTS, RT_SLOT_BYTES, RT_STATE, RT_S_ACTOR, RT_S_CONSUMED, RT_S_DISPATCHER, RT_S_ENDED, RT_S_HELD, rt_block, rt_queue_push
+import board: COUNTER_DEFAULT_HZ, PERIPHERALS_BASE, PERIPHERALS_SIZE
 import hardware: counter_frequency, read_counter
 
 ACTOR_HEADER_WORDS: u64 = 14
@@ -33,8 +34,7 @@ ACTOR_H_START: u64 = 32             // its start stub, which runs `new` on store
 ACTOR_H_PARENT: u64 = 40            // the actor that spawned it (0: spawned outside any actor)
 RING_IRQ_SHARE: u64 = 4             // records of interrupts a ring may hold: the rest of its 32 slots are for everything else (decision 188)
 RING_WAIT_MS: u64 = 5               // how long a send waits for room in a full ring before it is dropped (decision 186)
-DEVICE_BASE: u64 = 0x3F000000       // the peripherals (devices.rook): an Mmio given to a domain lies inside
-DEVICE_SPAN: u64 = 0x01000000
+// An Mmio given to a domain lies inside the peripherals: PERIPHERALS_SIZE bytes at PERIPHERALS_BASE (board.rook)
 ACTOR_H_ARGS_WORDS: u64 = 48        // words of `new` arguments kept for a restart
 ACTOR_H_FIRST_CHILD: u64 = 56       // the actors it spawned, in order: the first ...
 ACTOR_H_NEXT_SIBLING: u64 = 64      // ... and each one's next
@@ -128,7 +128,7 @@ ACTOR_FIRST_ACTOR: u64 = 2048       // actors start here
 
 // A handler may run this long before it counts as failed (decisions 121, 133).
 ACTOR_BUDGET_MS: u64 = 100
-BUDGET_DEFAULT_HZ: u64 = 19200000   // the timer's rate if the firmware didn't set it (hardware.md 12)
+// The timer's rate if the firmware didn't set it is the board's COUNTER_DEFAULT_HZ (board.rook, hardware.md 12)
 HANDLER_RECORD_BYTES: u64 = 40      // one record of Fledgling's handler table
 
 // Protection domains (decision 175; kernel/arch/aarch64/domain.s has the layout of a pool).
@@ -1196,7 +1196,7 @@ fn grant_devices(gd_core: u64, gd_domain: u64, gd_args: u64, gd_words: u64, gd_m
                 }
                 gd_base: u64 = load64(gd_args + gd_i * 8)
                 gd_size: u64 = load64(gd_args + (gd_i + 1) * 8)
-                if gd_size == 0 or gd_size > DEVICE_SPAN or gd_base < DEVICE_BASE or gd_base > DEVICE_BASE + DEVICE_SPAN - gd_size {
+                if gd_size == 0 or gd_size > PERIPHERALS_SIZE or gd_base < PERIPHERALS_BASE or gd_base > PERIPHERALS_BASE + PERIPHERALS_SIZE - gd_size {
                     panic("an Mmio given to a separate actor is outside the peripherals")
                 }
                 if gd_base % 4096 != 0 or gd_size % 4096 != 0 {
@@ -2324,7 +2324,7 @@ pub extern fn raven_timer_after(target: u64, handler: u64, ms: u64, token: u64) 
 pub fn timer_after_impl(target: u64, handler: u64, ms: u64, token: u64) -> u64 {
     mut tm_hz: u64 = counter_frequency()
     if tm_hz == 0 {
-        tm_hz = BUDGET_DEFAULT_HZ
+        tm_hz = COUNTER_DEFAULT_HZ
     }
     tm_deadline: u64 = read_counter() + ms * (tm_hz / 1000)
     unsafe {
@@ -2688,7 +2688,7 @@ fn valid_handler(dm_target: u64, dm_handler: u64) -> bool {
 fn budget_ticks() -> u64 {
     mut rt_hz: u64 = counter_frequency()
     if rt_hz == 0 {
-        rt_hz = BUDGET_DEFAULT_HZ
+        rt_hz = COUNTER_DEFAULT_HZ
     }
     return ACTOR_BUDGET_MS * (rt_hz / 1000)
 }

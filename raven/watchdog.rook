@@ -9,9 +9,9 @@
 // can be armed even so, it tells its owner it has expired at once: a false alarm is better than a watchdog that is silent.
 
 import actors: Tick, Timer
+import board: COUNTER_DEFAULT_HZ
 import hardware: counter_frequency, read_counter
 
-WATCHDOG_DEFAULT_HZ: u64 = 19200000     // the counter's rate if the firmware did not set it (time.rook, hardware.md 12)
 
 /// Whom a watchdog tells.
 pub interface Expired {
@@ -35,7 +35,7 @@ pub actor Watchdog: Tick, Heartbeat {
     new(timer: val Timer, owner: Expired, ms: u64) {
         mut hz: u64 = counter_frequency()
         if hz == 0 {
-            hz = WATCHDOG_DEFAULT_HZ
+            hz = COUNTER_DEFAULT_HZ     // the counter's rate if the firmware did not set it (board.rook)
         }
         .timer = timer
         .owner = owner

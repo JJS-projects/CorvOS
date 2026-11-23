@@ -9,10 +9,10 @@ module public
 // and below the 512 MB every supported board has, and of the part the GPU takes from the top.
 
 import assembly: actor_arena_base
+import board: REGION_BASE, REGION_SIZE
 import devices: Mmio
 
-REGION_BASE: u64 = 0x4000000
-REGION_SIZE: u64 = 0x10000000
+// Where the region is and how big are the board's (board.rook): REGION_BASE, REGION_SIZE.
 
 /// The word of the actor arena (zero at boot; offset 1816 is unused by mailbox.rook's tables
 /// and actors.s) that holds the address of the next free byte of the region: 0 until the one
