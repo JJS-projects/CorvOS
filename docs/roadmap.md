@@ -180,6 +180,13 @@ in a domain, Raven still keeping the mailboxes: `Domain`, `new_domain`, `spawn .
 compilers; 9c-1 (done, decision 203) the runtime inside the domain: the inbound ring, local mailboxes, a run queue, Raven scheduling domains; 9c-2 (done, decision 204) the fast path
 for a send inside a domain and the measurement of it against a send across; 9d limits and write-up (9d-1 done, decision 205: the interrupt and the DMA service for a shared domain; 9d-2 done, decision 206: `spawn ... in d` from inside a domain; the write-up is done: docs/writeup.md, 9d-3). The domain work is finished; what it did not build is listed in the write-up.
 
+**Plan of the portability work (decision 220; the scope and the thin emit layer are the owner's).** Prepares a later
+RISC-V port (an instance of "a second QEMU target" below) so that it is mostly additive, without writing RISC-V code:
+0 groundwork (in review: the plan, [porting-plan.md](porting-plan.md), and `tools/image-identity.py`); 1 a board layer; 2
+the architecture contract ([porting.md](porting.md)) and no AArch64 names in Rook code; 3 a harness with a table of
+architectures; 4 a thin emit layer in both compilers, whose operation list goes to the owner first. Every step is a
+refactor: the built images stay byte for byte the same.
+
 **C, could have.** Zero-copy `val` and `iso`; page-granular ownership; CPU time as a capability; typestate or session types;
 effect annotations; declarative supervision trees; checkpoint and restore; message priorities; copy-on-write snapshots;
 driver generation from register descriptions; per-core interrupt routing; a second QEMU target; trace viewer, audit log,

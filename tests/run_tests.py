@@ -1403,6 +1403,56 @@ def check_soak_tool():
     return None
 
 
+def check_image_identity():
+    """tools/image-identity.py (decision 220) passes identical images, names one that differs (with the first
+    differing line of its assembly) or is missing, lists a new one without failing, and reads its list of images
+    from the Makefile, which must still name the kernel and the test images."""
+    import importlib.util
+    import shutil
+    import tempfile
+    spec = importlib.util.spec_from_file_location("image_identity", os.path.join(ROOT, "tools", "image-identity.py"))
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    paths = tool.image_paths(ROOT)
+    for wanted in ("build/kernel8.img", "build/fault/kernel8.img", "build/rook-tests/actors_basic.img",
+                   "build/rook-tests/trusted/cores_online.img",
+                   "build/compiler/asmdump.img", "build/stage2/asmdump.img"):
+        if wanted not in paths:
+            return f"the Makefile's list of images lacks {wanted}"
+    with tempfile.TemporaryDirectory() as tmp:
+        base, here = os.path.join(tmp, "base"), os.path.join(tmp, "here")
+        for tree in (base, here):
+            os.makedirs(os.path.join(tree, "sub"))
+            for rel in ("a.img", "sub/b.img"):
+                with open(os.path.join(tree, rel), "wb") as f:
+                    f.write(b"\x00\x01" * 100)
+            with open(os.path.join(tree, "sub", "b.s"), "w") as f:
+                f.write("mov x0, #1\nret\n")
+        lines = []
+        if not tool.compare(base, ["a.img", "sub/b.img"], here, ["a.img", "sub/b.img"], lines.append):
+            return f"identical images failed: {lines}"
+        with open(os.path.join(here, "sub", "b.img"), "r+b") as f:
+            f.seek(150)
+            f.write(b"\x02")
+        with open(os.path.join(here, "sub", "b.s"), "w") as f:
+            f.write("mov x0, #2\nret\n")
+        lines = []
+        if tool.compare(base, ["a.img", "sub/b.img"], here, ["a.img", "sub/b.img"], lines.append):
+            return "a one-byte difference passed"
+        if "DIFFERS  sub/b.img" not in lines or not any("line 1:" in l and "#2" in l for l in lines):
+            return f"the difference was not named with its line: {lines}"
+        shutil.copyfile(os.path.join(base, "sub", "b.img"), os.path.join(here, "sub", "b.img"))  # only a.img is wrong now
+        lines = []
+        if tool.compare(base, ["a.img", "sub/b.img"], here, ["sub/b.img"], lines.append) or "MISSING  a.img" not in lines:
+            return f"a missing image passed or was not named: {lines}"
+        with open(os.path.join(here, "c.img"), "wb") as f:
+            f.write(b"new")
+        lines = []
+        if not tool.compare(base, ["a.img"], here, ["a.img", "c.img"], lines.append) or "NEW      c.img" not in lines:
+            return f"a new image failed or was not listed: {lines}"
+    return None
+
+
 def check_panic_wildcard():
     """`at FILE.rook:*` matches any line in one of Raven's files, but never the wrong message or
     file, and never the test's own file, which keeps its exact line."""
@@ -1889,6 +1939,8 @@ HARNESS_TESTS = [
                 "exactly", check_icount_schedules),
     HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
                 check_soak_tool),
+    HarnessTest("harness/image_identity", "tools/image-identity.py passes identical images and names one that "
+                "differs, is missing or is new", check_image_identity),
     HarnessTest("harness/panic_wildcard", "A panic site in Raven's own files may be a wildcard "
                 "line; the test's own file keeps its exact line", check_panic_wildcard),
     HarnessTest("harness/decisions_index", "The decision index matches decisions.md",

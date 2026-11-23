@@ -11,3 +11,4 @@
 - `new-error-test.py`: make an error test in two steps (placeholder, then `--accept` once the real message has been read)
 - `bug-check-batch.py`: run a list of bug checks and write one summary table
 - `pr-body.py`: build the PR body from the template, test output and bug-check table; `--open` creates the PR
+- `image-identity.py`: build `main` in a worktree (or use images kept with `--save`) and check that every image of `make test` is byte for byte the same; for refactors (decision 220, `docs/porting-plan.md`)

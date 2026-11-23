@@ -19,6 +19,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
   `tools/rookc.py`, `make rook-kernel`, decision 170). The test programs are still built by Fledgling, which
   stays as the seed and the reference. Ownership 4c (`freeze`/pool) is deferred.
 - Milestone 6 (protection domains, multicore) has started: 6a is built (the MMU and caches on, one EL1 identity map, `kernel/arch/aarch64/mmu.s`, decision 171); 6b-1 (`separate actor`, the front end, decisions 172 and 173) is built, 6b-2a (EL0 machinery: `kernel/arch/aarch64/domain.s`, decision 174; the `domain_*` tests) is built; 6b-2b (a compiled `separate` actor runs in a domain of its own, decision 175; the `separate_*` tests) is built; 6b-2c (a failing domain restarts as a unit, its memory wiped, decision 176; `separate_supervised`) is built; 6c (isolation tests: [isolation.md](isolation.md)) is built; 6d-1 (cores 1-3 come up, each with its own state, decision 178; `cores_online`) is built; 6d-2 (a `separate` actor is placed on a core by Raven, decision 180, and cores talk through rings, decision 181; `separate_cross_core_*`, `separate_placement`) is built; 6e (the two-core demo, `two_core_demo`, and the write-up [milestone6.md](milestone6.md)) is built, which finishes milestone 6.
+- The portability plan ([porting-plan.md](porting-plan.md), decision 220; the scope and the thin emit layer are the owner's) prepares a RISC-V port without writing one: phase 0 (the plan, `tools/image-identity.py`, the skeleton of [porting.md](porting.md)) is in review. Every step is a refactor proved by byte-identical images.
 - There is **no Pi hardware** in the loop: everything is QEMU. Say in every PR what
   is untested on a board.
 - The latest decision number is in [decisions-index.md](decisions-index.md).
@@ -43,6 +44,7 @@ task touches (map at the bottom). `CLAUDE.md` has the rules that never change.
 | `tools/bringup-stages.py` | First-boot stage images for a board (after `make test`) in `build/sdcard/stages/`, with the serial output to expect (decision 187) |
 | `python3 -m fledgling FILES --suggest-imports` | Which `import` lines files lack |
 | `tools/new-error-test.py NAME "desc" < prog.rook` | Make an error test: writes a failing placeholder and shows the real error; read it, then `--accept NAME` fills the `// error:` line |
+| `tools/image-identity.py --worktree DIR` | A refactor's proof: builds `origin/main` in a worktree at DIR (outside the repository) and this tree, and lists every image that is not byte for byte the same (`--save DIR`/`--against DIR` keep and reuse a set; decision 220) |
 | `tools/bug-check.py FILE OLD NEW` | Break one thing, run `make test`, list failing tests, restore |
 | `tools/bug-check-batch.py LIST` | Many bug checks from a file (format in its docstring), in the background; writes `build/bug-check-summary.md` |
 | `tools/pr-body.py --summary … --tests OUT --bugs build/bug-check-summary.md [--open --title … --head …]` | Build (and open) the PR body from the template |
@@ -189,4 +191,5 @@ fn test_main() {
 | What a protection domain guarantees, and the test behind each claim (milestone 6) | [isolation.md](isolation.md); what milestone 6 shows: [milestone6.md](milestone6.md) |
 | Failure, restarts, supervisors | [fault-tolerance.md](fault-tolerance.md) |
 | Next steps | [roadmap.md](roadmap.md) |
+| Porting to another board, architecture or backend | [porting.md](porting.md); the plan: [porting-plan.md](porting-plan.md) |
 | Full workflow and test details | [workflow.md](workflow.md) |
