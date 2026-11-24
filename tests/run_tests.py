@@ -1412,9 +1412,10 @@ BOARD_NAMES = ("PERIPHERALS_BASE", "PERIPHERALS_SIZE", "UART0_OFFSET", "GPIO_OFF
 BOARD_NUMBERS_SHARED = {0x200000}
 
 
-def board_number_uses(board_path=BOARD_FILE, raven_dir=os.path.join(ROOT, "raven")):
+def board_number_uses(board_path=BOARD_FILE, raven_dir=os.path.join(ROOT, "raven"),
+                      compiler_dir=os.path.join(ROOT, "compiler")):
     """(the board's constants by name, and `file:line: name` for each number of the board written as a literal in
-    another of Raven's Rook files)."""
+    another of Raven's Rook files or in a compiler program or its library, which a port must run too)."""
     from fledgling.lexer import lex
     tokens = lex(open(board_path).read(), board_path)
     constants = {}
@@ -1424,7 +1425,8 @@ def board_number_uses(board_path=BOARD_FILE, raven_dir=os.path.join(ROOT, "raven
             constants[t.text] = tokens[i + 4].value
     by_value = {v: n for n, v in constants.items() if v not in BOARD_NUMBERS_SHARED}
     uses = []
-    for path in sorted(glob.glob(os.path.join(raven_dir, "**", "*.rook"), recursive=True)):
+    for path in sorted(glob.glob(os.path.join(raven_dir, "**", "*.rook"), recursive=True) +
+                       glob.glob(os.path.join(compiler_dir, "**", "*.rook"), recursive=True)):
         if os.path.abspath(path) == os.path.abspath(board_path):
             continue
         for t in lex(open(path).read(), path):
@@ -1434,10 +1436,11 @@ def board_number_uses(board_path=BOARD_FILE, raven_dir=os.path.join(ROOT, "raven
 
 
 def check_board_numbers():
-    """The board's facts are in raven/trusted/board.rook (decision 221): it names each fact a board must give, and
-    none of its numbers is written in another of Raven's Rook files, however it is spelled. Checked on a copy of
-    Raven with the board's own rate written back into time.rook (in decimal with underscores) and its DMA alias into
-    dma.rook (in hexadecimal with underscores), which must be found whatever the board's numbers are."""
+    """The board's facts are in raven/trusted/board.rook (decisions 221 and 223): it names each fact a board must
+    give, and none of its numbers is written in another of Raven's Rook files or in the compiler's, however it is
+    spelled. Checked on copies with the board's own rate written back into time.rook (in decimal with underscores),
+    its DMA alias into dma.rook (in hexadecimal with underscores) and its UART's offset into a compiler program,
+    which must be found whatever the board's numbers are."""
     import shutil
     import tempfile
     constants, uses = board_number_uses()
@@ -1454,8 +1457,13 @@ def check_board_numbers():
                            (os.path.join("trusted", "dma.rook"), f"WRONG_TOO: u64 = 0x{alias:_x}\n")):
             with open(os.path.join(copy, name), "a") as f:
                 f.write(line)
-        _, uses = board_number_uses(os.path.join(copy, "trusted", "board.rook"), copy)
-        if len(uses) != 2 or "COUNTER_DEFAULT_HZ" not in uses[0] + uses[1] or "DMA_BUS_ALIAS" not in uses[0] + uses[1]:
+        compiler = os.path.join(tmp, "compiler")
+        shutil.copytree(os.path.join(ROOT, "compiler"), compiler)
+        with open(os.path.join(compiler, "numberer.rook"), "a") as f:
+            f.write(f"WRONG_THREE: u64 = 0x{constants['UART0_OFFSET']:x}\n")
+        _, uses = board_number_uses(os.path.join(copy, "trusted", "board.rook"), copy, compiler)
+        found = " ".join(uses)
+        if len(uses) != 3 or not all(n in found for n in ("COUNTER_DEFAULT_HZ", "DMA_BUS_ALIAS", "UART0_OFFSET")):
             return f"numbers of the board written back were not all found: {uses}"
     return None
 
@@ -2064,8 +2072,8 @@ HARNESS_TESTS = [
                 "exactly", check_icount_schedules),
     HarnessTest("harness/soak_tool", "tools/soak.py expands prefixes to tests and counts failing runs",
                 check_soak_tool),
-    HarnessTest("harness/board_numbers", "The board's numbers are written only in raven/trusted/board.rook, which "
-                "gives every fact a board must", check_board_numbers),
+    HarnessTest("harness/board_numbers", "The board's numbers are written only in raven/trusted/board.rook, not in "
+                "Raven or the compiler, and it gives every fact a board must", check_board_numbers),
     HarnessTest("harness/board_assembly", "The board's addresses for the assembly are written only in its board.inc, "
                 "which agrees with board.rook and link.ld", check_board_assembly),
     HarnessTest("harness/image_identity", "tools/image-identity.py passes identical images and names one that "
