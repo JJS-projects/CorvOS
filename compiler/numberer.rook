@@ -3,13 +3,13 @@
 // input), and writes its result between the lines `Hosted: begin` and `Hosted: end`. This one
 // numbers the lines of its input: `1: first line`, `2: second line`.
 
+import board: UART0_OFFSET
 import devices: Mmio
 import pl011: Pl011
-
 END_OF_INPUT: u8 = 4
 
 fn test_main(peripherals: Mmio) {
-    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    console: Pl011 = Pl011(regs: peripherals.part(UART0_OFFSET, 0x1000))
     console.write("Hosted: begin\n")
     mut line: u64 = 1
     mut at_start: bool = true

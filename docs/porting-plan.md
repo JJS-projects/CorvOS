@@ -11,7 +11,7 @@ rest is derived and open to review. The contract it produces is
 | Phase | What | State |
 |---|---|---|
 | 0 | Groundwork: decision 220, this plan, `tools/image-identity.py`, the skeleton of [porting.md](porting.md) | done (#98) |
-| 1 | A board layer | 1.1 done (#99, decision 221); 1.2 in review (decision 222); 1.3 not started |
+| 1 | A board layer | 1.1 done (#99, decision 221); 1.2 done (#100, decision 222); the compiler programs and the board (decision 223) in review; 1.3 next: first a test that a mailbox interrupt reaches its core (the owner agreed), then the macros |
 | 2 | The architecture contract | not started |
 | 3 | A harness that knows about architectures | not started |
 | 4 | The thin emit layer, in both compilers | not started; **4.1 goes to the owner before anything is built** |
@@ -75,8 +75,9 @@ local peripherals at `0x40000000`); `raven/main.rook` has a third copy of the co
   `REGION_SIZE` and `GPIO_OFFSET`, board facts the list above did not name. The test covers
   Raven's files only: the UART's offset `0x201000` is also written in all seven compiler
   programs (`compiler/*.rook`) and about 35 tests, and the error tests write board addresses
-  on purpose (a forged `Mmio`). Whether the compiler programs should import it too is open
-  for the owner.
+  on purpose (a forged `Mmio`). *Settled by the owner (decision 223):* the compiler
+  programs import `UART0_OFFSET`, and the test covers `compiler/` too; the tests keep their
+  own numbers.
 - **1.2** A new `kernel/board/pizero2w/board.inc` (pulled in with `.include`) names the
   board addresses now written inline in the assembly. The Makefile gains
   `BOARD ?= pizero2w`.

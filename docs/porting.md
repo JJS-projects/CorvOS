@@ -37,9 +37,10 @@ Raven's Rook code above these layers is the same on every port.
   | `COUNTER_DEFAULT_HZ` | the counter's rate if the firmware leaves it unset | 19.2 MHz |
 
   `harness/board_numbers` fails if `board.rook` lacks one of these, or if one of its numbers is
-  written as a literal in another of Raven's Rook files. `0x200000` is exempt by value: it is
-  also the size of a 2 MB pool. The compiler programs and the tests still write the UART's
-  offset themselves (see the plan);
+  written as a literal in another of Raven's Rook files or in the compiler (`compiler/`,
+  whose programs take the UART's place from it: decision 223). `0x200000` is exempt by
+  value: it is also the size of a 2 MB pool. The tests still write the UART's offset
+  themselves, and the error tests write board addresses on purpose (a forged `Mmio`);
 - in assembly, `kernel/board/$(BOARD)/board.inc` (1.2, decision 222), `.equ` names that the
   `.s` files under `kernel/arch/` pull in with `.include "board.inc"`; the Makefile adds
   `-I kernel/board/$(BOARD)`, with `BOARD ?= pizero2w`:

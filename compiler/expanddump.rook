@@ -6,6 +6,7 @@
 // `VisibleIn`, `GenericBase` and `File` lines for what the pass sets. If anything fails, the one
 // line is `error FILE:LINE:COL: MESSAGE`.
 
+import board: UART0_OFFSET
 import bytes: Bytes
 import devices: Mmio
 import generics: Generics
@@ -14,7 +15,6 @@ import pl011: Pl011
 import program: Program, SourceFile
 import region: List, Region, make_region
 import text: Text
-
 END_OF_INPUT: u8 = 4
 
 fn put_text(console: Pl011, t: Text) {
@@ -95,7 +95,7 @@ fn put_node(console: Pl011, nodes: List<Node>, files: List<SourceFile>, index: u
 }
 
 fn test_main(peripherals: Mmio) {
-    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    console: Pl011 = Pl011(regs: peripherals.part(UART0_OFFSET, 0x1000))
     region: Region = make_region(peripherals)
     console.write("Hosted: begin\n")
     mut stream: Text = Text(region: region)

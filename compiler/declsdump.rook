@@ -3,6 +3,7 @@
 // expands the generics, checks every declaration and prints what the checker knows in the format of
 // `python3 -m fledgling FILES --dump-declarations`; or the one line `error FILE:LINE:COL: MESSAGE`.
 
+import board: UART0_OFFSET
 import bytes: Bytes
 import checker: Checker, FieldInfo, ImplInfo, ParamInfo, SigInfo, TypeInfo, VariantInfo
 import devices: Mmio
@@ -12,7 +13,6 @@ import program: Program, SourceFile
 import region: List, Region, make_region
 import text: Text
 import textmap: TextMap
-
 END_OF_INPUT: u8 = 4
 
 fn put_text(console: Pl011, t: Text) {
@@ -268,7 +268,7 @@ fn put_declarations(console: Pl011, checker: Checker, files: List<SourceFile>) {
 }
 
 fn test_main(peripherals: Mmio) {
-    console: Pl011 = Pl011(regs: peripherals.part(0x201000, 0x1000))
+    console: Pl011 = Pl011(regs: peripherals.part(UART0_OFFSET, 0x1000))
     region: Region = make_region(peripherals)
     console.write("Hosted: begin\n")
     mut stream: Text = Text(region: region)
